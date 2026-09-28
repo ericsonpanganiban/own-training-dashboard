@@ -313,11 +313,21 @@ const APPS = {
           })
         );
         el.querySelectorAll("[data-add-trainee]").forEach((b) => b.addEventListener("click", () => openAddTrainee(el, b.dataset.addTrainee)));
-        el.querySelectorAll("[data-remove-trainee]").forEach((b) =>
-          b.addEventListener("click", () => {
-            const [cohortId, traineeId] = b.dataset.removeTrainee.split("|");
-            const c = cc.data().cohorts.find((x) => x.id === cohortId);
-            if (c) cc.setCohortTrainees(cohortId, (c.trainee_ids || []).filter((id) => id !== traineeId)).catch(() => {});
+        el.querySelectorAll("[data-trainee-menu]").forEach((b) =>
+          b.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const [cohortId, traineeId] = b.dataset.traineeMenu.split("|");
+            openMenu(b, [
+              { label: "Edit", run: () => openEditTrainee(el, traineeId) },
+              {
+                label: "Remove from cohort",
+                danger: true,
+                run: () => {
+                  const c = cc.data().cohorts.find((x) => x.id === cohortId);
+                  if (c) cc.setCohortTrainees(cohortId, (c.trainee_ids || []).filter((id) => id !== traineeId)).catch(() => {});
+                },
+              },
+            ]);
           })
         );
       };
@@ -622,7 +632,7 @@ function cohortSectionsHtml(cohorts, trainees, today, openRows) {
                 ${
                   members.length
                     ? `<ul class="member-list">${members
-                        .map((t) => `<li><span>${escapeHtml(t.name)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span><button type="button" class="icon-btn" title="Remove from cohort" aria-label="Remove ${escapeHtml(t.name)} from ${escapeHtml(c.name)}" data-remove-trainee="${escapeHtml(c.id)}|${escapeHtml(t.id)}">×</button></li>`)
+                        .map((t) => `<li><span>${escapeHtml(t.name)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span><button type="button" class="icon-btn kebab" title="More options" aria-label="Options for ${escapeHtml(t.name)}" data-trainee-menu="${escapeHtml(c.id)}|${escapeHtml(t.id)}">⋮</button></li>`)
                         .join("")}</ul>`
                     : ""
                 }
@@ -695,6 +705,91 @@ function openAddTrainee(content, cohortId) {
       .catch((err) => (status.textContent = err?.message || "Couldn't add those trainees. Try again."));
   });
   sheet.querySelector("input:not([disabled]), button")?.focus();
+}
+
+// Small ⋮ menu anchored to a button, inside the button's window.
+function openMenu(anchor, items) {
+  document.querySelector(".menu-pop")?.remove();
+  const win = anchor.closest(".window");
+  const menu = document.createElement("div");
+  menu.className = "menu-pop";
+  menu.setAttribute("role", "menu");
+  menu.innerHTML = items.map((it, i) => `<button type="button" role="menuitem" data-i="${i}"${it.danger ? ' class="danger"' : ""}>${escapeHtml(it.label)}</button>`).join("");
+  win.appendChild(menu);
+  const a = anchor.getBoundingClientRect();
+  const w = win.getBoundingClientRect();
+  menu.style.top = `${a.bottom - w.top + 4}px`;
+  menu.style.right = `${w.right - a.right}px`;
+  const close = () => {
+    menu.remove();
+    document.removeEventListener("pointerdown", outside, true);
+    document.removeEventListener("keydown", esc, true);
+  };
+  const outside = (e) => !menu.contains(e.target) && close();
+  const esc = (e) => e.key === "Escape" && close();
+  document.addEventListener("pointerdown", outside, true);
+  document.addEventListener("keydown", esc, true);
+  menu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-i]");
+    if (!b) return;
+    close();
+    items[Number(b.dataset.i)].run();
+  });
+  menu.querySelector("button")?.focus();
+}
+
+// Edit a trainee's roster record (the same record as Settings → Roster).
+function openEditTrainee(content, traineeId) {
+  const win = content.closest(".window");
+  if (win.querySelector(".sheet")) return;
+  const cc = window.CoachingCompass;
+  const { trainees, departments, teamLeads } = cc.data();
+  const t = trainees.find((x) => x.id === traineeId);
+  if (!t) return;
+  const select = (id, items, current, empty) =>
+    `<select id="${id}">${[`<option value="">${empty}</option>`, ...items.map((i) => `<option value="${escapeHtml(i.name)}"${i.name === current ? " selected" : ""}>${escapeHtml(i.name)}</option>`)].join("")}</select>`;
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML = `
+    <form class="sheet-card" novalidate>
+      <h3>Edit trainee</h3>
+      <label class="field"><span>Name</span><input id="et-name" type="text" value="${escapeHtml(t.name || "")}" /></label>
+      <label class="field"><span>CRM name</span><input id="et-crm" type="text" value="${escapeHtml(t.crm_name || "")}" placeholder="As it appears in the QA sheet" /></label>
+      <label class="field"><span>Department</span>${select("et-dept", departments, t.department, "— None —")}</label>
+      <label class="field"><span>Team Lead</span>${select("et-lead", teamLeads, t.team_lead, "— None —")}</label>
+      <label class="field"><span>Nesting status</span><select id="et-nesting">${Object.entries(NESTING_LABELS)
+        .map(([k, v]) => `<option value="${k}"${k === (t.nesting_status || "") ? " selected" : ""}>${v}</option>`)
+        .join("")}</select></label>
+      <p class="sheet-status" id="et-status" role="status"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn" data-cancel>Cancel</button>
+        <button type="submit" class="btn-primary">Save changes</button>
+      </div>
+    </form>`;
+  win.appendChild(sheet);
+  const close = () => sheet.remove();
+  const $ = (id) => sheet.querySelector(id);
+  $("[data-cancel]").addEventListener("click", close);
+  sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  sheet.querySelector("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = $("#et-name").value.trim();
+    if (!name) {
+      $("#et-status").textContent = "Name is required.";
+      return;
+    }
+    $("#et-status").textContent = "Saving…";
+    cc.updateTrainee(traineeId, {
+      name,
+      crm_name: $("#et-crm").value.trim(),
+      department: $("#et-dept").value,
+      team_lead: $("#et-lead").value,
+      nesting_status: $("#et-nesting").value,
+    })
+      .then(close)
+      .catch(() => ($("#et-status").textContent = "Couldn't save. Try again."));
+  });
+  $("#et-name").focus();
 }
 
 // "Add Class" sheet for the Cohorts app. Department and Team Lead lists come from Settings → Roster.

@@ -4094,6 +4094,14 @@
       }
       return dbFn.collection("cohorts").add(record);
     },
+    updateTrainee: function(id, fields){
+      if (!dbFn || String(id).indexOf("local-") === 0){
+        state.trainees = state.trainees.map(function(t){ return t.id === id ? Object.assign({}, t, fields) : t; });
+        renderAll();
+        return Promise.resolve();
+      }
+      return dbFn.doc("trainees/" + id).update(fields);
+    },
     // Replace a cohort's trainees. Rejects when any trainee already belongs to another cohort.
     setCohortTrainees: function(cohortId, ids){
       var cohort = state.cohorts.filter(function(c){ return c.id === cohortId; })[0];

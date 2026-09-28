@@ -18,11 +18,14 @@ const COHORTS = [
 ];
 
 // ---------- Settings (persisted per browser) ----------
-const DEFAULT_SETTINGS = { theme: "system", wallpaper: "default", iconSize: 56, magnify: true };
+const DEFAULT_SETTINGS = { version: 2, theme: "system", wallpaper: "default", iconSize: 64, magnify: true, dockOrder: [] };
 
 function loadSettings() {
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem("trainer.settings") || "{}") };
+    const saved = JSON.parse(localStorage.getItem("trainer.settings") || "{}");
+    // Version 2 made dock icons 8px bigger; carry a saved size over.
+    if (saved.iconSize && !saved.version) saved.iconSize += 8;
+    return { ...DEFAULT_SETTINGS, ...saved, version: DEFAULT_SETTINGS.version };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -50,8 +53,8 @@ const escapeHtml = (s) =>
 const APPS = {
   settings: {
     title: "Settings",
-    icon: "⚙️",
-    color: "linear-gradient(135deg, #8e9eab, #5f6b75)",
+    icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    color: "#64748b",
     size: { w: 440, h: 340 },
     render(el) {
       el.innerHTML = `
@@ -74,7 +77,7 @@ const APPS = {
         </div>
         <div class="form-row">
           <label for="set-size">Dock icon size</label>
-          <input id="set-size" type="range" min="40" max="80" step="2" />
+          <input id="set-size" type="range" min="48" max="88" step="2" />
         </div>
         <div class="form-row">
           <label for="set-magnify">Dock magnification</label>
@@ -103,8 +106,8 @@ const APPS = {
 
   myClass: {
     title: "My Class",
-    icon: "🎓",
-    color: "linear-gradient(135deg, #4facfe, #2563eb)",
+    icon: '<path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12.5V17c3.3 2.3 8.7 2.3 12 0v-4.5"/><path d="M22 10v5"/>',
+    color: "#3b82f6",
     size: { w: 560, h: 440 },
     render(el) {
       const { trainees } = MY_CLASS;
@@ -138,8 +141,8 @@ const APPS = {
 
   coaching: {
     title: "Coaching Compass",
-    icon: "🧭",
-    color: "linear-gradient(135deg, #5b8c6f, #3c6e57)",
+    icon: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
+    color: "#10b981",
     size: { w: 1040, h: 680 },
     // Coaching Compass boots once with the page (coaching-compass/), so its state
     // survives closing the window; the window only borrows its root element.
@@ -154,8 +157,8 @@ const APPS = {
 
   cohorts: {
     title: "Cohorts",
-    icon: "👥",
-    color: "linear-gradient(135deg, #f6d365, #fda085)",
+    icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21.5 20a6.5 6.5 0 0 0-4-6"/>',
+    color: "#f59e0b",
     size: { w: 560, h: 400 },
     render(el) {
       const fmt = (d) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -214,7 +217,7 @@ function openApp(appId) {
 
   const bounds = desktop.getBoundingClientRect();
   const w = Math.min(app.size.w, bounds.width - 16);
-  const h = Math.min(app.size.h, bounds.height - settings.iconSize - 48);
+  const h = Math.min(app.size.h, bounds.height - settings.iconSize - 70);
   const offset = (cascade++ % 6) * 28;
   win.style.width = `${w}px`;
   win.style.height = `${h}px`;
@@ -295,13 +298,24 @@ function setRunning(appId, running) {
   dock.querySelector(`[data-app="${appId}"]`)?.classList.toggle("running", running);
 }
 
+function dockOrder() {
+  const ids = Object.keys(APPS);
+  const saved = settings.dockOrder.filter((id) => ids.includes(id));
+  return [...saved, ...ids.filter((id) => !saved.includes(id))];
+}
+
 function buildDock() {
-  Object.entries(APPS).forEach(([id, app]) => {
+  dockOrder().forEach((id) => {
+    const app = APPS[id];
     const btn = document.createElement("button");
     btn.className = "dock-item";
     btn.dataset.app = id;
     btn.setAttribute("aria-label", app.title);
-    btn.innerHTML = `<div class="dock-icon" style="background:${app.color}">${app.icon}</div><span class="tooltip">${app.title}</span>`;
+    btn.innerHTML = `
+      <span class="dock-icon" style="background:${app.color}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${app.icon}</svg>
+      </span>
+      <span class="dock-label">${escapeHtml(app.title)}</span>`;
     btn.addEventListener("click", () => {
       if (!openWindows.has(id)) {
         btn.classList.remove("bounce");
@@ -310,23 +324,71 @@ function buildDock() {
       }
       openApp(id);
     });
+    enableDockDrag(btn);
     dock.appendChild(btn);
   });
 
   // macOS-style magnification: icons grow based on cursor distance.
   const items = () => [...dock.querySelectorAll(".dock-item")];
   dock.addEventListener("mousemove", (e) => {
-    if (!settings.magnify) return;
+    if (!settings.magnify || dock.classList.contains("reordering")) return;
     items().forEach((item) => {
       const rect = item.getBoundingClientRect();
       const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
-      const scale = 1 + Math.max(0, 1 - dist / 140) * 0.6;
-      const size = settings.iconSize * scale;
-      item.style.width = item.style.height = `${size}px`;
+      const scale = 1 + Math.max(0, 1 - dist / 140) * 0.5;
+      item.style.setProperty("--size", `${settings.iconSize * scale}px`);
     });
   });
   dock.addEventListener("mouseleave", () => {
-    items().forEach((item) => (item.style.width = item.style.height = ""));
+    items().forEach((item) => item.style.removeProperty("--size"));
+  });
+}
+
+// Grab an icon and drag it sideways to move it; a short press still opens the app.
+function enableDockDrag(item) {
+  item.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const startX = e.clientX;
+    let dragging = false;
+
+    const move = (ev) => {
+      if (!dragging) {
+        if (Math.abs(ev.clientX - startX) < 6) return;
+        dragging = true;
+        item.setPointerCapture(ev.pointerId);
+        dock.classList.add("reordering");
+        item.classList.add("dragging");
+        dock.querySelectorAll(".dock-item").forEach((i) => i.style.removeProperty("--size"));
+      }
+      // Swap with a neighbour once the pointer passes its middle.
+      const siblings = [...dock.querySelectorAll(".dock-item:not(.dragging)")];
+      const before = siblings.find((s) => {
+        const r = s.getBoundingClientRect();
+        return ev.clientX < r.left + r.width / 2;
+      });
+      if ((before || null) !== item.nextElementSibling) dock.insertBefore(item, before || null);
+      item.style.transform = "";
+      const home = item.getBoundingClientRect();
+      item.style.transform = `translateX(${ev.clientX - (home.left + home.width / 2)}px)`;
+    };
+
+    const up = () => {
+      item.removeEventListener("pointermove", move);
+      item.removeEventListener("pointerup", up);
+      item.removeEventListener("pointercancel", up);
+      if (!dragging) return;
+      item.style.transform = "";
+      item.classList.remove("dragging");
+      dock.classList.remove("reordering");
+      settings.dockOrder = [...dock.querySelectorAll(".dock-item")].map((i) => i.dataset.app);
+      saveSettings();
+      // The click that follows a drag shouldn't open the app.
+      item.addEventListener("click", (ce) => ce.stopImmediatePropagation(), { capture: true, once: true });
+    };
+
+    item.addEventListener("pointermove", move);
+    item.addEventListener("pointerup", up);
+    item.addEventListener("pointercancel", up);
   });
 }
 

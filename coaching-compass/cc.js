@@ -2027,9 +2027,9 @@
       rosterHtml = "<p class=\"hint\">No trainees added yet.</p>";
     } else {
       rosterHtml =
-        "<div class=\"roster-table-wrap\"><table class=\"preview\"><thead><tr><th>Name</th><th>CRM name</th><th>Team lead</th><th>Department</th><th>Nesting</th><th></th></tr></thead><tbody>" +
+        "<div class=\"roster-table-wrap\"><table class=\"preview\"><thead><tr><th>Name</th><th>Work email</th><th>CRM name</th><th>Team lead</th><th>Department</th><th>Nesting</th><th></th></tr></thead><tbody>" +
           state.trainees.map(function(t){
-            return "<tr><td>" + esc(t.name) + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td><td>" + esc(nestingLabel(t.nesting_status)) + "</td>" +
+            return "<tr><td>" + esc(t.name) + "</td><td>" + esc(t.email || "") + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td><td>" + esc(nestingLabel(t.nesting_status)) + "</td>" +
               "<td class=\"kebab-cell\"><button class=\"kebab-btn\" data-kebab-trainee=\"" + esc(t.id) + "\" title=\"More options\" type=\"button\">⋮</button></td></tr>";
           }).join("") +
         "</tbody></table></div>";
@@ -2073,8 +2073,9 @@
   // Nesting status is set later (Edit), not when a trainee is first added.
   function traineeModalFields(t){
     var editing = !!t;
-    t = t || { name: "", crm_name: "", team_lead: "", department: "", nesting_status: "" };
+    t = t || { name: "", email: "", crm_name: "", team_lead: "", department: "", nesting_status: "" };
     return "<div class=\"field\"><label for=\"nt-name\">Name</label><input type=\"text\" id=\"nt-name\" placeholder=\"Jordan Diaz\" value=\"" + esc(t.name) + "\"></div>" +
+      "<div class=\"field\"><label for=\"nt-email\">Work email</label><input type=\"email\" id=\"nt-email\" placeholder=\"jordan.diaz@company.com\" value=\"" + esc(t.email || "") + "\"></div>" +
       "<div class=\"field\"><label for=\"nt-crm\">CRM name</label><input type=\"text\" id=\"nt-crm\" placeholder=\"As it appears in the QA sheet\" value=\"" + esc(t.crm_name) + "\"></div>" +
       selectField("nt-lead", "Team lead", state.teamLeads, "Add a Team Lead first", t.team_lead) +
       selectField("nt-dept", "Department", state.departments, "Add a Department first", t.department) +
@@ -2085,31 +2086,40 @@
         : "");
   }
 
-  // ---- Bulk add: one trainee per line, columns in the order Name, CRM name, Team lead, Department.
-  // Pasting rows straight from a sheet works (tabs); commas work too. Team lead and department must
-  // match the lists on their tabs; anything else is left blank and reported.
+  // ---- Work email → CRM name: the CRM name is the email without its @domain.
+  function isEmail(s){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); }
+  function crmFromEmail(email){ return String(email).trim().split("@")[0]; }
+  // In the Add / Edit trainee form, keep CRM name following the email until it's typed by hand.
+  function wireEmailToCrm(){
+    var emailEl = document.getElementById("nt-email"), crmEl = document.getElementById("nt-crm");
+    if (!emailEl || !crmEl) return;
+    var auto = !crmEl.value || crmEl.value === crmFromEmail(emailEl.value);
+    crmEl.addEventListener("input", function(){ auto = !crmEl.value; });
+    emailEl.addEventListener("input", function(){ if (auto) crmEl.value = emailEl.value.indexOf("@") !== -1 ? crmFromEmail(emailEl.value) : emailEl.value.trim(); });
+  }
+
+  // ---- Bulk add: pick one Team Lead and one Department for the batch, then list
+  // one trainee per line as "Name, work email". CRM name comes from the email.
   function parseBulkTrainees(text){
-    var byName = function(list){ var m = {}; list.forEach(function(x){ m[String(x.name).trim().toLowerCase()] = x.name; }); return m; };
-    var leads = byName(state.teamLeads), depts = byName(state.departments);
     var existing = {};
     state.trainees.forEach(function(t){
       existing["n:" + String(t.name || "").trim().toLowerCase()] = true;
+      if ((t.email || "").trim()) existing["e:" + t.email.trim().toLowerCase()] = true;
       if ((t.crm_name || "").trim()) existing["c:" + t.crm_name.trim().toLowerCase()] = true;
     });
-    var out = { rows: [], duplicates: [], unmatched: [] };
-    text.split(/\r?\n/).forEach(function(line, i){
+    var out = { rows: [], duplicates: [], invalid: [] };
+    text.split(/\r?\n/).forEach(function(line){
       if (!line.trim()) return;
-      var cells = (line.indexOf("\t") !== -1 ? line.split("\t") : line.split(",")).map(function(c){ return c.trim(); });
-      var name = cells[0] || "";
-      if (!name || (i === 0 && /^name$/i.test(name))) return; // skip a header row
-      var crm = cells[1] || "", lead = cells[2] || "", dept = cells[3] || "";
-      var nk = "n:" + name.toLowerCase(), ck = crm ? "c:" + crm.toLowerCase() : null;
-      if (existing[nk] || (ck && existing[ck])){ out.duplicates.push(name); return; }
-      existing[nk] = true; if (ck) existing[ck] = true;
-      var row = { name: name, crm_name: crm, team_lead: "", department: "", nesting_status: "" };
-      if (lead){ if (leads[lead.toLowerCase()]) row.team_lead = leads[lead.toLowerCase()]; else out.unmatched.push(name + ": team lead \u201c" + lead + "\u201d"); }
-      if (dept){ if (depts[dept.toLowerCase()]) row.department = depts[dept.toLowerCase()]; else out.unmatched.push(name + ": department \u201c" + dept + "\u201d"); }
-      out.rows.push(row);
+      var cells = line.split(/\t|,/).map(function(c){ return c.trim(); }).filter(Boolean);
+      var email = cells.filter(function(c){ return c.indexOf("@") !== -1; })[0] || "";
+      var name = cells.filter(function(c){ return c !== email; }).join(" ").trim();
+      if (!email && /^name\b/i.test(name)) return; // a header row
+      if (!name || !isEmail(email)){ out.invalid.push(line.trim()); return; }
+      var crm = crmFromEmail(email);
+      var keys = ["n:" + name.toLowerCase(), "e:" + email.toLowerCase(), "c:" + crm.toLowerCase()];
+      if (keys.some(function(k){ return existing[k]; })){ out.duplicates.push(name); return; }
+      keys.forEach(function(k){ existing[k] = true; });
+      out.rows.push({ name: name, email: email, crm_name: crm });
     });
     return out;
   }
@@ -2117,8 +2127,10 @@
   function openBulkTraineeModal(){
     openModal(
       "<h3 class=\"modal-title\">Bulk add trainees</h3>" +
-      "<p class=\"hint\" style=\"margin:-8px 0 12px;\">One trainee per line: <b>Name, CRM name, Team lead, Department</b>. Only Name is required. You can paste rows straight from a sheet.</p>" +
-      "<div class=\"field\"><label for=\"bulk-text\">Trainees</label><textarea id=\"bulk-text\" rows=\"8\" spellcheck=\"false\" placeholder=\"Jordan Diaz, jdiaz, K. Alvarez, Customer Support&#10;Sam Lee, slee\"></textarea></div>" +
+      selectField("bulk-lead", "Team lead", state.teamLeads, "Add a Team Lead first", "") +
+      selectField("bulk-dept", "Department", state.departments, "Add a Department first", "") +
+      "<div class=\"field\"><label for=\"bulk-text\">Trainees</label><textarea id=\"bulk-text\" rows=\"8\" spellcheck=\"false\" placeholder=\"Jordan Diaz, jordan.diaz@company.com&#10;Sam Lee, sam.lee@company.com\"></textarea></div>" +
+      "<p class=\"hint\" style=\"margin:6px 0 0;\">One trainee per line: <b>Name, work email</b>. You can paste two columns straight from a sheet. CRM name is filled in from the email, without the @domain.</p>" +
       "<p class=\"hint\" id=\"bulkPreview\" style=\"margin:8px 0 0;\"></p>" +
       "<div class=\"modal-actions\">" +
         "<button class=\"ghost small\" id=\"cancelBulkBtn\" type=\"button\">Cancel</button>" +
@@ -2127,13 +2139,13 @@
       "<span class=\"save-status\" id=\"bulkStatus\"></span>"
     );
     var box = document.getElementById("bulk-text"), preview = document.getElementById("bulkPreview"), saveBtn = document.getElementById("saveBulkBtn");
-    var parsed = { rows: [], duplicates: [], unmatched: [] };
+    var parsed = { rows: [], duplicates: [], invalid: [] };
     function update(){
       parsed = parseBulkTrainees(box.value);
       var bits = [];
-      if (parsed.rows.length) bits.push(parsed.rows.length + " trainee" + (parsed.rows.length === 1 ? "" : "s") + " ready to add");
-      if (parsed.duplicates.length) bits.push(parsed.duplicates.length + " already on the roster, skipped (" + parsed.duplicates.join(", ") + ")");
-      if (parsed.unmatched.length) bits.push("left blank, not in your lists: " + parsed.unmatched.join("; "));
+      if (parsed.rows.length) bits.push(parsed.rows.length + " ready to add (" + parsed.rows.map(function(r){ return r.name + " → " + r.crm_name; }).join(", ") + ")");
+      if (parsed.duplicates.length) bits.push("already on the roster, skipped: " + parsed.duplicates.join(", "));
+      if (parsed.invalid.length) bits.push("needs a name and a valid email: " + parsed.invalid.join(" | "));
       preview.textContent = bits.join(" · ");
       saveBtn.disabled = !parsed.rows.length;
       saveBtn.textContent = parsed.rows.length ? "Add " + parsed.rows.length + " trainee" + (parsed.rows.length === 1 ? "" : "s") : "Add trainees";
@@ -2141,10 +2153,12 @@
     box.addEventListener("input", update);
     document.getElementById("cancelBulkBtn").addEventListener("click", closeModal);
     saveBtn.addEventListener("click", function(){
-      var rows = parsed.rows, statusEl = document.getElementById("bulkStatus");
+      var lead = (document.getElementById("bulk-lead") || {}).value || "";
+      var dept = (document.getElementById("bulk-dept") || {}).value || "";
+      var rows = parsed.rows.map(function(r){ return Object.assign({}, r, { team_lead: lead, department: dept, nesting_status: "" }); });
+      var statusEl = document.getElementById("bulkStatus");
       if (!rows.length) return;
       saveBtn.disabled = true;
-      var now = new Date().toISOString();
       if (!dbFn){
         state.trainees = state.trainees.concat(rows.map(function(r, i){ return Object.assign({ id: "local-" + Date.now() + "-" + i }, r); }));
         closeModal();
@@ -2152,7 +2166,7 @@
         return;
       }
       statusEl.textContent = "Adding " + rows.length + "…"; statusEl.className = "save-status";
-      var failed = 0;
+      var now = new Date().toISOString(), failed = 0;
       rows.reduce(function(p, r){
         return p.then(function(){ return dbFn.collection("trainees").add(Object.assign({ created_at: now }, r)).catch(function(){ failed++; }); });
       }, Promise.resolve()).then(function(){
@@ -2176,6 +2190,7 @@
     );
     document.getElementById("saveTraineeBtn").addEventListener("click", function(){ saveTrainee(); });
     document.getElementById("cancelTraineeBtn").addEventListener("click", closeModal);
+    wireEmailToCrm();
     document.getElementById("nt-name").focus();
   }
 
@@ -2193,12 +2208,20 @@
     );
     document.getElementById("saveTraineeBtn").addEventListener("click", function(){ saveTrainee(id); });
     document.getElementById("cancelTraineeBtn").addEventListener("click", closeModal);
+    wireEmailToCrm();
     document.getElementById("nt-name").focus();
   }
 
   function saveTrainee(editId){
     var name = ((document.getElementById("nt-name") || {}).value || "").trim();
     var crm = ((document.getElementById("nt-crm") || {}).value || "").trim();
+    var email = ((document.getElementById("nt-email") || {}).value || "").trim();
+    if (email && !isEmail(email)){
+      var st = document.getElementById("traineeSaveStatus");
+      if (st){ st.textContent = "Check the work email address."; st.className = "save-status err"; }
+      return;
+    }
+    if (!crm && email) crm = crmFromEmail(email);
     var lead = ((document.getElementById("nt-lead") || {}).value || "").trim();
     var dept = ((document.getElementById("nt-dept") || {}).value || "").trim();
     var statusEl = document.getElementById("traineeSaveStatus");
@@ -2207,7 +2230,7 @@
       return;
     }
     var nestingEl = document.getElementById("nt-nesting");
-    var record = { name: name, crm_name: crm, team_lead: lead, department: dept };
+    var record = { name: name, email: email, crm_name: crm, team_lead: lead, department: dept };
     if (nestingEl) record.nesting_status = nestingEl.value;
     else if (!editId) record.nesting_status = "";
 

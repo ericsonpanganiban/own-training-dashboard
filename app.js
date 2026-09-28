@@ -754,6 +754,7 @@ function openEditTrainee(content, traineeId) {
     <form class="sheet-card" novalidate>
       <h3>Edit trainee</h3>
       <label class="field"><span>Name</span><input id="et-name" type="text" value="${escapeHtml(t.name || "")}" /></label>
+      <label class="field"><span>Work email</span><input id="et-email" type="email" value="${escapeHtml(t.email || "")}" placeholder="jordan.diaz@company.com" /></label>
       <label class="field"><span>CRM name</span><input id="et-crm" type="text" value="${escapeHtml(t.crm_name || "")}" placeholder="As it appears in the QA sheet" /></label>
       <label class="field"><span>Department</span>${select("et-dept", departments, t.department, "— None —")}</label>
       <label class="field"><span>Team Lead</span>${select("et-lead", teamLeads, t.team_lead, "— None —")}</label>
@@ -781,7 +782,8 @@ function openEditTrainee(content, traineeId) {
     $("#et-status").textContent = "Saving…";
     cc.updateTrainee(traineeId, {
       name,
-      crm_name: $("#et-crm").value.trim(),
+      email: $("#et-email").value.trim(),
+      crm_name: $("#et-crm").value.trim() || ($("#et-email").value.includes("@") ? $("#et-email").value.trim().split("@")[0] : ""),
       department: $("#et-dept").value,
       team_lead: $("#et-lead").value,
       nesting_status: $("#et-nesting").value,

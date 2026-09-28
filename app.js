@@ -223,12 +223,28 @@ const APPS = {
         const cpQa = sheets.cp_side?.url
           ? { value: "—", hint: "No CP side audits pulled yet" }
           : { value: "—", hint: "Not set up · Settings → QA Sheets" };
-        const passed = members.filter((t) => t.nesting_status === "passed").length;
-        const passRate = members.length
-          ? { value: pct(passed, members.length), hint: `${passed} of ${members.length} trainees passed nesting` }
-          : { value: "—", hint: "Add trainees to a cohort" };
+        // Pass rate per side: a trainee's department decides the side (a department named "CP" is CP Side,
+        // anything else C Side, same rule Coaching Compass uses for its knowledge base).
+        const isCp = (t) => /\bcp\b/i.test(t.department || "");
+        const passRateFor = (group, side) => {
+          if (!members.length) return { value: "—", hint: "Add trainees to a cohort" };
+          if (!group.length) return { value: "—", hint: `No ${side} trainees in a cohort` };
+          const passed = group.filter((t) => t.nesting_status === "passed").length;
+          return { value: pct(passed, group.length), hint: `${passed} of ${group.length} trainees passed nesting` };
+        };
+        const passC = passRateFor(members.filter((t) => !isCp(t)), "C Side");
+        const passCp = passRateFor(members.filter(isCp), "CP Side");
         const metric = (label, m) =>
           `<div class="stat"><div class="value">${m.value}</div><div class="label">${label}</div><div class="hint">${escapeHtml(m.hint)}</div></div>`;
+        // Average of C and CP Side; with only one side available it shows that side and says so.
+        const average = (c, cp) => {
+          const n = (m) => (/%$/.test(m.value) ? parseFloat(m.value) : null);
+          const vals = [n(c), n(cp)];
+          const have = vals.filter((v) => v !== null);
+          const note = have.length === 2 ? "C + CP average" : vals[0] !== null ? "C Side only" : vals[1] !== null ? "CP Side only" : "No data yet";
+          const value = have.length ? `${Math.round(have.reduce((a, b) => a + b, 0) / have.length)}%` : "—";
+          return `<span class="group-avg" title="${note}"><b>${value}</b><small>${note}</small></span>`;
+        };
 
         el.innerHTML = `
           <div class="app-head">
@@ -245,6 +261,7 @@ const APPS = {
             <section class="metric-group">
               <div class="group-head">
                 <h4>Nesting QA</h4>
+                ${average(cQa, cpQa)}
                 <button type="button" class="btn btn-small" data-refresh-qa${live.status === "loading" ? " disabled" : ""}>${live.status === "loading" ? "Refreshing…" : "↻ Refresh"}</button>
               </div>
               <div class="metric-pair">
@@ -254,15 +271,24 @@ const APPS = {
               <p class="group-note" role="status">${escapeHtml(updated)}</p>
             </section>
             <section class="metric-group">
-              <h4>Nesting Speed</h4>
+              <div class="group-head">
+                <h4>Nesting Speed</h4>
+                ${average({ value: "—" }, { value: "—" })}
+              </div>
               <div class="metric-pair">
                 ${metric("Nesting Speed (CP Side)", { value: "—", hint: "No data yet" })}
                 ${metric("Nesting Speed (C Side)", { value: "—", hint: "No data yet" })}
               </div>
             </section>
             <section class="metric-group">
-              <h4>Pass rate</h4>
-              <div class="metric-pair single">${metric("Passed nesting", passRate)}</div>
+              <div class="group-head">
+                <h4>Pass rate</h4>
+                ${average(passC, passCp)}
+              </div>
+              <div class="metric-pair">
+                ${metric("Pass rate (C Side)", passC)}
+                ${metric("Pass rate (CP Side)", passCp)}
+              </div>
             </section>
           </div>
           <h3>All cohorts</h3>

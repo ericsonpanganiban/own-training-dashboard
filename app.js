@@ -298,6 +298,8 @@ function setRunning(appId, running) {
   dock.querySelector(`[data-app="${appId}"]`)?.classList.toggle("running", running);
 }
 
+let dockMagnify = { reset() {} };
+
 function dockOrder() {
   const ids = Object.keys(APPS);
   const saved = settings.dockOrder.filter((id) => ids.includes(id));
@@ -328,20 +330,44 @@ function buildDock() {
     dock.appendChild(btn);
   });
 
-  // macOS-style magnification: icons grow based on cursor distance.
-  const items = () => [...dock.querySelectorAll(".dock-item")];
-  dock.addEventListener("mousemove", (e) => {
-    if (!settings.magnify || dock.classList.contains("reordering")) return;
-    items().forEach((item) => {
-      const rect = item.getBoundingClientRect();
-      const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
-      const scale = 1 + Math.max(0, 1 - dist / 140) * 0.5;
-      item.style.setProperty("--size", `${settings.iconSize * scale}px`);
+  // macOS-style magnification: icons grow toward the cursor. Targets update on
+  // mousemove; a requestAnimationFrame loop eases each icon toward its target so
+  // the motion renders every frame (60fps) instead of stepping with mouse events.
+  let pointerX = null;
+  let frame = null;
+  const current = new Map();
+
+  const tick = () => {
+    frame = null;
+    let moving = false;
+    dock.querySelectorAll(".dock-item").forEach((item) => {
+      let target = 1;
+      if (pointerX !== null && settings.magnify && !dock.classList.contains("reordering")) {
+        const rect = item.getBoundingClientRect();
+        const dist = Math.abs(pointerX - (rect.left + rect.width / 2));
+        target = 1 + Math.max(0, 1 - dist / 140) * 0.45;
+      }
+      const from = current.get(item) ?? 1;
+      const next = Math.abs(target - from) < 0.002 ? target : from + (target - from) * 0.3;
+      if (next !== target) moving = true;
+      current.set(item, next);
+      item.querySelector(".dock-icon").style.setProperty("--mag", next.toFixed(4));
     });
+    if (moving) frame = requestAnimationFrame(tick);
+  };
+  const schedule = () => {
+    if (frame === null) frame = requestAnimationFrame(tick);
+  };
+
+  dock.addEventListener("mousemove", (e) => {
+    pointerX = e.clientX;
+    schedule();
   });
   dock.addEventListener("mouseleave", () => {
-    items().forEach((item) => item.style.removeProperty("--size"));
+    pointerX = null;
+    schedule();
   });
+  dockMagnify = { reset: () => { pointerX = null; schedule(); } };
 }
 
 // Grab an icon and drag it sideways to move it; a short press still opens the app.
@@ -358,7 +384,7 @@ function enableDockDrag(item) {
         item.setPointerCapture(ev.pointerId);
         dock.classList.add("reordering");
         item.classList.add("dragging");
-        dock.querySelectorAll(".dock-item").forEach((i) => i.style.removeProperty("--size"));
+        dockMagnify.reset();
       }
       // Swap with a neighbour once the pointer passes its middle.
       const siblings = [...dock.querySelectorAll(".dock-item:not(.dragging)")];

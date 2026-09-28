@@ -108,13 +108,12 @@ body[data-wallpaper="forest"] { --bg-1: #134e5e; --bg-2: #71b280; }
 }
 
 .dock-item {
-  --size: var(--icon-size);
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  width: calc(var(--size) + 28px);
+  width: calc(var(--icon-size) + 28px);
   border: 0;
   padding: 0;
   background: none;
@@ -123,15 +122,17 @@ body[data-wallpaper="forest"] { --bg-1: #134e5e; --bg-2: #71b280; }
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  transition: width 0.15s ease;
 }
 .dock-icon {
-  width: var(--size);
-  height: var(--size);
+  width: var(--icon-size);
+  height: var(--icon-size);
   border-radius: 24%;
   display: grid;
   place-items: center;
-  transition: width 0.15s ease, height 0.15s ease;
+  /* Magnification scales the icon upward from its base, so the dock never changes size. */
+  transform: scale(var(--mag, 1));
+  transform-origin: 50% 100%;
+  will-change: transform;
 }
 .dock-icon svg {
   width: 52%;
@@ -139,19 +140,16 @@ body[data-wallpaper="forest"] { --bg-1: #134e5e; --bg-2: #71b280; }
   color: #fff;
 }
 .dock-label {
-  max-width: 100%;
   font-size: 11px;
   font-weight: 500;
   line-height: 1.2;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 .dock-item.running .dock-icon::after {
   content: "";
   position: absolute;
-  top: calc(var(--size) + 1px);
+  top: calc(var(--icon-size) + 1px);
   left: 50%;
   width: 4px;
   height: 4px;
@@ -160,8 +158,6 @@ body[data-wallpaper="forest"] { --bg-1: #134e5e; --bg-2: #71b280; }
   background: rgba(255, 255, 255, 0.9);
 }
 #dock.reordering .dock-item { cursor: grabbing; }
-#dock.reordering .dock-item,
-#dock.reordering .dock-icon { transition: none; }
 .dock-item.dragging { z-index: 1; opacity: 0.9; }
 .dock-item.dragging .dock-icon { box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3); }
 .dock-item.bounce { animation: bounce 0.5s ease; }

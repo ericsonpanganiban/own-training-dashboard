@@ -785,7 +785,7 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .app-body .att-grid th, .app-body .att-grid td { padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; background: var(--window-bg); }
 .app-body .att-grid th small { display: block; font-weight: 400; }
 .app-body .att-grid .att-name { position: sticky; left: 0; z-index: 2; width: 150px; min-width: 150px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
-.app-body .att-grid .att-total { position: sticky; left: 150px; z-index: 2; width: 88px; min-width: 88px; border-right: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.app-body .att-grid .att-total { position: sticky; left: 150px; z-index: 2; width: 88px; min-width: 88px; border-right: 1px solid var(--line); font-variant-numeric: tabular-nums; text-align: center; }
 .app-body .att-grid .att-total-edge { border-right: 1px solid var(--line); }
 .app-body .att-grid .att-phase { text-align: center; background: color-mix(in srgb, var(--accent) 10%, var(--window-bg)); color: var(--window-fg); }
 .app-body .att-grid .att-phase.nest { background: color-mix(in srgb, var(--window-fg) 6%, var(--window-bg)); }

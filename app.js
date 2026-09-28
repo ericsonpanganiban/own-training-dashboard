@@ -159,6 +159,23 @@ const APPS = {
         el.innerHTML = `<p class="muted">Cohorts aren't available right now.</p>`;
         return;
       }
+      // Live C Side QA: pulled from the QA sheet when the window opens and on Refresh.
+      const live = { status: "idle", result: null, error: null };
+      const memberCrms = () => {
+        const { cohorts, trainees } = cc.data();
+        const ids = new Set(cohorts.flatMap((c) => c.trainee_ids || []));
+        return trainees.filter((t) => ids.has(t.id)).map((t) => t.crm_name).filter(Boolean);
+      };
+      const pull = () => {
+        if (live.status === "loading") return;
+        live.status = "loading";
+        draw();
+        cc.liveCSideQa(memberCrms()).then(
+          (result) => Object.assign(live, { status: "ok", result, error: null }),
+          (e) => Object.assign(live, { status: "error", error: e?.message || "Couldn't read the QA sheet." })
+        ).then(() => el.isConnected && draw());
+      };
+
       const draw = () => {
         const { cohorts, trainees } = cc.data();
         const today = new Date().toISOString().slice(0, 10);
@@ -178,15 +195,31 @@ const APPS = {
         const qa = cc.qaSummary(members.map((t) => t.crm_name).filter(Boolean));
         const sheets = cc.sheets();
         const pct = (n, d) => `${Math.round((n / d) * 100)}%`;
-        const cQa = !members.length
-          ? { value: "—", hint: "Add trainees to a cohort" }
-          : !sheets.c_side?.url
-            ? { value: "—", hint: "Not set up · Settings → QA Sheets" }
-            : !qa.loaded
-              ? { value: "…", hint: "Loading saved weeks" }
-              : qa.total
-                ? { value: pct(qa.pass, qa.total), hint: `${Math.round(qa.pass * 100) / 100} of ${qa.total} audits passed · ${qa.weeks} week${qa.weeks === 1 ? "" : "s"}` }
-                : { value: "—", hint: "No saved weeks yet · Coaching Compass" };
+        const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+        const passedOf = (r) => `${Math.round(r.pass * 100) / 100} of ${r.total} audits passed`;
+        // Saved weeks from Coaching Compass, shown until (or if) the live pull can't run.
+        const saved = qa.total
+          ? { value: pct(qa.pass, qa.total), hint: `${passedOf(qa)} · saved weeks only` }
+          : { value: "—", hint: "No saved weeks yet" };
+        let cQa;
+        if (!members.length) cQa = { value: "—", hint: "Add trainees to a cohort" };
+        else if (live.status === "ok") {
+          const r = live.result;
+          cQa = r.total
+            ? { value: pct(r.pass, r.total), hint: `${passedOf(r)} · ${plural(r.weeks, "week")} · ${plural(r.trainees, "trainee")}${r.source === "partial" ? " · may be incomplete" : ""}` }
+            : { value: "—", hint: "No audits in the QA sheet for this cohort's CRM names" };
+        } else if (live.status === "loading") cQa = { value: saved.value === "—" ? "…" : saved.value, hint: "Pulling the latest from the QA sheet…" };
+        else if (live.status === "error") cQa = { value: saved.value, hint: `${live.error} ${saved.value === "—" ? "" : "Showing saved weeks."}`.trim() };
+        else if (!sheets.c_side?.url) cQa = { value: "—", hint: "Not set up · Settings → QA Sheets" };
+        else cQa = saved;
+        const updated =
+          live.status === "ok"
+            ? `Updated from the QA sheet at ${new Date(live.result.fetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+            : live.status === "loading"
+              ? "Refreshing…"
+              : live.status === "error"
+                ? "Last refresh failed"
+                : "";
         const cpQa = sheets.cp_side?.url
           ? { value: "—", hint: "No CP side audits pulled yet" }
           : { value: "—", hint: "Not set up · Settings → QA Sheets" };
@@ -210,11 +243,15 @@ const APPS = {
           </div>
           <div class="metric-groups">
             <section class="metric-group">
-              <h4>Nesting QA</h4>
+              <div class="group-head">
+                <h4>Nesting QA</h4>
+                <button type="button" class="btn btn-small" data-refresh-qa${live.status === "loading" ? " disabled" : ""}>${live.status === "loading" ? "Refreshing…" : "↻ Refresh"}</button>
+              </div>
               <div class="metric-pair">
                 ${metric("Nesting QA Score (C Side)", cQa)}
                 ${metric("Nesting QA Score (CP Side)", cpQa)}
               </div>
+              <p class="group-note" role="status">${escapeHtml(updated)}</p>
             </section>
             <section class="metric-group">
               <h4>Nesting Speed</h4>
@@ -247,8 +284,10 @@ const APPS = {
               : `<p class="muted">No cohorts yet. Use Add Class to create your first one.</p>`
           }`;
         el.querySelector("[data-add-class]").addEventListener("click", () => openAddClass(el));
+        el.querySelector("[data-refresh-qa]").addEventListener("click", pull);
       };
       draw();
+      pull();
       APPS.cohorts.unsubscribe = cc.onChange(draw);
     },
     onClose() {

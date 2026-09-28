@@ -3886,7 +3886,7 @@
 
     Promise.resolve().then(function(){ return window.claude ? window.claude.use("mcp") : null; })
       .catch(function(){ return null; })
-      .then(function(m){ mcpFn = m; updateReportActions(); });
+      .then(function(m){ mcpFn = m; updateReportActions(); markReady("mcp"); });
 
     Promise.resolve().then(function(){ return window.claude ? window.claude.use("user") : null; })
       .catch(function(){ return null; })
@@ -3908,7 +3908,7 @@
       .catch(function(){ return null; })
       .then(function(d){
         dbFn = d;
-        if (!dbFn) return;
+        if (!dbFn){ markReady("settings"); return; }
         ensureLearningsSub();
         loadLatestSavedAnalysis();
         dbFn.collection("analyses").orderBy("pulled_at", "desc").limit(300).onSnapshot(onChangedSnapshot(function(snap){
@@ -3924,8 +3924,9 @@
               cp_side: Object.assign({ url: "", tab_name: "" }, data.cp_side || {})
             };
           }
+          markReady("settings");
           renderAll();
-        }), function(){ /* leave the last-known form values in place */ });
+        }), function(){ markReady("settings"); /* leave the last-known form values in place */ });
 
         dbFn.doc("settings/knowledge_base").onSnapshot(onChangedSnapshot(function(snap){
           if (snap.exists){
@@ -3962,6 +3963,60 @@
       });
   }
 
+  // ---- Readiness: Google Drive access and the saved QA sheet link load after the page ----
+  var readyParts = {};
+  var readyWaiters = [];
+  function markReady(part){
+    readyParts[part] = true;
+    readyWaiters = readyWaiters.filter(function(w){ if (w.parts.every(function(p){ return readyParts[p]; })){ w.resolve(); return false; } return true; });
+  }
+  function whenReady(parts, ms){
+    if (parts.every(function(p){ return readyParts[p]; })) return Promise.resolve();
+    return new Promise(function(resolve){
+      readyWaiters.push({ parts: parts, resolve: resolve });
+      setTimeout(resolve, ms); // give up waiting; callers report what's missing
+    });
+  }
+
+  // ---- Live C side QA: read the whole audits tab from the QA sheet, all weeks ----
+  function liveCSideQa(crmNames){
+    return whenReady(["mcp", "settings"], 8000).then(function(){
+      var fileId = extractDriveFileId(state.settings.c_side.url);
+      if (!fileId) return Promise.reject({ code: "no_sheet", message: "No C Side sheet is set up (Settings → QA Sheets)." });
+      if (!mcpFn) return Promise.reject({ code: "no_drive", message: "Google Drive isn't available in this view." });
+      return readFirstTabAudits(fileId).then(function(tables){
+        if (tables) return { tables: tables, source: "full" };
+        // Same fallback as QA Data Request: the readable text of the whole workbook (top rows of each tab).
+        return mcpFn.callTool("Google Drive", "read_file_content", { fileId: fileId }).then(function(result){
+          return { tables: findAuditTables(extractTextFromToolResult(result)), source: "partial" };
+        });
+      });
+    }).then(function(got){
+      if (!got.tables.length) return Promise.reject({ code: "no_tables", message: "Couldn't find the Week Number / CRM Name / Score columns in the QA sheet." });
+      var want = {};
+      (crmNames || []).forEach(function(n){ want[String(n).trim().toLowerCase()] = true; });
+      var out = { pass: 0, total: 0, weeks: 0, trainees: 0, source: got.source, fetchedAt: new Date().toISOString() };
+      var seen = {}, weeks = {}, people = {};
+      got.tables.forEach(function(t){
+        t.rows.forEach(function(r){
+          var cell = function(i){ return i !== -1 ? String(r[i] == null ? "" : r[i]).trim() : ""; };
+          var crm = cell(t.crmIdx).toLowerCase(), week = cell(t.weekIdx);
+          if (!crm || !week || !want[crm]) return;
+          var ticket = cell(t.ticketIdx);
+          if (ticket){ var key = week + "|" + crm + "|" + ticket; if (seen[key]) return; seen[key] = true; }
+          var v = passFailValue(cell(t.scoreIdx));
+          if (v === null) return;
+          out.total++; out.pass += v; weeks[week] = true; people[crm] = true;
+        });
+      });
+      out.weeks = Object.keys(weeks).length;
+      out.trainees = Object.keys(people).length;
+      return out;
+    }, function(e){
+      return Promise.reject(e && e.message ? e : { code: (e && e.code) || "unknown", message: "Couldn't read the QA sheet (" + pullFetchErrorCopy(e && e.code) + ")." });
+    });
+  }
+
   // ---- Shared data for other Trainer Desk apps (Settings → Roster is the one list) ----
   var changeListeners = [];
   function copy(list){ return list.map(function(x){ return Object.assign({}, x); }); }
@@ -3975,6 +4030,7 @@
       return function(){ changeListeners = changeListeners.filter(function(f){ return f !== fn; }); };
     },
     sheets: function(){ return JSON.parse(JSON.stringify(state.settings)); },
+    liveCSideQa: liveCSideQa,
     // C side QA across saved weeks (newest pull per trainee and week), limited to the given CRM names.
     qaSummary: function(crmNames){
       var want = null;

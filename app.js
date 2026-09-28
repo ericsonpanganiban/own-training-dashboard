@@ -1,12 +1,13 @@
 // ---------- Settings (persisted per browser) ----------
-const DEFAULT_SETTINGS = { version: 2, theme: "system", wallpaper: "default", iconSize: 64, magnify: true, dockOrder: [], settingsPage: "appearance" };
+const DEFAULT_SETTINGS = { version: 2, theme: "system", wallpaper: "default", iconSize: 64, magnify: true, dockOrder: [], settingsPage: "appearance",
+  profile: { name: "", days: "Mon-Fri", start: "07:00", end: "17:00" } };
 
 function loadSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem("trainer.settings") || "{}");
     // Version 2 made dock icons 8px bigger; carry a saved size over.
     if (saved.iconSize && !saved.version) saved.iconSize += 8;
-    return { ...DEFAULT_SETTINGS, ...saved, version: DEFAULT_SETTINGS.version };
+    return { ...DEFAULT_SETTINGS, ...saved, profile: { ...DEFAULT_SETTINGS.profile, ...saved.profile }, version: DEFAULT_SETTINGS.version };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -117,18 +118,11 @@ const APPS = {
         const members = (cohort.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
         el.innerHTML = `
           ${active.length > 1 ? `<div class="pill-row">${active.map((c) => `<button type="button" class="pill${c.id === cohort.id ? " on" : ""}" data-pick="${escapeHtml(c.id)}">${escapeHtml(c.name)}</button>`).join("")}</div>` : ""}
-          <div class="app-head">
-            <div>
-              <h3>${escapeHtml(cohort.name)}</h3>
-              <p class="muted sub-line">${escapeHtml(cohort.department || "No department")} · ${escapeHtml(cohort.team_lead ? `Led by ${cohort.team_lead}` : "No team lead")} · ${escapeHtml(fmtRange(s.start, s.end))}</p>
-            </div>
-            <span class="badge active">Active</span>
-          </div>
+          ${cohortDetailHtml(cohort, s, members.length)}
           <div class="progress-block">
             <div class="progress-line"><b>${escapeHtml(p.label)}</b><span class="muted">Day ${p.day} of ${TRAINING_DAYS}</span></div>
             <div class="progress"><span style="width:${Math.round((p.day / TRAINING_DAYS) * 100)}%"></span></div>
           </div>
-          ${timelineHtml(s, today)}
           <h3>Trainees <span class="muted count">${members.length}</span></h3>
           ${
             members.length
@@ -460,6 +454,35 @@ const SETTINGS_PAGES = [
     },
   },
   {
+    id: "profile",
+    title: "Profile",
+    color: "#8b5cf6",
+    icon: '<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8"/>',
+    // You're the trainer on every cohort; this is what the Trainer line on a cohort shows.
+    render(slot) {
+      const p = settings.profile;
+      slot.innerHTML = `
+        <div class="settings-page app-body">
+          <h3>Profile</h3>
+          <p class="muted">Shown as the Trainer on every cohort.</p>
+          <div class="form-row"><label for="pf-name">Your name</label><input id="pf-name" type="text" placeholder="e.g. Ericson" /></div>
+          <div class="form-row"><label for="pf-days">Training days</label><input id="pf-days" type="text" placeholder="e.g. Mon-Fri" /></div>
+          <div class="form-row"><label for="pf-start">Shift starts</label><input id="pf-start" type="time" /></div>
+          <div class="form-row"><label for="pf-end">Shift ends</label><input id="pf-end" type="time" /></div>
+        </div>`;
+      const fields = { name: "#pf-name", days: "#pf-days", start: "#pf-start", end: "#pf-end" };
+      Object.entries(fields).forEach(([key, sel]) => {
+        const input = slot.querySelector(sel);
+        input.value = p[key] || "";
+        input.addEventListener("input", () => {
+          settings.profile[key] = input.value.trim();
+          saveSettings();
+          window.CoachingCompass?.notify?.();
+        });
+      });
+    },
+  },
+  {
     id: "roster",
     title: "Roster",
     color: "#10b981",
@@ -578,6 +601,39 @@ function timelineHtml(s, today) {
   </ul>`;
 }
 
+const fmtTime = (hhmm) => {
+  if (!hhmm) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+};
+
+// Cohort details: title with department and assignment chips, team lead and trainer,
+// the schedule, the endorsement date in bold, and the trainee count.
+function cohortDetailHtml(c, s, memberCount) {
+  const p = settings.profile;
+  const shift = [p.days, p.start && p.end ? `${fmtTime(p.start)} – ${fmtTime(p.end)}` : ""].filter(Boolean).join(" · ");
+  const trainer = [p.name || "You", shift].filter(Boolean).join(" · ");
+  return `
+    <div class="cohort-detail">
+      <div class="cd-title">
+        <b>${escapeHtml(c.name)}</b>
+        ${c.department ? `<span class="chip mono">${escapeHtml(c.department)}</span>` : ""}
+        <span class="chip mono ok">You're assigned</span>
+      </div>
+      <div class="cd-people">
+        <span>Team Lead:</span><span class="chip">${escapeHtml(c.team_lead || "Not set")}</span>
+        <span>Trainer:</span><span class="chip">${escapeHtml(trainer)}</span>
+      </div>
+      ${
+        s
+          ? `<p class="cd-lines">Classroom Training: ${fmtShort(s.classroom.start)} – ${fmtShort(s.classroom.end)}<br>Nesting: ${fmtShort(s.nesting.start)} – ${fmtShort(s.nesting.end)}</p>
+             <p class="cd-endorse">Production Endorsement Date: ${fmtShort(s.endorsement)}</p>`
+          : `<p class="cd-lines muted">No start date yet, so there's no schedule.</p>`
+      }
+      <p class="cd-lines">Current number of trainees: ${memberCount}</p>
+    </div>`;
+}
+
 function cohortSectionsHtml(cohorts, trainees, today, openRows) {
   if (!cohorts.length) return `<p class="muted">No cohorts yet. Use Add Class to create your first one.</p>`;
   const byId = new Map(trainees.map((t) => [t.id, t]));
@@ -612,14 +668,14 @@ function cohortSectionsHtml(cohorts, trainees, today, openRows) {
         ${
           open
             ? `<div class="row-detail">
-                ${s ? `<h5>Schedule</h5>${timelineHtml(s, today)}` : `<p class="muted">No start date yet, so there's no schedule.</p>`}
-                <h5>Trainees</h5>
+                ${cohortDetailHtml(c, s, members.length)}
+                ${members.length ? `<h5>Trainees</h5>` : ""}
                 ${
                   members.length
                     ? `<ul class="member-list">${members
                         .map((t) => `<li><span>${escapeHtml(t.name)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span><button type="button" class="icon-btn" title="Remove from cohort" aria-label="Remove ${escapeHtml(t.name)} from ${escapeHtml(c.name)}" data-remove-trainee="${escapeHtml(c.id)}|${escapeHtml(t.id)}">×</button></li>`)
                         .join("")}</ul>`
-                    : `<p class="muted">No trainees yet. Use + Add Trainee.</p>`
+                    : ""
                 }
               </div>`
             : ""

@@ -659,3 +659,34 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .app-body .schedule .sch-done { color: var(--muted); }
 .app-body .schedule .sch-endorse { border-left-color: #10b981; }
 .app-body .sch-label { font-weight: 400; }
+
+/* Cohort details card */
+.app-body .cohort-detail { display: grid; gap: 8px; font-size: 14px; }
+.app-body .cd-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 16px; }
+.app-body .cd-people { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+.app-body .cd-people > span:not(.chip) { color: var(--muted); }
+.app-body .cd-people .chip + span:not(.chip) { margin-left: 8px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--window-fg) 8%, transparent);
+  font-size: 12px;
+  font-weight: 500;
+}
+.chip.mono {
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.chip.ok { background: color-mix(in srgb, #16a34a 16%, transparent); color: #15803d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body:not([data-appearance="light"]) .chip.ok { color: #4ade80; } }
+:root[data-theme="dark"] body:not([data-appearance="light"]) .chip.ok, body[data-appearance="dark"] .chip.ok { color: #4ade80; }
+.app-body .cd-lines { margin: 0; line-height: 1.5; }
+.app-body .cd-endorse { margin: 4px 0; font-weight: 700; }
+.app-body .row-detail .cohort-detail { margin-top: 6px; }

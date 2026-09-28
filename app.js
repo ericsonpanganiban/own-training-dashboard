@@ -118,6 +118,7 @@ const APPS = {
         const members = (cohort.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
         el.innerHTML = `
           ${active.length > 1 ? `<div class="pill-row">${active.map((c) => `<button type="button" class="pill${c.id === cohort.id ? " on" : ""}" data-pick="${escapeHtml(c.id)}">${escapeHtml(c.name)}</button>`).join("")}</div>` : ""}
+          <h3>${escapeHtml(cohort.name)}${cohort.department ? ` <span class="muted count">${escapeHtml(cohort.department)}</span>` : ""}</h3>
           ${cohortDetailHtml(cohort, s, members.length)}
           <div class="progress-block">
             <div class="progress-line"><b>${escapeHtml(p.label)}</b><span class="muted">Day ${p.day} of ${TRAINING_DAYS}</span></div>
@@ -607,19 +608,14 @@ const fmtTime = (hhmm) => {
   return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 };
 
-// Cohort details: title with department and assignment chips, team lead and trainer,
-// the schedule, the endorsement date in bold, and the trainee count.
+// Cohort details: team lead and trainer, the schedule, the endorsement date in bold,
+// and the trainee count. The cohort's name and department sit in the row above it.
 function cohortDetailHtml(c, s, memberCount) {
   const p = settings.profile;
   const shift = [p.days, p.start && p.end ? `${fmtTime(p.start)} – ${fmtTime(p.end)}` : ""].filter(Boolean).join(" · ");
   const trainer = [p.name || "You", shift].filter(Boolean).join(" · ");
   return `
     <div class="cohort-detail">
-      <div class="cd-title">
-        <b>${escapeHtml(c.name)}</b>
-        ${c.department ? `<span class="chip mono">${escapeHtml(c.department)}</span>` : ""}
-        <span class="chip mono ok">You're assigned</span>
-      </div>
       <div class="cd-people">
         <span>Team Lead:</span><span class="chip">${escapeHtml(c.team_lead || "Not set")}</span>
         <span>Trainer:</span><span class="chip">${escapeHtml(trainer)}</span>

@@ -134,6 +134,19 @@ const APPS = {
     },
   },
 
+  coaching: {
+    title: "Coaching Compass",
+    icon: "🧭",
+    color: "linear-gradient(135deg, #5b8c6f, #3c6e57)",
+    size: { w: 420, h: 280 },
+    render(el) {
+      el.innerHTML = `
+        <h3>Coaching Compass</h3>
+        <p class="muted">QA data requests, team and individual coaching briefs, cohorts and Ask AI. It keeps its own saved data, so it opens in its own tab.</p>
+        <a class="open-link" href="https://claude.ai/artifact/NdG6LDssqEEVC6dzUvdad3" target="_blank" rel="noopener">Open Coaching Compass ↗</a>`;
+    },
+  },
+
   cohorts: {
     title: "Cohorts",
     icon: "👥",

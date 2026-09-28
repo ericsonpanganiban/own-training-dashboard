@@ -1,16 +1,3 @@
-// ---------- Sample data (replace with real data source later) ----------
-const MY_CLASS = {
-  name: "Customer Care Onboarding — Batch 12",
-  trainees: [
-    { name: "Alex Rivera", progress: 82, status: "On track" },
-    { name: "Jamie Cruz", progress: 64, status: "On track" },
-    { name: "Sam Lee", progress: 41, status: "Needs support" },
-    { name: "Taylor Santos", progress: 95, status: "Ahead" },
-    { name: "Jordan Reyes", progress: 58, status: "On track" },
-  ],
-};
-
-
 // ---------- Settings (persisted per browser) ----------
 const DEFAULT_SETTINGS = { version: 2, theme: "system", wallpaper: "default", iconSize: 64, magnify: true, dockOrder: [], settingsPage: "appearance" };
 
@@ -98,34 +85,65 @@ const APPS = {
     title: "My Class",
     icon: '<path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12.5V17c3.3 2.3 8.7 2.3 12 0v-4.5"/><path d="M22 10v5"/>',
     color: "#3b82f6",
-    size: { w: 560, h: 440 },
+    size: { w: 760, h: 560 },
+    // Shows the cohort that is in training today (from Cohorts), with its schedule and trainees.
     render(el) {
-      const { trainees } = MY_CLASS;
-      const avg = Math.round(trainees.reduce((sum, t) => sum + t.progress, 0) / trainees.length);
-      const atRisk = trainees.filter((t) => t.status === "Needs support").length;
-      el.innerHTML = `
-        <h3>${escapeHtml(MY_CLASS.name)}</h3>
-        <div class="stats">
-          <div class="stat"><div class="value">${trainees.length}</div><div class="label">Trainees</div></div>
-          <div class="stat"><div class="value">${avg}%</div><div class="label">Avg. progress</div></div>
-          <div class="stat"><div class="value">${atRisk}</div><div class="label">Need support</div></div>
-        </div>
-        <table>
-          <thead><tr><th>Trainee</th><th style="width:40%">Progress</th><th>Status</th></tr></thead>
-          <tbody>
-            ${trainees
-              .map(
-                (t) => `
-              <tr>
-                <td>${escapeHtml(t.name)}</td>
-                <td><div class="progress"><span style="width:${t.progress}%"></span></div>
-                    <span class="muted" style="font-size:12px">${t.progress}%</span></td>
-                <td>${escapeHtml(t.status)}</td>
-              </tr>`
-              )
-              .join("")}
-          </tbody>
-        </table>`;
+      const cc = window.CoachingCompass;
+      if (!cc) {
+        el.innerHTML = `<p class="muted">My Class isn't available right now.</p>`;
+        return;
+      }
+      let picked = null;
+      const draw = () => {
+        const { cohorts, trainees } = cc.data();
+        const today = localToday();
+        const active = cohorts
+          .filter((c) => scheduleStatus(cohortSchedule(c.training_start_date), today) === "active")
+          .sort((a, b) => a.training_start_date.localeCompare(b.training_start_date));
+        if (!active.length) {
+          const next = cohorts
+            .filter((c) => scheduleStatus(cohortSchedule(c.training_start_date), today) === "upcoming")
+            .sort((a, b) => a.training_start_date.localeCompare(b.training_start_date))[0];
+          el.innerHTML = `
+            <h3>No active class</h3>
+            <p class="muted">A cohort shows here while it's in training, from its start date through its 20th training day.</p>
+            ${next ? `<p>Next up: <b>${escapeHtml(next.name)}</b>, starting ${escapeHtml(fmtDate(next.training_start_date))}.</p>` : `<p class="muted">Add a class with a start date in Cohorts.</p>`}`;
+          return;
+        }
+        const cohort = active.find((c) => c.id === picked) || active[0];
+        const s = cohortSchedule(cohort.training_start_date);
+        const p = scheduleProgress(s, today);
+        const byId = new Map(trainees.map((t) => [t.id, t]));
+        const members = (cohort.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
+        el.innerHTML = `
+          ${active.length > 1 ? `<div class="pill-row">${active.map((c) => `<button type="button" class="pill${c.id === cohort.id ? " on" : ""}" data-pick="${escapeHtml(c.id)}">${escapeHtml(c.name)}</button>`).join("")}</div>` : ""}
+          <div class="app-head">
+            <div>
+              <h3>${escapeHtml(cohort.name)}</h3>
+              <p class="muted sub-line">${escapeHtml(cohort.department || "No department")} · ${escapeHtml(cohort.team_lead ? `Led by ${cohort.team_lead}` : "No team lead")} · ${escapeHtml(fmtRange(s.start, s.end))}</p>
+            </div>
+            <span class="badge active">Active</span>
+          </div>
+          <div class="progress-block">
+            <div class="progress-line"><b>${escapeHtml(p.label)}</b><span class="muted">Day ${p.day} of ${TRAINING_DAYS}</span></div>
+            <div class="progress"><span style="width:${Math.round((p.day / TRAINING_DAYS) * 100)}%"></span></div>
+          </div>
+          ${timelineHtml(s, today)}
+          <h3>Trainees <span class="muted count">${members.length}</span></h3>
+          ${
+            members.length
+              ? `<table><thead><tr><th>Name</th><th>CRM name</th><th>Department</th><th>Nesting</th></tr></thead><tbody>${members
+                  .map((t) => `<tr><td>${escapeHtml(t.name)}</td><td>${escapeHtml(t.crm_name || "—")}</td><td>${escapeHtml(t.department || "—")}</td><td>${escapeHtml(NESTING_LABELS[t.nesting_status || ""] || "In nesting")}</td></tr>`)
+                  .join("")}</tbody></table>`
+              : `<p class="muted">No trainees in this cohort yet. Add them from Cohorts with + Add Trainee.</p>`
+          }`;
+        el.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => ((picked = b.dataset.pick), draw())));
+      };
+      draw();
+      APPS.myClass.unsubscribe = cc.onChange(draw);
+    },
+    onClose() {
+      APPS.myClass.unsubscribe?.();
     },
   },
 
@@ -159,6 +177,7 @@ const APPS = {
         el.innerHTML = `<p class="muted">Cohorts aren't available right now.</p>`;
         return;
       }
+      const openRows = new Set(); // cohorts expanded to show their schedule and trainees
       // Live C Side QA: pulled from the QA sheet when the window opens and on Refresh.
       const live = { status: "idle", result: null, error: null };
       const memberCrms = () => {
@@ -178,17 +197,15 @@ const APPS = {
 
       const draw = () => {
         const { cohorts, trainees } = cc.data();
-        const today = new Date().toISOString().slice(0, 10);
-        const statusOf = (c) => (!c.training_start_date ? "unscheduled" : c.training_start_date > today ? "upcoming" : "active");
-        const counts = { active: 0, upcoming: 0, unscheduled: 0 };
+        const today = localToday();
+        const statusOf = (c) => scheduleStatus(cohortSchedule(c.training_start_date), today);
+        const counts = { active: 0, upcoming: 0, completed: 0, unscheduled: 0 };
         cohorts.forEach((c) => counts[statusOf(c)]++);
         const rosterIds = new Set(trainees.map((t) => t.id));
         const assigned = new Set(cohorts.flatMap((c) => (c.trainee_ids || []).filter((id) => rosterIds.has(id))));
         const next = cohorts
           .filter((c) => statusOf(c) === "upcoming")
           .sort((a, b) => a.training_start_date.localeCompare(b.training_start_date))[0];
-        const sorted = [...cohorts].sort((a, b) => (b.training_start_date || "").localeCompare(a.training_start_date || ""));
-        const label = { active: "Active", upcoming: "Upcoming", unscheduled: "No start date" };
 
         // Nesting QA, speed and pass rate cover trainees assigned to a cohort.
         const members = trainees.filter((t) => assigned.has(t.id));
@@ -247,14 +264,16 @@ const APPS = {
         };
 
         el.innerHTML = `
+          <div class="overview-freeze">
           <div class="app-head">
             <h3>Overview</h3>
             <button type="button" class="btn-primary" data-add-class>+ Add Class</button>
           </div>
-          <div class="stats stats-4">
+          <div class="stats stats-5">
             <div class="stat"><div class="value">${cohorts.length}</div><div class="label">Cohorts</div></div>
             <div class="stat"><div class="value">${counts.active}</div><div class="label">Active</div></div>
             <div class="stat"><div class="value">${counts.upcoming}</div><div class="label">Upcoming${next ? ` · next ${escapeHtml(fmtDate(next.training_start_date))}` : ""}</div></div>
+            <div class="stat"><div class="value">${counts.completed}</div><div class="label">Completed</div></div>
             <div class="stat"><div class="value">${assigned.size}<span class="of"> / ${trainees.length}</span></div><div class="label">Trainees in a cohort</div></div>
           </div>
           <div class="metric-groups">
@@ -291,26 +310,26 @@ const APPS = {
               </div>
             </section>
           </div>
-          <h3>All cohorts</h3>
-          ${
-            sorted.length
-              ? `<div class="cohort-grid">${sorted
-                  .map(
-                    (c) => `
-                <article class="cohort-card">
-                  <h4>${escapeHtml(c.name)}</h4>
-                  <div class="meta">
-                    ${escapeHtml(c.department || "No department")} · ${escapeHtml(c.team_lead ? `Led by ${c.team_lead}` : "No team lead")}<br>
-                    ${c.training_start_date ? `Starts ${escapeHtml(fmtDate(c.training_start_date))}` : "Start date not set"} · ${(c.trainee_ids || []).length} trainee${(c.trainee_ids || []).length === 1 ? "" : "s"}
-                  </div>
-                  <span class="badge ${statusOf(c)}">${label[statusOf(c)]}</span>
-                </article>`
-                  )
-                  .join("")}</div>`
-              : `<p class="muted">No cohorts yet. Use Add Class to create your first one.</p>`
-          }`;
+          </div>
+          ${cohortSectionsHtml(cohorts, trainees, today, openRows)}`;
         el.querySelector("[data-add-class]").addEventListener("click", () => openAddClass(el));
         el.querySelector("[data-refresh-qa]").addEventListener("click", pull);
+        el.querySelectorAll("[data-toggle-row]").forEach((b) =>
+          b.addEventListener("click", () => {
+            const id = b.dataset.toggleRow;
+            if (openRows.has(id)) openRows.delete(id);
+            else openRows.add(id);
+            draw();
+          })
+        );
+        el.querySelectorAll("[data-add-trainee]").forEach((b) => b.addEventListener("click", () => openAddTrainee(el, b.dataset.addTrainee)));
+        el.querySelectorAll("[data-remove-trainee]").forEach((b) =>
+          b.addEventListener("click", () => {
+            const [cohortId, traineeId] = b.dataset.removeTrainee.split("|");
+            const c = cc.data().cohorts.find((x) => x.id === cohortId);
+            if (c) cc.setCohortTrainees(cohortId, (c.trainee_ids || []).filter((id) => id !== traineeId)).catch(() => {});
+          })
+        );
       };
       draw();
       pull();
@@ -488,6 +507,179 @@ async function shrinkPhoto(file) {
 
 const fmtDate = (d) =>
   new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+// ---------- Cohort schedule ----------
+// 20 training days: 5 days on, 2 days off, counted from the start date.
+// Weeks 1–2 are classroom training, weeks 3–4 are nesting.
+const TRAINING_DAYS = 20;
+const NESTING_LABELS = { "": "In nesting", passed: "Passed nesting", not_passed: "Did not pass" };
+
+const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const localToday = () => isoDate(new Date());
+
+function cohortSchedule(start) {
+  if (!start) return null;
+  const day0 = new Date(`${start}T00:00:00`);
+  if (isNaN(day0)) return null;
+  const plus = (n) => {
+    const d = new Date(day0);
+    d.setDate(d.getDate() + n);
+    return isoDate(d);
+  };
+  const weeks = [0, 1, 2, 3].map((i) => ({
+    phase: i < 2 ? "Classroom" : "Nesting",
+    label: i < 2 ? `Classroom week ${i + 1}` : `Nesting week ${i - 1}`,
+    start: plus(i * 7),
+    end: plus(i * 7 + 4),
+  }));
+  return { start, end: weeks[3].end, weeks };
+}
+
+function scheduleStatus(s, today) {
+  if (!s) return "unscheduled";
+  if (today < s.start) return "upcoming";
+  if (today > s.end) return "completed";
+  return "active";
+}
+
+// Where an active cohort is today: its week, and how many training days have happened.
+function scheduleProgress(s, today) {
+  let day = 0;
+  let current = null;
+  s.weeks.forEach((w) => {
+    for (let d = new Date(`${w.start}T00:00:00`); isoDate(d) <= w.end; d.setDate(d.getDate() + 1)) if (isoDate(d) <= today) day++;
+    if (today >= w.start && today <= w.end) current = w;
+  });
+  if (current) return { day, label: current.label };
+  const next = s.weeks.find((w) => w.start > today);
+  return { day, label: next ? `Day off · ${next.label} starts ${fmtShort(next.start)}` : "Training complete" };
+}
+
+const fmtShort = (d) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const fmtRange = (a, b) => `${fmtShort(a)} – ${fmtShort(b)}, ${new Date(`${b}T00:00:00`).getFullYear()}`;
+
+function timelineHtml(s, today) {
+  return `<ol class="timeline">${s.weeks
+    .map((w) => {
+      const state = today > w.end ? "done" : today >= w.start ? "now" : "later";
+      return `<li class="tl-${state} tl-${w.phase.toLowerCase()}"><span class="tl-label">${w.label}</span><span class="tl-dates">${fmtShort(w.start)} – ${fmtShort(w.end)}</span></li>`;
+    })
+    .join("")}</ol>`;
+}
+
+function cohortSectionsHtml(cohorts, trainees, today, openRows) {
+  if (!cohorts.length) return `<p class="muted">No cohorts yet. Use Add Class to create your first one.</p>`;
+  const byId = new Map(trainees.map((t) => [t.id, t]));
+  const groups = [
+    { key: "active", title: "Active", sort: (a, b) => a.training_start_date.localeCompare(b.training_start_date) },
+    { key: "upcoming", title: "Upcoming", sort: (a, b) => a.training_start_date.localeCompare(b.training_start_date) },
+    { key: "completed", title: "Completed", sort: (a, b) => b.training_start_date.localeCompare(a.training_start_date) },
+    { key: "unscheduled", title: "No start date", sort: (a, b) => a.name.localeCompare(b.name) },
+  ];
+  const row = (c) => {
+    const s = cohortSchedule(c.training_start_date);
+    const status = scheduleStatus(s, today);
+    const members = (c.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
+    const open = openRows.has(c.id);
+    const where =
+      status === "active" ? (() => { const p = scheduleProgress(s, today); return `${p.label} · Day ${p.day} of ${TRAINING_DAYS}`; })()
+      : status === "upcoming" ? `Starts ${fmtDate(s.start)}`
+      : status === "completed" ? `Finished ${fmtDate(s.end)}`
+      : "Set a start date to schedule it";
+    return `
+      <li class="cohort-row${open ? " open" : ""}">
+        <div class="row-main">
+          <button type="button" class="row-toggle" data-toggle-row="${escapeHtml(c.id)}" aria-expanded="${open}">
+            <span class="chev" aria-hidden="true">›</span>
+            <span><b>${escapeHtml(c.name)}</b><small>${escapeHtml(c.department || "No department")} · ${escapeHtml(c.team_lead || "No team lead")}</small></span>
+          </button>
+          <span class="row-cell">${s ? escapeHtml(fmtRange(s.start, s.end)) : "—"}</span>
+          <span class="row-cell muted">${escapeHtml(where)}</span>
+          <span class="row-cell">${members.length} trainee${members.length === 1 ? "" : "s"}</span>
+          <button type="button" class="btn btn-small" data-add-trainee="${escapeHtml(c.id)}">+ Add Trainee</button>
+        </div>
+        ${
+          open
+            ? `<div class="row-detail">
+                ${s ? `<h5>Schedule · 20 training days</h5>${timelineHtml(s, today)}` : `<p class="muted">No start date yet, so there's no schedule.</p>`}
+                <h5>Trainees</h5>
+                ${
+                  members.length
+                    ? `<ul class="member-list">${members
+                        .map((t) => `<li><span>${escapeHtml(t.name)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span><button type="button" class="icon-btn" title="Remove from cohort" aria-label="Remove ${escapeHtml(t.name)} from ${escapeHtml(c.name)}" data-remove-trainee="${escapeHtml(c.id)}|${escapeHtml(t.id)}">×</button></li>`)
+                        .join("")}</ul>`
+                    : `<p class="muted">No trainees yet. Use + Add Trainee.</p>`
+                }
+              </div>`
+            : ""
+        }
+      </li>`;
+  };
+  return groups
+    .map((g) => {
+      const list = cohorts.filter((c) => scheduleStatus(cohortSchedule(c.training_start_date), today) === g.key).sort(g.sort);
+      if (!list.length && g.key === "unscheduled") return "";
+      return `<section class="cohort-section">
+        <h4>${g.title} <span class="muted">${list.length}</span></h4>
+        ${list.length ? `<ul class="cohort-list">${list.map(row).join("")}</ul>` : `<p class="muted empty">No ${g.title.toLowerCase()} cohorts.</p>`}
+      </section>`;
+    })
+    .join("");
+}
+
+// "+ Add Trainee" sheet: pick trainees from Settings → Roster. A trainee can be in only one cohort,
+// so anyone already in a cohort is shown but can't be picked.
+function openAddTrainee(content, cohortId) {
+  const win = content.closest(".window");
+  if (win.querySelector(".sheet")) return;
+  const cc = window.CoachingCompass;
+  const { cohorts, trainees } = cc.data();
+  const cohort = cohorts.find((c) => c.id === cohortId);
+  if (!cohort) return;
+  const owner = new Map();
+  cohorts.forEach((c) => (c.trainee_ids || []).forEach((id) => owner.set(id, c)));
+  const candidates = trainees.filter((t) => owner.get(t.id)?.id !== cohort.id);
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML = `
+    <form class="sheet-card" novalidate>
+      <h3>Add trainees to ${escapeHtml(cohort.name)}</h3>
+      ${
+        candidates.length
+          ? `<div class="pick-list">${candidates
+              .map((t) => {
+                const taken = owner.get(t.id);
+                return `<label class="pick${taken ? " taken" : ""}"><input type="checkbox" value="${escapeHtml(t.id)}"${taken ? " disabled" : ""} />
+                  <span>${escapeHtml(t.name)}<small>${taken ? `Already in ${escapeHtml(taken.name)}` : escapeHtml(t.department || "No department")}</small></span></label>`;
+              })
+              .join("")}</div>`
+          : `<p class="muted">${trainees.length ? "Everyone on the roster is already in this cohort." : "Add trainees in Settings → Roster first."}</p>`
+      }
+      <p class="sheet-status" id="at-status" role="status"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn" data-cancel>Cancel</button>
+        <button type="submit" class="btn-primary">Add</button>
+      </div>
+    </form>`;
+  win.appendChild(sheet);
+  const close = () => sheet.remove();
+  const status = sheet.querySelector("#at-status");
+  sheet.querySelector("[data-cancel]").addEventListener("click", close);
+  sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  sheet.querySelector("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const picked = [...sheet.querySelectorAll("input:checked")].map((i) => i.value);
+    if (!picked.length) {
+      status.textContent = "Pick at least one trainee.";
+      return;
+    }
+    status.textContent = "Saving…";
+    cc.setCohortTrainees(cohort.id, [...(cohort.trainee_ids || []), ...picked])
+      .then(close)
+      .catch((err) => (status.textContent = err?.message || "Couldn't add those trainees. Try again."));
+  });
+  sheet.querySelector("input:not([disabled]), button")?.focus();
+}
 
 // "Add Class" sheet for the Cohorts app. Department and Team Lead lists come from Settings → Roster.
 function openAddClass(content) {

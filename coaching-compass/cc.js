@@ -3434,13 +3434,32 @@
     dbFn.doc("cohorts/" + cohort.id).update({ trainee_ids: newIds }).catch(function(){ /* leave it listed; the viewer can retry */ });
   }
 
+  // A trainee belongs to at most one cohort. Returns traineeId -> cohort for every other cohort.
+  function cohortOwners(exceptCohortId){
+    var owners = {};
+    state.cohorts.forEach(function(c){
+      if (c.id === exceptCohortId) return;
+      (c.trainee_ids || []).forEach(function(id){ owners[id] = c; });
+    });
+    return owners;
+  }
+  function conflictMessage(ids, exceptCohortId){
+    var owners = cohortOwners(exceptCohortId);
+    var clash = ids.filter(function(id){ return owners[id]; });
+    if (!clash.length) return null;
+    return clash.map(function(id){
+      var t = state.trainees.filter(function(x){ return x.id === id; })[0];
+      return (t ? t.name : "A trainee") + " is already in " + owners[id].name;
+    }).join("; ") + ". A trainee can only be in one cohort.";
+  }
+
   function openAddTraineeToCohortModal(cohort){
-    var assigned = cohort.trainee_ids || [];
-    var available = state.trainees.filter(function(t){ return assigned.indexOf(t.id) === -1; });
+    var owners = cohortOwners(null);
+    var available = state.trainees.filter(function(t){ return !owners[t.id]; });
 
     openModal(
       "<h3 class=\"modal-title\">Add trainee to " + esc(cohort.name) + "</h3>" +
-      selectFieldById("act-trainee", "Trainee", available, state.trainees.length ? "Everyone in the Roster is already in this cohort" : "Add a trainee under Settings → Roster → Trainee first") +
+      selectFieldById("act-trainee", "Trainee", available, state.trainees.length ? "Every trainee in the Roster is already in a cohort" : "Add a trainee under Settings → Roster → Trainee first") +
       "<div class=\"modal-actions\">" +
         "<button class=\"ghost small\" id=\"cancelAddCohortTraineeBtn\" type=\"button\">Cancel</button>" +
         "<button class=\"primary small\" id=\"saveAddCohortTraineeBtn\" type=\"button\">Add</button>" +
@@ -3458,7 +3477,12 @@
       if (statusEl){ statusEl.textContent = "Choose a trainee."; statusEl.className = "save-status err"; }
       return;
     }
-    var newIds = (cohort.trainee_ids || []).concat([traineeId]);
+    var clash = conflictMessage([traineeId], cohort.id);
+    if (clash){
+      if (statusEl){ statusEl.textContent = clash; statusEl.className = "save-status err"; }
+      return;
+    }
+    var newIds = (cohort.trainee_ids || []).filter(function(id){ return id !== traineeId; }).concat([traineeId]);
     if (!dbFn){
       state.cohorts = state.cohorts.map(function(c){ return c.id === cohort.id ? Object.assign({}, c, { trainee_ids: newIds }) : c; });
       closeModal();
@@ -3478,10 +3502,12 @@
   function cohortModalFields(cohort){
     cohort = cohort || { name: "", department: "", team_lead: "", training_start_date: "", trainee_ids: [] };
     var selectedIds = cohort.trainee_ids || [];
+    var owners = cohortOwners(cohort.id);
     var membersHtml = state.trainees.length
       ? "<div class=\"cohort-members\">" + state.trainees.map(function(t){
           var checked = selectedIds.indexOf(t.id) !== -1 ? " checked" : "";
-          return "<label class=\"cohort-member-row\"><input type=\"checkbox\" value=\"" + esc(t.id) + "\" class=\"cohort-member-check\"" + checked + "> " + esc(t.name) + "</label>";
+          var taken = owners[t.id];
+          return "<label class=\"cohort-member-row\"" + (taken ? " style=\"opacity:.55;\"" : "") + "><input type=\"checkbox\" value=\"" + esc(t.id) + "\" class=\"cohort-member-check\"" + checked + (taken ? " disabled" : "") + "> " + esc(t.name) + (taken ? " <span class=\"hint\" style=\"margin:0;\">— in " + esc(taken.name) + "</span>" : "") + "</label>";
         }).join("") + "</div>"
       : "<p class=\"hint\">No trainees added yet — add trainees under Settings → Roster → Trainee first, or create the cohort now and assign members later.</p>";
 
@@ -3532,6 +3558,11 @@
     var statusEl = document.getElementById("cohortSaveStatus");
     if (!name){
       if (statusEl){ statusEl.textContent = "Name is required."; statusEl.className = "save-status err"; }
+      return;
+    }
+    var clash = conflictMessage(traineeIds, editId || null);
+    if (clash){
+      if (statusEl){ statusEl.textContent = clash; statusEl.className = "save-status err"; }
       return;
     }
     var record = { name: name, department: department, team_lead: teamLead, training_start_date: startDate, trainee_ids: traineeIds };
@@ -4062,6 +4093,20 @@
         return Promise.resolve();
       }
       return dbFn.collection("cohorts").add(record);
+    },
+    // Replace a cohort's trainees. Rejects when any trainee already belongs to another cohort.
+    setCohortTrainees: function(cohortId, ids){
+      var cohort = state.cohorts.filter(function(c){ return c.id === cohortId; })[0];
+      if (!cohort) return Promise.reject({ message: "That cohort no longer exists." });
+      var unique = ids.filter(function(id, i){ return ids.indexOf(id) === i; });
+      var clash = conflictMessage(unique, cohortId);
+      if (clash) return Promise.reject({ message: clash });
+      if (!dbFn || String(cohortId).indexOf("local-") === 0){
+        state.cohorts = state.cohorts.map(function(c){ return c.id === cohortId ? Object.assign({}, c, { trainee_ids: unique }) : c; });
+        renderAll();
+        return Promise.resolve();
+      }
+      return dbFn.doc("cohorts/" + cohortId).update({ trainee_ids: unique });
     },
     mountRoster: function(host){
       rosterHost = host;

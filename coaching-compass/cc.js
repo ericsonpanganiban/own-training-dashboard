@@ -4056,7 +4056,6 @@
     data: function(){
       return { trainees: copy(state.trainees), cohorts: copy(state.cohorts), teamLeads: copy(state.teamLeads), departments: copy(state.departments) };
     },
-    notify: function(){ changeListeners.forEach(function(fn){ try { fn(); } catch (e){} }); },
     onChange: function(fn){
       changeListeners.push(fn);
       return function(){ changeListeners = changeListeners.filter(function(f){ return f !== fn; }); };

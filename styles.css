@@ -663,9 +663,6 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 /* Cohort details card */
 .app-body .cohort-detail { display: grid; gap: 8px; font-size: 14px; }
 .app-body .cd-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 16px; }
-.app-body .cd-people { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
-.app-body .cd-people > span:not(.chip) { color: var(--muted); }
-.app-body .cd-people .chip + span:not(.chip) { margin-left: 8px; }
 .chip {
   display: inline-flex;
   align-items: center;

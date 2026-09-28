@@ -1,13 +1,12 @@
 // ---------- Settings (persisted per browser) ----------
-const DEFAULT_SETTINGS = { version: 2, theme: "system", wallpaper: "default", iconSize: 64, magnify: true, dockOrder: [], settingsPage: "appearance",
-  profile: { name: "", days: "Mon-Fri", start: "07:00", end: "17:00" } };
+const DEFAULT_SETTINGS = { version: 2, theme: "system", wallpaper: "default", iconSize: 64, magnify: true, dockOrder: [], settingsPage: "appearance" };
 
 function loadSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem("trainer.settings") || "{}");
     // Version 2 made dock icons 8px bigger; carry a saved size over.
     if (saved.iconSize && !saved.version) saved.iconSize += 8;
-    return { ...DEFAULT_SETTINGS, ...saved, profile: { ...DEFAULT_SETTINGS.profile, ...saved.profile }, version: DEFAULT_SETTINGS.version };
+    return { ...DEFAULT_SETTINGS, ...saved, version: DEFAULT_SETTINGS.version };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -47,7 +46,6 @@ const APPS = {
     title: "Settings",
     icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
     color: "#64748b",
-    size: { w: 780, h: 540 },
     custom: true,
     render(el) {
       el.classList.add("flush");
@@ -86,7 +84,6 @@ const APPS = {
     title: "My Class",
     icon: '<path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12.5V17c3.3 2.3 8.7 2.3 12 0v-4.5"/><path d="M22 10v5"/>',
     color: "#3b82f6",
-    size: { w: 760, h: 560 },
     // Shows the cohort that is in training today (from Cohorts), with its schedule and trainees.
     render(el) {
       const cc = window.CoachingCompass;
@@ -146,7 +143,6 @@ const APPS = {
     title: "Coaching Compass",
     icon: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
     color: "#10b981",
-    size: { w: 1040, h: 680 },
     custom: true,
     // Coaching Compass boots once with the page (coaching-compass/), so its state
     // survives closing the window; the window only borrows its root element.
@@ -163,7 +159,6 @@ const APPS = {
     title: "Cohorts",
     icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21.5 20a6.5 6.5 0 0 0-4-6"/>',
     color: "#f59e0b",
-    size: { w: 920, h: 640 },
     // Cohorts, departments and team leads come from the shared roster (Settings → Roster),
     // the same records Coaching Compass uses.
     render(el) {
@@ -455,35 +450,6 @@ const SETTINGS_PAGES = [
     },
   },
   {
-    id: "profile",
-    title: "Profile",
-    color: "#8b5cf6",
-    icon: '<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8"/>',
-    // You're the trainer on every cohort; this is what the Trainer line on a cohort shows.
-    render(slot) {
-      const p = settings.profile;
-      slot.innerHTML = `
-        <div class="settings-page app-body">
-          <h3>Profile</h3>
-          <p class="muted">Shown as the Trainer on every cohort.</p>
-          <div class="form-row"><label for="pf-name">Your name</label><input id="pf-name" type="text" placeholder="e.g. Ericson" /></div>
-          <div class="form-row"><label for="pf-days">Training days</label><input id="pf-days" type="text" placeholder="e.g. Mon-Fri" /></div>
-          <div class="form-row"><label for="pf-start">Shift starts</label><input id="pf-start" type="time" /></div>
-          <div class="form-row"><label for="pf-end">Shift ends</label><input id="pf-end" type="time" /></div>
-        </div>`;
-      const fields = { name: "#pf-name", days: "#pf-days", start: "#pf-start", end: "#pf-end" };
-      Object.entries(fields).forEach(([key, sel]) => {
-        const input = slot.querySelector(sel);
-        input.value = p[key] || "";
-        input.addEventListener("input", () => {
-          settings.profile[key] = input.value.trim();
-          saveSettings();
-          window.CoachingCompass?.notify?.();
-        });
-      });
-    },
-  },
-  {
     id: "roster",
     title: "Roster",
     color: "#10b981",
@@ -602,24 +568,11 @@ function timelineHtml(s, today) {
   </ul>`;
 }
 
-const fmtTime = (hhmm) => {
-  if (!hhmm) return "";
-  const [h, m] = hhmm.split(":").map(Number);
-  return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-};
-
-// Cohort details: team lead and trainer, the schedule, the endorsement date in bold,
-// and the trainee count. The cohort's name and department sit in the row above it.
+// Cohort details: the schedule, the endorsement date in bold, and the trainee count.
+// Name, department and team lead are already in the row above it.
 function cohortDetailHtml(c, s, memberCount) {
-  const p = settings.profile;
-  const shift = [p.days, p.start && p.end ? `${fmtTime(p.start)} – ${fmtTime(p.end)}` : ""].filter(Boolean).join(" · ");
-  const trainer = [p.name || "You", shift].filter(Boolean).join(" · ");
   return `
     <div class="cohort-detail">
-      <div class="cd-people">
-        <span>Team Lead:</span><span class="chip">${escapeHtml(c.team_lead || "Not set")}</span>
-        <span>Trainer:</span><span class="chip">${escapeHtml(trainer)}</span>
-      </div>
       ${
         s
           ? `<p class="cd-lines">Classroom Training: ${fmtShort(s.classroom.start)} – ${fmtShort(s.classroom.end)}<br>Nesting: ${fmtShort(s.nesting.start)} – ${fmtShort(s.nesting.end)}</p>
@@ -833,13 +786,15 @@ function openApp(appId) {
   win.querySelector(".title").textContent = app.title;
 
   const bounds = desktop.getBoundingClientRect();
-  const w = Math.min(app.size.w, bounds.width - 16);
-  const h = Math.min(app.size.h, bounds.height - settings.iconSize - 70);
-  const offset = (cascade++ % 6) * 28;
-  win.style.width = `${w}px`;
-  win.style.height = `${h}px`;
-  win.style.left = `${Math.max(8, (bounds.width - w) / 2 - 80 + offset)}px`;
-  win.style.top = `${Math.max(8, 40 + offset)}px`;
+  // Windows open at 80% of the free desktop (the area above the dock), centred.
+  const dockTop = dock.getBoundingClientRect().top - bounds.top;
+  const w = Math.max(320, Math.round(bounds.width * 0.8));
+  const h = Math.max(220, Math.round(dockTop * 0.8));
+  const offset = (cascade++ % 4) * 24;
+  win.style.width = `${Math.min(w, bounds.width - 16)}px`;
+  win.style.height = `${Math.min(h, dockTop - 16)}px`;
+  win.style.left = `${Math.max(8, (bounds.width - w) / 2 + offset)}px`;
+  win.style.top = `${Math.max(8, (dockTop - h) / 2 + offset)}px`;
 
   const content = win.querySelector(".content");
   if (!app.custom) content.classList.add("app-body");

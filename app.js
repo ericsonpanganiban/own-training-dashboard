@@ -314,13 +314,11 @@ const APPS = {
           })
         );
         el.querySelectorAll("[data-add-trainee]").forEach((b) => b.addEventListener("click", () => openAddTrainee(el, b.dataset.addTrainee)));
-        el.querySelectorAll("[data-toggle-active]").forEach((box) =>
-          box.addEventListener("change", () => {
-            box.disabled = true;
-            cc.updateTrainee(box.dataset.toggleActive, { cohort_status: box.checked ? "active" : "inactive" }).catch(() => {
-              box.checked = !box.checked;
-              box.disabled = false;
-            });
+        el.querySelectorAll("[data-toggle-active]").forEach((btn) =>
+          btn.addEventListener("click", () => {
+            btn.disabled = true;
+            const makeActive = btn.getAttribute("aria-pressed") !== "true";
+            cc.updateTrainee(btn.dataset.toggleActive, { cohort_status: makeActive ? "active" : "inactive" }).catch(() => (btn.disabled = false));
           })
         );
         el.querySelectorAll("[data-trainee-menu]").forEach((b) =>
@@ -614,12 +612,8 @@ function traineeGroupsHtml(c, members) {
     return `<li class="${active ? "" : "is-inactive"}">
       <span>${escapeHtml(t.name)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span>
       <span class="member-actions">
-        <label class="switch" title="${active ? "Active — click to set Inactive" : "Inactive — click to set Active"}">
-          <input type="checkbox" data-toggle-active="${escapeHtml(t.id)}"${active ? " checked" : ""} aria-label="${escapeHtml(t.name)} is ${active ? "active" : "inactive"}" />
-          <span class="switch-track" aria-hidden="true"></span>
-          <span class="switch-text">${active ? "Active" : "Inactive"}</span>
-        </label>
-        <button type="button" class="icon-btn kebab" title="More options" aria-label="Options for ${escapeHtml(t.name)}" data-trainee-menu="${escapeHtml(c.id)}|${escapeHtml(t.id)}">⋮</button>
+        <button type="button" class="status-pill${active ? " on" : ""}" data-toggle-active="${escapeHtml(t.id)}" aria-pressed="${active}" title="${active ? "Click to set Inactive" : "Click to set Active"}">${active ? "Active" : "Inactive"}</button>
+        <button type="button" class="square-btn kebab" title="More options" aria-label="Options for ${escapeHtml(t.name)}" data-trainee-menu="${escapeHtml(c.id)}|${escapeHtml(t.id)}">⋮</button>
       </span>
     </li>`;
   };

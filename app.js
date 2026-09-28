@@ -150,7 +150,7 @@ const APPS = {
     title: "Cohorts",
     icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21.5 20a6.5 6.5 0 0 0-4-6"/>',
     color: "#f59e0b",
-    size: { w: 720, h: 520 },
+    size: { w: 920, h: 640 },
     // Cohorts, departments and team leads come from the shared roster (Settings → Roster),
     // the same records Coaching Compass uses.
     render(el) {
@@ -173,6 +173,30 @@ const APPS = {
         const sorted = [...cohorts].sort((a, b) => (b.training_start_date || "").localeCompare(a.training_start_date || ""));
         const label = { active: "Active", upcoming: "Upcoming", unscheduled: "No start date" };
 
+        // Nesting QA, speed and pass rate cover trainees assigned to a cohort.
+        const members = trainees.filter((t) => assigned.has(t.id));
+        const qa = cc.qaSummary(members.map((t) => t.crm_name).filter(Boolean));
+        const sheets = cc.sheets();
+        const pct = (n, d) => `${Math.round((n / d) * 100)}%`;
+        const cQa = !members.length
+          ? { value: "—", hint: "Add trainees to a cohort" }
+          : !sheets.c_side?.url
+            ? { value: "—", hint: "Not set up · Settings → QA Sheets" }
+            : !qa.loaded
+              ? { value: "…", hint: "Loading saved weeks" }
+              : qa.total
+                ? { value: pct(qa.pass, qa.total), hint: `${Math.round(qa.pass * 100) / 100} of ${qa.total} audits passed · ${qa.weeks} week${qa.weeks === 1 ? "" : "s"}` }
+                : { value: "—", hint: "No saved weeks yet · Coaching Compass" };
+        const cpQa = sheets.cp_side?.url
+          ? { value: "—", hint: "No CP side audits pulled yet" }
+          : { value: "—", hint: "Not set up · Settings → QA Sheets" };
+        const passed = members.filter((t) => t.nesting_status === "passed").length;
+        const passRate = members.length
+          ? { value: pct(passed, members.length), hint: `${passed} of ${members.length} trainees passed nesting` }
+          : { value: "—", hint: "Add trainees to a cohort" };
+        const metric = (label, m) =>
+          `<div class="stat"><div class="value">${m.value}</div><div class="label">${label}</div><div class="hint">${escapeHtml(m.hint)}</div></div>`;
+
         el.innerHTML = `
           <div class="app-head">
             <h3>Overview</h3>
@@ -183,6 +207,26 @@ const APPS = {
             <div class="stat"><div class="value">${counts.active}</div><div class="label">Active</div></div>
             <div class="stat"><div class="value">${counts.upcoming}</div><div class="label">Upcoming${next ? ` · next ${escapeHtml(fmtDate(next.training_start_date))}` : ""}</div></div>
             <div class="stat"><div class="value">${assigned.size}<span class="of"> / ${trainees.length}</span></div><div class="label">Trainees in a cohort</div></div>
+          </div>
+          <div class="metric-groups">
+            <section class="metric-group">
+              <h4>Nesting QA</h4>
+              <div class="metric-pair">
+                ${metric("Nesting QA Score (C Side)", cQa)}
+                ${metric("Nesting QA Score (CP Side)", cpQa)}
+              </div>
+            </section>
+            <section class="metric-group">
+              <h4>Nesting Speed</h4>
+              <div class="metric-pair">
+                ${metric("Nesting Speed (CP Side)", { value: "—", hint: "No data yet" })}
+                ${metric("Nesting Speed (C Side)", { value: "—", hint: "No data yet" })}
+              </div>
+            </section>
+            <section class="metric-group">
+              <h4>Pass rate</h4>
+              <div class="metric-pair single">${metric("Passed nesting", passRate)}</div>
+            </section>
           </div>
           <h3>All cohorts</h3>
           ${
@@ -342,6 +386,19 @@ const SETTINGS_PAGES = [
       const host = slot.querySelector(".cc-ui-scroll");
       if (window.CoachingCompass) window.CoachingCompass.mountRoster(host);
       else host.innerHTML = `<p class="muted">The roster isn't available right now.</p>`;
+    },
+  },
+  {
+    id: "qa-sheets",
+    title: "QA Sheets",
+    color: "#f59e0b",
+    icon: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M9 9v12"/>',
+    // Where QA audits are read from (C side and CP side); used by Coaching Compass and Cohorts.
+    render(slot) {
+      slot.innerHTML = `<div class="settings-page cc-ui"><div class="cc-ui-scroll"></div></div>`;
+      const host = slot.querySelector(".cc-ui-scroll");
+      if (window.CoachingCompass) window.CoachingCompass.mountQaSheets(host);
+      else host.innerHTML = `<p class="muted">QA sheet settings aren't available right now.</p>`;
     },
   },
 ];

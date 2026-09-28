@@ -42,7 +42,6 @@
     settings: { eyebrow: "Settings", title: "Settings", sub: "Configure where Coaching Compass reads its QA audits from." }
   };
   var RESOURCE_TABS = [
-    { key: "resources", label: "Resources" },
     { key: "knowledge_base", label: "Knowledge Base" },
     { key: "appearance", label: "Appearance" }
   ];
@@ -83,7 +82,7 @@
 
   var state = {
     section: "home",
-    resourceTab: "resources",
+    resourceTab: "knowledge_base",
     dataTab: "pull",
     learnings: null,
     learningsError: false,
@@ -393,7 +392,7 @@
     state.section = snap.section;
     state.selectedTrainee = snap.selectedTrainee || null;
     state.selectedWeek = snap.selectedWeek || null;
-    state.resourceTab = snap.resourceTab || "resources";
+    state.resourceTab = snap.resourceTab || "knowledge_base";
     state.rosterTab = snap.rosterTab || "trainee";
     state.dataTab = snap.dataTab || "pull";
 
@@ -442,10 +441,10 @@
       crumbs.push({ label: rootLabel, action: function(){ setDataTab("pull"); } });
       crumbs.push({ label: "Calibration Log" });
     } else if (state.section === "settings"){
-      var onRoot = state.resourceTab === "resources";
-      crumbs.push({ label: rootLabel, action: onRoot ? null : function(){ state.resourceTab = "resources"; renderSettings(); renderBreadcrumb(); } });
+      var onRoot = state.resourceTab === "knowledge_base";
+      crumbs.push({ label: rootLabel, action: onRoot ? null : function(){ state.resourceTab = "knowledge_base"; renderSettings(); renderBreadcrumb(); } });
       var rt = RESOURCE_TABS.filter(function(t){ return t.key === state.resourceTab; })[0];
-      if (rt && state.resourceTab !== "resources"){
+      if (rt && state.resourceTab !== "knowledge_base"){
         var onRosterRoot = state.resourceTab === "roster" && state.rosterTab === "trainee";
         var isRoster = state.resourceTab === "roster";
         crumbs.push({ label: rt.label, action: (isRoster && !onRosterRoot) ? function(){ state.rosterTab = "trainee"; renderRosterPanel(); renderBreadcrumb(); } : null });
@@ -1006,7 +1005,7 @@
   function fetchForRequest(req){
     var fileId = extractDriveFileId(state.settings.c_side.url);
     function failed(msg){ req.status = "fetch_failed"; req.error = msg; renderDataRequest(); }
-    if (!fileId) return failed("No C side QA sheet is set up yet (Settings → Resources).");
+    if (!fileId) return failed("No C side QA sheet is set up yet (Trainer Desk → Settings → QA Sheets).");
     if (!mcpFn) return failed("Google Drive isn't available in this view.");
 
     function useTables(tables){
@@ -1154,7 +1153,7 @@
 
   function partialSourceNote(){
     return "<div class=\"req-warn\" style=\"margin:0 0 14px;\"><b>This pull may be incomplete.</b> The audits tab isn't the QA sheet's first tab, so Google Drive only hands back the top rows of each tab &mdash; recent weeks come through, older ones get cut off. " +
-      "Fix it once: move <b>Nesting audits - Feedback</b> to be the first tab of the sheet, or point Settings → Resources at a sheet whose first tab is the audits.</div>";
+      "Fix it once: move <b>Nesting audits - Feedback</b> to be the first tab of the sheet, or point Settings → QA Sheets at a sheet whose first tab is the audits.</div>";
   }
 
   function renderRequestResult(){
@@ -1194,7 +1193,7 @@
       actions = "<button class=\"primary small\" id=\"reqAnalyzePasteBtn\" type=\"button\">Analyze pasted rows</button>";
     } else if (r.status === "no_rows"){
       body = r.error === "no_tables"
-        ? "<p style=\"margin:0 0 6px;\">Couldn't find the Week Number / CRM Name / Score columns in the QA sheet.</p><p class=\"hint\" style=\"margin:0;\">Check the sheet link under Settings → Resources.</p>"
+        ? "<p style=\"margin:0 0 6px;\">Couldn't find the Week Number / CRM Name / Score columns in the QA sheet.</p><p class=\"hint\" style=\"margin:0;\">Check the sheet link under Settings → QA Sheets.</p>"
         : "<p style=\"margin:0 0 6px;\">No audits found for Week " + esc(c.week) + " / " + esc(c.targetLabel) + ".</p><p class=\"hint\" style=\"margin:0;\">Double-check the week number, and that the CRM name" + (c.mode === "cohort" ? "s" : "") + " on the roster match the sheet exactly.</p>";
       if (r.source === "partial") body = partialSourceNote() + body;
       if (r.fetchedText) actions = "<button class=\"link-btn\" id=\"reqRawBtn\" type=\"button\">View raw sheet export</button>";
@@ -1742,13 +1741,16 @@
 
   function renderSettings(){
     renderResourceTabs();
-    if (state.resourceTab === "knowledge_base") renderKnowledgeBasePanel();
-    else if (state.resourceTab === "appearance") renderAppearancePanel();
-    else renderQaSheetPanel();
+    if (state.resourceTab === "appearance") renderAppearancePanel();
+    else renderKnowledgeBasePanel();
     renderBreadcrumb();
   }
 
+  // ---- QA sheet sources (shown in Trainer Desk → Settings → QA Sheets) ----
+  var qaSheetHost = null;
   function renderQaSheetPanel(){
+    if (!qaSheetHost || !qaSheetHost.isConnected) return;
+    if (qaSheetHost.contains(document.activeElement)) return; // don't wipe a field mid-edit
     var s = state.settings;
     var sidesHtml = SHEET_SIDES.map(function(side){
       var v = s[side.key] || { url: "", tab_name: "" };
@@ -1775,7 +1777,7 @@
       "</div>";
     }).join("");
 
-    el.settingsBody.innerHTML =
+    qaSheetHost.innerHTML =
       "<div class=\"card\">" +
         "<div class=\"resource-head\"><span class=\"r-icon\">" + ICONS.sheet + "</span><h2>QA Sheet</h2></div>" +
         "<p class=\"hint\">Point Coaching Compass at the Google Sheets your QA audits live in. Nothing is fetched automatically yet — this just tells the tool where to look.</p>" +
@@ -2025,9 +2027,9 @@
       rosterHtml = "<p class=\"hint\">No trainees added yet.</p>";
     } else {
       rosterHtml =
-        "<div class=\"roster-table-wrap\"><table class=\"preview\"><thead><tr><th>Name</th><th>CRM name</th><th>Team lead</th><th>Department</th><th></th></tr></thead><tbody>" +
+        "<div class=\"roster-table-wrap\"><table class=\"preview\"><thead><tr><th>Name</th><th>CRM name</th><th>Team lead</th><th>Department</th><th>Nesting</th><th></th></tr></thead><tbody>" +
           state.trainees.map(function(t){
-            return "<tr><td>" + esc(t.name) + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td>" +
+            return "<tr><td>" + esc(t.name) + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td><td>" + esc(nestingLabel(t.nesting_status)) + "</td>" +
               "<td class=\"kebab-cell\"><button class=\"kebab-btn\" data-kebab-trainee=\"" + esc(t.id) + "\" title=\"More options\" type=\"button\">⋮</button></td></tr>";
           }).join("") +
         "</tbody></table></div>";
@@ -2056,12 +2058,25 @@
     });
   }
 
+  var NESTING_STATUSES = [
+    { key: "", label: "In nesting" },
+    { key: "passed", label: "Passed nesting" },
+    { key: "not_passed", label: "Did not pass" }
+  ];
+  function nestingLabel(key){
+    var s = NESTING_STATUSES.filter(function(x){ return x.key === (key || ""); })[0];
+    return s ? s.label : NESTING_STATUSES[0].label;
+  }
+
   function traineeModalFields(t){
-    t = t || { name: "", crm_name: "", team_lead: "", department: "" };
+    t = t || { name: "", crm_name: "", team_lead: "", department: "", nesting_status: "" };
     return "<div class=\"field\"><label for=\"nt-name\">Name</label><input type=\"text\" id=\"nt-name\" placeholder=\"Jordan Diaz\" value=\"" + esc(t.name) + "\"></div>" +
       "<div class=\"field\"><label for=\"nt-crm\">CRM name</label><input type=\"text\" id=\"nt-crm\" placeholder=\"As it appears in the QA sheet\" value=\"" + esc(t.crm_name) + "\"></div>" +
       selectField("nt-lead", "Team lead", state.teamLeads, "Add a Team Lead first", t.team_lead) +
-      selectField("nt-dept", "Department", state.departments, "Add a Department first", t.department);
+      selectField("nt-dept", "Department", state.departments, "Add a Department first", t.department) +
+      "<div class=\"field\"><label for=\"nt-nesting\">Nesting status</label><select id=\"nt-nesting\">" +
+        NESTING_STATUSES.map(function(s){ return "<option value=\"" + s.key + "\"" + (s.key === (t.nesting_status || "") ? " selected" : "") + ">" + esc(s.label) + "</option>"; }).join("") +
+      "</select></div>";
   }
 
   function openAddTraineeModal(){
@@ -2106,7 +2121,8 @@
       if (statusEl){ statusEl.textContent = "Name is required."; statusEl.className = "save-status err"; }
       return;
     }
-    var record = { name: name, crm_name: crm, team_lead: lead, department: dept };
+    var nesting = ((document.getElementById("nt-nesting") || {}).value || "").trim();
+    var record = { name: name, crm_name: crm, team_lead: lead, department: dept, nesting_status: nesting };
 
     if (!dbFn || (editId && String(editId).indexOf("local-") === 0)){
       if (editId){
@@ -3732,6 +3748,7 @@
     renderCohortsPanel();
     renderSettings();
     renderRosterPanel();
+    renderQaSheetPanel();
     updateReportActions();
     changeListeners.forEach(function(fn){ try { fn(); } catch (e){ /* one app's error shouldn't stop the rest */ } });
   }
@@ -3956,6 +3973,30 @@
     onChange: function(fn){
       changeListeners.push(fn);
       return function(){ changeListeners = changeListeners.filter(function(f){ return f !== fn; }); };
+    },
+    sheets: function(){ return JSON.parse(JSON.stringify(state.settings)); },
+    // C side QA across saved weeks (newest pull per trainee and week), limited to the given CRM names.
+    qaSummary: function(crmNames){
+      var want = null;
+      if (crmNames && crmNames.length){ want = {}; crmNames.forEach(function(n){ want[String(n).trim().toLowerCase()] = true; }); }
+      var index = traineeWeekIndex();
+      var out = { pass: 0, total: 0, weeks: {}, loaded: Array.isArray(state.allAnalyses) || !dbFn };
+      Object.keys(index).forEach(function(k){
+        if (want && !want[k]) return;
+        Object.keys(index[k].weeks).forEach(function(w){
+          var wk = index[k].weeks[w];
+          var t = tallyPassRate(wk.headers, wk.rows);
+          out.pass += t.pass; out.total += t.total;
+          if (t.total) out.weeks[w] = true;
+        });
+      });
+      out.weeks = Object.keys(out.weeks).length;
+      return out;
+    },
+    mountQaSheets: function(host){
+      qaSheetHost = host;
+      if (state.themeKey && state.themeKey !== "default") host.parentElement.setAttribute("data-cc-theme", state.themeKey);
+      renderQaSheetPanel();
     },
     addCohort: function(fields){
       var record = { name: fields.name, department: fields.department || "", team_lead: fields.team_lead || "", training_start_date: fields.training_start_date || "", trainee_ids: [], created_at: new Date().toISOString() };

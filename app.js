@@ -116,7 +116,7 @@ const APPS = {
         el.innerHTML = `
           ${active.length > 1 ? `<div class="pill-row">${active.map((c) => `<button type="button" class="pill${c.id === cohort.id ? " on" : ""}" data-pick="${escapeHtml(c.id)}">${escapeHtml(c.name)}</button>`).join("")}</div>` : ""}
           <h3>${escapeHtml(cohort.name)}${cohort.department ? ` <span class="muted count">${escapeHtml(cohort.department)}</span>` : ""}</h3>
-          ${cohortDetailHtml(cohort, s, members.length)}
+          ${cohortDetailHtml(cohort, s, members)}
           <div class="progress-block">
             <div class="progress-line"><b>${escapeHtml(p.label)}</b><span class="muted">Day ${p.day} of ${TRAINING_DAYS}</span></div>
             <div class="progress"><span style="width:${Math.round((p.day / TRAINING_DAYS) * 100)}%"></span></div>
@@ -124,8 +124,9 @@ const APPS = {
           <h3>Trainees <span class="muted count">${members.length}</span></h3>
           ${
             members.length
-              ? `<table><thead><tr><th>Name</th><th>CRM name</th><th>Department</th><th>Nesting</th></tr></thead><tbody>${members
-                  .map((t) => `<tr><td>${escapeHtml(t.name)}</td><td>${escapeHtml(t.crm_name || "—")}</td><td>${escapeHtml(t.department || "—")}</td><td>${escapeHtml(NESTING_LABELS[t.nesting_status || ""] || "In nesting")}</td></tr>`)
+              ? `<table><thead><tr><th>Name</th><th>Status</th><th>CRM name</th><th>Department</th><th>Nesting</th></tr></thead><tbody>${[...members]
+                  .sort((a, b) => isInactive(a) - isInactive(b))
+                  .map((t) => `<tr class="${isInactive(t) ? "is-inactive" : ""}"><td>${escapeHtml(t.name)}</td><td>${isInactive(t) ? "Inactive" : "Active"}</td><td>${escapeHtml(t.crm_name || "—")}</td><td>${escapeHtml(t.department || "—")}</td><td>${escapeHtml(NESTING_LABELS[t.nesting_status || ""] || "In nesting")}</td></tr>`)
                   .join("")}</tbody></table>`
               : `<p class="muted">No trainees in this cohort yet. Add them from Cohorts with + Add Trainee.</p>`
           }`;
@@ -313,6 +314,15 @@ const APPS = {
           })
         );
         el.querySelectorAll("[data-add-trainee]").forEach((b) => b.addEventListener("click", () => openAddTrainee(el, b.dataset.addTrainee)));
+        el.querySelectorAll("[data-toggle-active]").forEach((box) =>
+          box.addEventListener("change", () => {
+            box.disabled = true;
+            cc.updateTrainee(box.dataset.toggleActive, { cohort_status: box.checked ? "active" : "inactive" }).catch(() => {
+              box.checked = !box.checked;
+              box.disabled = false;
+            });
+          })
+        );
         el.querySelectorAll("[data-trainee-menu]").forEach((b) =>
           b.addEventListener("click", (e) => {
             e.stopPropagation();
@@ -580,7 +590,8 @@ function timelineHtml(s, today) {
 
 // Cohort details: the schedule, the endorsement date in bold, and the trainee count.
 // Name, department and team lead are already in the row above it.
-function cohortDetailHtml(c, s, memberCount) {
+function cohortDetailHtml(c, s, members) {
+  const inactive = members.filter(isInactive).length;
   return `
     <div class="cohort-detail">
       ${
@@ -589,8 +600,36 @@ function cohortDetailHtml(c, s, memberCount) {
              <p class="cd-endorse">Production Endorsement Date: ${fmtShort(s.endorsement)}</p>`
           : `<p class="cd-lines muted">No start date yet, so there's no schedule.</p>`
       }
-      <p class="cd-lines">Current number of trainees: ${memberCount}</p>
+      <p class="cd-lines">Current number of trainees: ${members.length - inactive}${inactive ? ` active · ${inactive} inactive` : ""}</p>
     </div>`;
+}
+
+// A trainee's Active / Inactive status in their cohort (stored on the trainee; a trainee
+// belongs to one cohort). Active is the default.
+const isInactive = (t) => t.cohort_status === "inactive";
+
+function traineeGroupsHtml(c, members) {
+  const item = (t) => {
+    const active = !isInactive(t);
+    return `<li class="${active ? "" : "is-inactive"}">
+      <span>${escapeHtml(t.name)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span>
+      <span class="member-actions">
+        <label class="switch" title="${active ? "Active — click to set Inactive" : "Inactive — click to set Active"}">
+          <input type="checkbox" data-toggle-active="${escapeHtml(t.id)}"${active ? " checked" : ""} aria-label="${escapeHtml(t.name)} is ${active ? "active" : "inactive"}" />
+          <span class="switch-track" aria-hidden="true"></span>
+          <span class="switch-text">${active ? "Active" : "Inactive"}</span>
+        </label>
+        <button type="button" class="icon-btn kebab" title="More options" aria-label="Options for ${escapeHtml(t.name)}" data-trainee-menu="${escapeHtml(c.id)}|${escapeHtml(t.id)}">⋮</button>
+      </span>
+    </li>`;
+  };
+  const group = (title, list, empty) => `
+    <h5>${title} <span class="muted">${list.length}</span></h5>
+    ${list.length ? `<ul class="member-list">${list.map(item).join("")}</ul>` : `<p class="muted empty-group">${empty}</p>`}`;
+  return (
+    group("Active", members.filter((t) => !isInactive(t)), "No active trainees.") +
+    group("Inactive", members.filter(isInactive), "No inactive trainees.")
+  );
 }
 
 function cohortSectionsHtml(cohorts, trainees, today, openRows) {
@@ -627,15 +666,8 @@ function cohortSectionsHtml(cohorts, trainees, today, openRows) {
         ${
           open
             ? `<div class="row-detail">
-                ${cohortDetailHtml(c, s, members.length)}
-                ${members.length ? `<h5>Trainees</h5>` : ""}
-                ${
-                  members.length
-                    ? `<ul class="member-list">${members
-                        .map((t) => `<li><span>${escapeHtml(t.name)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span><button type="button" class="icon-btn kebab" title="More options" aria-label="Options for ${escapeHtml(t.name)}" data-trainee-menu="${escapeHtml(c.id)}|${escapeHtml(t.id)}">⋮</button></li>`)
-                        .join("")}</ul>`
-                    : ""
-                }
+                ${cohortDetailHtml(c, s, members)}
+                ${members.length ? traineeGroupsHtml(c, members) : ""}
               </div>`
             : ""
         }

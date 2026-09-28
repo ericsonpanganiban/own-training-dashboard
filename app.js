@@ -881,10 +881,10 @@ function openApp(appId) {
   win.querySelector(".title").textContent = app.title;
 
   const bounds = desktop.getBoundingClientRect();
-  // Windows open at 90% of the free desktop (the area above the dock), centred.
+  // Windows open at 95% of the free desktop (the area above the dock), centred.
   const dockTop = dock.getBoundingClientRect().top - bounds.top;
-  const w = Math.max(320, Math.round(bounds.width * 0.9));
-  const h = Math.max(220, Math.round(dockTop * 0.9));
+  const w = Math.max(320, Math.round(bounds.width * 0.95));
+  const h = Math.max(220, Math.round(dockTop * 0.95));
   const offset = (cascade++ % 4) * 24;
   win.style.width = `${Math.min(w, bounds.width - 16)}px`;
   win.style.height = `${Math.min(h, dockTop - 16)}px`;

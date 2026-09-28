@@ -84,14 +84,14 @@ const APPS = {
     title: "My Class",
     icon: '<path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12.5V17c3.3 2.3 8.7 2.3 12 0v-4.5"/><path d="M22 10v5"/>',
     color: "#3b82f6",
-    // Shows the cohort that is in training today (from Cohorts), with its schedule and trainees.
+    // Shows the cohorts in training today, as their Cohorts rows opened to the roster.
     render(el) {
       const cc = window.CoachingCompass;
       if (!cc) {
         el.innerHTML = `<p class="muted">My Class isn't available right now.</p>`;
         return;
       }
-      let picked = null;
+      const collapsed = new Set(); // active cohorts are open unless collapsed here
       const draw = () => {
         const { cohorts, trainees } = cc.data();
         const today = localToday();
@@ -108,29 +108,26 @@ const APPS = {
             ${next ? `<p>Next up: <b>${escapeHtml(next.name)}</b>, starting ${escapeHtml(fmtDate(next.training_start_date))}.</p>` : `<p class="muted">Add a class with a start date in Cohorts.</p>`}`;
           return;
         }
-        const cohort = active.find((c) => c.id === picked) || active[0];
-        const s = cohortSchedule(cohort.training_start_date);
-        const p = scheduleProgress(s, today);
+        // The same row as in Cohorts, opened so the schedule and roster show straight away.
         const byId = new Map(trainees.map((t) => [t.id, t]));
-        const members = (cohort.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
-        el.innerHTML = `
-          ${active.length > 1 ? `<div class="pill-row">${active.map((c) => `<button type="button" class="pill${c.id === cohort.id ? " on" : ""}" data-pick="${escapeHtml(c.id)}">${escapeHtml(c.name)}</button>`).join("")}</div>` : ""}
-          <h3>${escapeHtml(cohort.name)}${cohort.department ? ` <span class="muted count">${escapeHtml(cohort.department)}</span>` : ""}</h3>
-          ${cohortDetailHtml(cohort, s, members)}
-          <div class="progress-block">
-            <div class="progress-line"><b>${escapeHtml(p.label)}</b><span class="muted">Day ${p.day} of ${TRAINING_DAYS}</span></div>
-            <div class="progress"><span style="width:${Math.round((p.day / TRAINING_DAYS) * 100)}%"></span></div>
-          </div>
-          <h3>Trainees <span class="muted count">${members.length}</span></h3>
-          ${
-            members.length
-              ? `<table><thead><tr><th>Name</th><th>Status</th><th>CRM name</th><th>Department</th><th>Nesting</th></tr></thead><tbody>${[...members]
-                  .sort((a, b) => isInactive(a) - isInactive(b))
-                  .map((t) => `<tr class="${isInactive(t) ? "is-inactive" : ""}"><td>${escapeHtml(t.name)}</td><td>${isInactive(t) ? "Inactive" : "Active"}</td><td>${escapeHtml(t.crm_name || "—")}</td><td>${escapeHtml(t.department || "—")}</td><td>${escapeHtml(NESTING_LABELS[t.nesting_status || ""] || "In nesting")}</td></tr>`)
-                  .join("")}</tbody></table>`
-              : `<p class="muted">No trainees in this cohort yet. Add them from Cohorts with + Add Trainee.</p>`
-          }`;
-        el.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => ((picked = b.dataset.pick), draw())));
+        el.innerHTML = active
+          .map((c) => {
+            const p = scheduleProgress(cohortSchedule(c.training_start_date), today);
+            return `
+              <section class="my-class">
+                <div class="progress-block">
+                  <div class="progress-line"><b>${escapeHtml(p.label)}</b><span class="muted">Day ${p.day} of ${TRAINING_DAYS}</span></div>
+                  <div class="progress"><span style="width:${Math.round((p.day / TRAINING_DAYS) * 100)}%"></span></div>
+                </div>
+                <ul class="cohort-list">${cohortRowHtml(c, byId, today, !collapsed.has(c.id))}</ul>
+              </section>`;
+          })
+          .join("");
+        wireCohortRows(el, (id) => {
+          if (collapsed.has(id)) collapsed.delete(id);
+          else collapsed.add(id);
+          draw();
+        });
       };
       draw();
       APPS.myClass.unsubscribe = cc.onChange(draw);
@@ -305,41 +302,11 @@ const APPS = {
           ${cohortSectionsHtml(cohorts, trainees, today, openRows)}`;
         el.querySelector("[data-add-class]").addEventListener("click", () => openAddClass(el));
         el.querySelector("[data-refresh-qa]").addEventListener("click", pull);
-        el.querySelectorAll("[data-toggle-row]").forEach((b) =>
-          b.addEventListener("click", () => {
-            const id = b.dataset.toggleRow;
-            if (openRows.has(id)) openRows.delete(id);
-            else openRows.add(id);
-            draw();
-          })
-        );
-        el.querySelectorAll("[data-add-trainee]").forEach((b) => b.addEventListener("click", () => openAddTrainee(el, b.dataset.addTrainee)));
-        el.querySelectorAll("[data-toggle-active]").forEach((btn) =>
-          btn.addEventListener("click", () => {
-            btn.disabled = true;
-            const makeActive = btn.getAttribute("aria-pressed") !== "true";
-            cc.updateTrainee(btn.dataset.toggleActive, { cohort_status: makeActive ? "active" : "inactive" }).catch(() => (btn.disabled = false));
-          })
-        );
-        el.querySelectorAll("[data-performance]").forEach((b) => b.addEventListener("click", () => openPerformance(el, b.dataset.performance)));
-        el.querySelectorAll("[data-notes]").forEach((b) => b.addEventListener("click", () => openPlaceholder(el, b.dataset.notes, "Notes & Feedback")));
-        el.querySelectorAll("[data-trainee-menu]").forEach((b) =>
-          b.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const [cohortId, traineeId] = b.dataset.traineeMenu.split("|");
-            openMenu(b, [
-              { label: "Edit", run: () => openEditTrainee(el, traineeId) },
-              {
-                label: "Remove from cohort",
-                danger: true,
-                run: () => {
-                  const c = cc.data().cohorts.find((x) => x.id === cohortId);
-                  if (c) cc.setCohortTrainees(cohortId, (c.trainee_ids || []).filter((id) => id !== traineeId)).catch(() => {});
-                },
-              },
-            ]);
-          })
-        );
+        wireCohortRows(el, (id) => {
+          if (openRows.has(id)) openRows.delete(id);
+          else openRows.add(id);
+          draw();
+        });
       };
       draw();
       pull();
@@ -644,20 +611,11 @@ function traineeGroupsHtml(c, members) {
   );
 }
 
-function cohortSectionsHtml(cohorts, trainees, today, openRows) {
-  if (!cohorts.length) return `<p class="muted">No cohorts yet. Use Add Class to create your first one.</p>`;
-  const byId = new Map(trainees.map((t) => [t.id, t]));
-  const groups = [
-    { key: "active", title: "Active", sort: (a, b) => a.training_start_date.localeCompare(b.training_start_date) },
-    { key: "upcoming", title: "Upcoming", sort: (a, b) => a.training_start_date.localeCompare(b.training_start_date) },
-    { key: "completed", title: "Completed", sort: (a, b) => b.training_start_date.localeCompare(a.training_start_date) },
-    { key: "unscheduled", title: "No start date", sort: (a, b) => a.name.localeCompare(b.name) },
-  ];
-  const row = (c) => {
+// One cohort as a list row; open shows its schedule and roster. Cohorts and My Class both use it.
+function cohortRowHtml(c, byId, today, open) {
     const s = cohortSchedule(c.training_start_date);
     const status = scheduleStatus(s, today);
     const members = (c.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
-    const open = openRows.has(c.id);
     const where =
       status === "active" ? (() => { const p = scheduleProgress(s, today); return `${p.label} · Day ${p.day} of ${TRAINING_DAYS}`; })()
       : status === "upcoming" ? `Starts ${fmtDate(s.start)}`
@@ -673,7 +631,10 @@ function cohortSectionsHtml(cohorts, trainees, today, openRows) {
           <span class="row-cell">${s ? escapeHtml(fmtRange(s.start, s.end)) : "—"}</span>
           <span class="row-cell muted">${escapeHtml(where)}</span>
           <span class="row-cell">${members.length} trainee${members.length === 1 ? "" : "s"}</span>
-          <button type="button" class="btn btn-small" data-add-trainee="${escapeHtml(c.id)}">+ Add Trainee</button>
+          <span class="row-actions">
+            <button type="button" class="btn btn-small" data-add-trainee="${escapeHtml(c.id)}">+ Add Trainee</button>
+            <button type="button" class="square-btn kebab" title="Cohort options" aria-label="Options for ${escapeHtml(c.name)}" data-cohort-menu="${escapeHtml(c.id)}">⋮</button>
+          </span>
         </div>
         ${
           open
@@ -684,7 +645,62 @@ function cohortSectionsHtml(cohorts, trainees, today, openRows) {
             : ""
         }
       </li>`;
-  };
+}
+
+// Buttons inside cohort rows: expand/collapse, + Add Trainee, the cohort ⋮ menu, and each
+// trainee's Active, Performance, Notes & Feedback and ⋮ menu.
+function wireCohortRows(el, onToggle) {
+  const cc = window.CoachingCompass;
+  el.querySelectorAll("[data-toggle-row]").forEach((b) => b.addEventListener("click", () => onToggle(b.dataset.toggleRow)));
+  el.querySelectorAll("[data-add-trainee]").forEach((b) => b.addEventListener("click", () => openAddTrainee(el, b.dataset.addTrainee)));
+  el.querySelectorAll("[data-toggle-active]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      btn.disabled = true;
+      const makeActive = btn.getAttribute("aria-pressed") !== "true";
+      cc.updateTrainee(btn.dataset.toggleActive, { cohort_status: makeActive ? "active" : "inactive" }).catch(() => (btn.disabled = false));
+    })
+  );
+  el.querySelectorAll("[data-performance]").forEach((b) => b.addEventListener("click", () => openPerformance(el, b.dataset.performance)));
+  el.querySelectorAll("[data-notes]").forEach((b) => b.addEventListener("click", () => openPlaceholder(el, b.dataset.notes, "Notes & Feedback")));
+  el.querySelectorAll("[data-trainee-menu]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const [cohortId, traineeId] = b.dataset.traineeMenu.split("|");
+      openMenu(b, [
+        { label: "Edit", run: () => openEditTrainee(el, traineeId) },
+        {
+          label: "Remove from cohort",
+          danger: true,
+          run: () => {
+            const c = cc.data().cohorts.find((x) => x.id === cohortId);
+            if (c) cc.setCohortTrainees(cohortId, (c.trainee_ids || []).filter((id) => id !== traineeId)).catch(() => {});
+          },
+        },
+      ]);
+    })
+  );
+  el.querySelectorAll("[data-cohort-menu]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = b.dataset.cohortMenu;
+      openMenu(b, [
+        { label: "Edit", run: () => openEditCohort(el, id) },
+        { label: "Delete", danger: true, run: () => openDeleteCohort(el, id) },
+      ]);
+    })
+  );
+}
+
+function cohortSectionsHtml(cohorts, trainees, today, openRows) {
+  if (!cohorts.length) return `<p class="muted">No cohorts yet. Use Add Class to create your first one.</p>`;
+  const byId = new Map(trainees.map((t) => [t.id, t]));
+  const groups = [
+    { key: "active", title: "Active", sort: (a, b) => a.training_start_date.localeCompare(b.training_start_date) },
+    { key: "upcoming", title: "Upcoming", sort: (a, b) => a.training_start_date.localeCompare(b.training_start_date) },
+    { key: "completed", title: "Completed", sort: (a, b) => b.training_start_date.localeCompare(a.training_start_date) },
+    { key: "unscheduled", title: "No start date", sort: (a, b) => a.name.localeCompare(b.name) },
+  ];
+  const row = (c) => cohortRowHtml(c, byId, today, openRows.has(c.id));
   return groups
     .map((g) => {
       const list = cohorts.filter((c) => scheduleStatus(cohortSchedule(c.training_start_date), today) === g.key).sort(g.sort);
@@ -927,28 +943,36 @@ function openEditTrainee(content, traineeId) {
   $("#et-name").focus();
 }
 
-// "Add Class" sheet for the Cohorts app. Department and Team Lead lists come from Settings → Roster.
-function openAddClass(content) {
+// "Add Class" sheet for the Cohorts app, also used to edit a cohort (pass its id).
+// Department and Team Lead lists come from Settings → Roster.
+function openAddClass(content, editId) {
   const win = content.closest(".window");
   if (win.querySelector(".sheet")) return;
-  const { departments, teamLeads } = window.CoachingCompass.data();
-  const options = (items, emptyText) =>
-    items.length
-      ? `<option value="">— Select —</option>` + items.map((i) => `<option value="${escapeHtml(i.name)}">${escapeHtml(i.name)}</option>`).join("")
+  const { departments, teamLeads, cohorts } = window.CoachingCompass.data();
+  const editing = editId ? cohorts.find((c) => c.id === editId) : null;
+  if (editId && !editing) return;
+  const cur = editing || {};
+  // Keep a saved value listed even if it has since been removed from the roster lists.
+  const options = (items, current, emptyText) => {
+    const names = items.map((i) => i.name);
+    if (current && !names.includes(current)) names.push(current);
+    return names.length
+      ? `<option value="">— Select —</option>` + names.map((n) => `<option value="${escapeHtml(n)}"${n === current ? " selected" : ""}>${escapeHtml(n)}</option>`).join("")
       : `<option value="">${emptyText}</option>`;
+  };
   const sheet = document.createElement("div");
   sheet.className = "sheet";
   sheet.innerHTML = `
     <form class="sheet-card" novalidate>
-      <h3>Add Class</h3>
-      <label class="field"><span>Cohort name</span><input id="ac-name" type="text" placeholder="e.g. October Cohort A" required /></label>
-      <label class="field"><span>Department</span><select id="ac-dept"${departments.length ? "" : " disabled"}>${options(departments, "Add a department in Settings → Roster first")}</select></label>
-      <label class="field"><span>Team Lead</span><select id="ac-lead"${teamLeads.length ? "" : " disabled"}>${options(teamLeads, "Add a team lead in Settings → Roster first")}</select></label>
-      <label class="field"><span>Start Date</span><input id="ac-date" type="date" /></label>
+      <h3>${editing ? "Edit cohort" : "Add Class"}</h3>
+      <label class="field"><span>Cohort name</span><input id="ac-name" type="text" placeholder="e.g. October Cohort A" value="${escapeHtml(cur.name || "")}" required /></label>
+      <label class="field"><span>Department</span><select id="ac-dept"${departments.length || cur.department ? "" : " disabled"}>${options(departments, cur.department, "Add a department in Settings → Roster first")}</select></label>
+      <label class="field"><span>Team Lead</span><select id="ac-lead"${teamLeads.length || cur.team_lead ? "" : " disabled"}>${options(teamLeads, cur.team_lead, "Add a team lead in Settings → Roster first")}</select></label>
+      <label class="field"><span>Start Date</span><input id="ac-date" type="date" value="${escapeHtml(cur.training_start_date || "")}" /></label>
       <p class="sheet-status" id="ac-status" role="status"></p>
       <div class="sheet-actions">
         <button type="button" class="btn" data-cancel>Cancel</button>
-        <button type="submit" class="btn-primary">Add Class</button>
+        <button type="submit" class="btn-primary">${editing ? "Save changes" : "Add Class"}</button>
       </div>
     </form>`;
   win.appendChild(sheet);
@@ -965,16 +989,57 @@ function openAddClass(content) {
       return;
     }
     status.textContent = "Saving…";
-    window.CoachingCompass.addCohort({
+    const fields = {
       name,
       department: sheet.querySelector("#ac-dept").value,
       team_lead: sheet.querySelector("#ac-lead").value,
       training_start_date: sheet.querySelector("#ac-date").value,
-    })
+    };
+    (editing ? window.CoachingCompass.updateCohort(editing.id, fields) : window.CoachingCompass.addCohort(fields))
       .then(close)
       .catch(() => (status.textContent = "Couldn't save the class. Try again."));
   });
   sheet.querySelector("#ac-name").focus();
+}
+
+const openEditCohort = (content, id) => openAddClass(content, id);
+
+// Delete a cohort after confirming. Its trainees stay on the roster.
+function openDeleteCohort(content, id) {
+  const win = content.closest(".window");
+  if (win.querySelector(".sheet")) return;
+  const cc = window.CoachingCompass;
+  const cohort = cc.data().cohorts.find((c) => c.id === id);
+  if (!cohort) return;
+  const n = (cohort.trainee_ids || []).length;
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML = `
+    <div class="sheet-card" role="alertdialog" aria-label="Delete cohort">
+      <h3>Delete ${escapeHtml(cohort.name)}?</h3>
+      <p class="muted">This removes the cohort, its schedule and its attendance. ${n ? `Its ${n} trainee${n === 1 ? "" : "s"} stay${n === 1 ? "s" : ""} in Settings → Roster and can be added to another cohort.` : ""} This can't be undone.</p>
+      <p class="sheet-status" role="status"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn" data-cancel>Cancel</button>
+        <button type="button" class="btn-danger" data-delete>Delete cohort</button>
+      </div>
+    </div>`;
+  win.appendChild(sheet);
+  const close = () => sheet.remove();
+  sheet.querySelector("[data-cancel]").addEventListener("click", close);
+  sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  const del = sheet.querySelector("[data-delete]");
+  del.addEventListener("click", () => {
+    del.disabled = true;
+    sheet.querySelector(".sheet-status").textContent = "Deleting…";
+    cc.deleteCohort(id)
+      .then(close)
+      .catch(() => {
+        del.disabled = false;
+        sheet.querySelector(".sheet-status").textContent = "Couldn't delete. Try again.";
+      });
+  });
+  sheet.querySelector("[data-cancel]").focus();
 }
 
 // ---------- Window manager ----------

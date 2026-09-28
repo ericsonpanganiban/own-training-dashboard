@@ -4247,6 +4247,15 @@
       }
       return dbFn.doc("cohorts/" + id).update(fields);
     },
+    // Delete a cohort. Its trainees stay on the roster, free to join another cohort.
+    deleteCohort: function(id){
+      if (!dbFn || String(id).indexOf("local-") === 0){
+        state.cohorts = state.cohorts.filter(function(c){ return c.id !== id; });
+        renderAll();
+        return Promise.resolve();
+      }
+      return dbFn.doc("cohorts/" + id).delete();
+    },
     // Replace a cohort's trainees. Rejects when any trainee already belongs to another cohort.
     setCohortTrainees: function(cohortId, ids){
       var cohort = state.cohorts.filter(function(c){ return c.id === cohortId; })[0];

@@ -59,13 +59,11 @@
   var ROSTER_TABS = [
     { key: "trainee", label: "Trainee" },
     { key: "team_lead", label: "Team Lead" },
-    { key: "department", label: "Department" },
-    { key: "trainer", label: "Trainer" }
+    { key: "department", label: "Department" }
   ];
   var SIMPLE_LISTS = [
     { key: "team_lead", label: "Team Lead", collection: "team_leads", stateKey: "teamLeads", icon: "user", hint: "Team leads you can assign to a trainee.", placeholder: "e.g. K. Alvarez" },
-    { key: "department", label: "Department", collection: "departments", stateKey: "departments", icon: "grid", hint: "Departments you can assign to a trainee.", placeholder: "e.g. Customer Support" },
-    { key: "trainer", label: "Trainer", collection: "trainers", stateKey: "trainers", icon: "user", hint: "Trainers you can assign to a trainee.", placeholder: "e.g. J. Ruiz" }
+    { key: "department", label: "Department", collection: "departments", stateKey: "departments", icon: "grid", hint: "Departments you can assign to a trainee.", placeholder: "e.g. Customer Support" }
   ];
   var COLUMN_MAP = [
     { col: "B", field: "Week number", desc: "Which audit week the row belongs to" },
@@ -111,7 +109,6 @@
     rosterTab: "trainee",
     teamLeads: [],
     departments: [],
-    trainers: [],
     cohorts: [],
     pullContext: null,
     reqDraft: { trainee: { week: "", target: "" }, cohort: { week: "", target: "" } },
@@ -2028,9 +2025,9 @@
       rosterHtml = "<p class=\"hint\">No trainees added yet.</p>";
     } else {
       rosterHtml =
-        "<div class=\"roster-table-wrap\"><table class=\"preview\"><thead><tr><th>Name</th><th>CRM name</th><th>Team lead</th><th>Trainer</th><th>Department</th><th></th></tr></thead><tbody>" +
+        "<div class=\"roster-table-wrap\"><table class=\"preview\"><thead><tr><th>Name</th><th>CRM name</th><th>Team lead</th><th>Department</th><th></th></tr></thead><tbody>" +
           state.trainees.map(function(t){
-            return "<tr><td>" + esc(t.name) + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.trainer) + "</td><td>" + esc(t.department) + "</td>" +
+            return "<tr><td>" + esc(t.name) + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td>" +
               "<td class=\"kebab-cell\"><button class=\"kebab-btn\" data-kebab-trainee=\"" + esc(t.id) + "\" title=\"More options\" type=\"button\">⋮</button></td></tr>";
           }).join("") +
         "</tbody></table></div>";
@@ -2040,7 +2037,7 @@
         "<div class=\"resource-head\"><span class=\"r-icon\">" + ICONS.roster + "</span><h2>Trainee</h2>" +
           "<button class=\"primary small\" id=\"addTraineeBtn\" style=\"margin-left:auto;\" type=\"button\">+ Add trainee</button>" +
         "</div>" +
-        "<p class=\"hint\">One record per trainee, so Coaching Compass can match the CRM name on a QA audit back to a real person, their team lead, trainer, and department. Team lead, trainer, and department are picked from the lists on their own tabs.</p>" +
+        "<p class=\"hint\">One record per trainee, so Coaching Compass can match the CRM name on a QA audit back to a real person, their team lead and department. Team lead and department are picked from the lists on their own tabs.</p>" +
         rosterHtml +
       "</div>";
   }
@@ -2060,11 +2057,10 @@
   }
 
   function traineeModalFields(t){
-    t = t || { name: "", crm_name: "", team_lead: "", trainer: "", department: "" };
+    t = t || { name: "", crm_name: "", team_lead: "", department: "" };
     return "<div class=\"field\"><label for=\"nt-name\">Name</label><input type=\"text\" id=\"nt-name\" placeholder=\"Jordan Diaz\" value=\"" + esc(t.name) + "\"></div>" +
       "<div class=\"field\"><label for=\"nt-crm\">CRM name</label><input type=\"text\" id=\"nt-crm\" placeholder=\"As it appears in the QA sheet\" value=\"" + esc(t.crm_name) + "\"></div>" +
       selectField("nt-lead", "Team lead", state.teamLeads, "Add a Team Lead first", t.team_lead) +
-      selectField("nt-trainer", "Trainer", state.trainers, "Add a Trainer first", t.trainer) +
       selectField("nt-dept", "Department", state.departments, "Add a Department first", t.department);
   }
 
@@ -2104,14 +2100,13 @@
     var name = ((document.getElementById("nt-name") || {}).value || "").trim();
     var crm = ((document.getElementById("nt-crm") || {}).value || "").trim();
     var lead = ((document.getElementById("nt-lead") || {}).value || "").trim();
-    var trainer = ((document.getElementById("nt-trainer") || {}).value || "").trim();
     var dept = ((document.getElementById("nt-dept") || {}).value || "").trim();
     var statusEl = document.getElementById("traineeSaveStatus");
     if (!name){
       if (statusEl){ statusEl.textContent = "Name is required."; statusEl.className = "save-status err"; }
       return;
     }
-    var record = { name: name, crm_name: crm, team_lead: lead, trainer: trainer, department: dept };
+    var record = { name: name, crm_name: crm, team_lead: lead, department: dept };
 
     if (!dbFn || (editId && String(editId).indexOf("local-") === 0)){
       if (editId){
@@ -2154,7 +2149,7 @@
     dbFn.doc("trainees/" + id).delete().catch(function(){ /* leave it listed; the viewer can retry */ });
   }
 
-  // ---- Team lead / Department / Trainer (shared) ----
+  // ---- Team lead / Department (shared) ----
   function simpleListCardHtml(cfg){
     var items = state[cfg.stateKey];
     var listHtml;
@@ -2164,7 +2159,7 @@
       listHtml =
         "<div class=\"roster-table-wrap\"><table class=\"preview\"><thead><tr><th>Name</th><th></th></tr></thead><tbody>" +
           items.map(function(it){
-            return "<tr><td>" + esc(it.name) + "</td><td class=\"del\"><button class=\"del-btn\" data-del-simple=\"" + esc(it.id) + "\" title=\"Remove\">&times;</button></td></tr>";
+            return "<tr><td>" + esc(it.name) + "</td><td class=\"kebab-cell\"><button class=\"kebab-btn\" data-kebab-simple=\"" + esc(it.id) + "\" title=\"More options\" type=\"button\">⋮</button></td></tr>";
           }).join("") +
         "</tbody></table></div>";
     }
@@ -2173,38 +2168,84 @@
         "<div class=\"resource-head\"><span class=\"r-icon\">" + ICONS[cfg.icon] + "</span><h2>" + esc(cfg.label) + "</h2>" +
           "<button class=\"primary small\" id=\"addSimpleBtn\" style=\"margin-left:auto;\" type=\"button\">+ Add " + esc(cfg.label.toLowerCase()) + "</button>" +
         "</div>" +
-        "<p class=\"hint\">" + esc(cfg.hint) + " These are the only options offered under Team lead / Trainer / Department on the Trainee tab.</p>" +
+        "<p class=\"hint\">" + esc(cfg.hint) + " These are the only options offered under Team lead / Department on the Trainee tab.</p>" +
         listHtml +
       "</div>";
   }
 
   function wireSimpleListCard(cfg){
     document.getElementById("addSimpleBtn").addEventListener("click", function(){ openAddSimpleModal(cfg); });
-    rosterHost.querySelectorAll("[data-del-simple]").forEach(function(btn){
-      btn.addEventListener("click", function(){ deleteSimpleEntry(cfg, btn.getAttribute("data-del-simple")); });
+    rosterHost.querySelectorAll("[data-kebab-simple]").forEach(function(btn){
+      var id = btn.getAttribute("data-kebab-simple");
+      btn.addEventListener("click", function(e){
+        e.stopPropagation();
+        openKebab(btn, id, [
+          { label: "Edit", onClick: function(){ openAddSimpleModal(cfg, id); } },
+          { label: "Delete", danger: true, onClick: function(){ deleteSimpleEntry(cfg, id); } }
+        ]);
+      });
     });
   }
 
-  function openAddSimpleModal(cfg){
+  function openAddSimpleModal(cfg, editId){
+    var item = editId ? state[cfg.stateKey].filter(function(it){ return it.id === editId; })[0] : null;
+    if (editId && !item) return;
+    var noun = cfg.label.toLowerCase();
     openModal(
-      "<h3 class=\"modal-title\">Add " + esc(cfg.label.toLowerCase()) + "</h3>" +
-      "<div class=\"field\"><label for=\"ns-name\">Name</label><input type=\"text\" id=\"ns-name\" placeholder=\"" + esc(cfg.placeholder) + "\"></div>" +
+      "<h3 class=\"modal-title\">" + (item ? "Edit " : "Add ") + esc(noun) + "</h3>" +
+      "<div class=\"field\"><label for=\"ns-name\">Name</label><input type=\"text\" id=\"ns-name\" placeholder=\"" + esc(cfg.placeholder) + "\" value=\"" + esc(item ? item.name : "") + "\"></div>" +
       "<div class=\"modal-actions\">" +
         "<button class=\"ghost small\" id=\"cancelSimpleBtn\" type=\"button\">Cancel</button>" +
-        "<button class=\"primary small\" id=\"saveSimpleBtn\" type=\"button\">Save " + esc(cfg.label.toLowerCase()) + "</button>" +
+        "<button class=\"primary small\" id=\"saveSimpleBtn\" type=\"button\">" + (item ? "Save changes" : "Save " + esc(noun)) + "</button>" +
       "</div>" +
       "<span class=\"save-status\" id=\"simpleSaveStatus\"></span>"
     );
-    document.getElementById("saveSimpleBtn").addEventListener("click", function(){ saveSimpleEntry(cfg); });
+    document.getElementById("saveSimpleBtn").addEventListener("click", function(){ saveSimpleEntry(cfg, item); });
     document.getElementById("cancelSimpleBtn").addEventListener("click", closeModal);
     document.getElementById("ns-name").focus();
   }
 
-  function saveSimpleEntry(cfg){
+  // Trainees and cohorts store a team lead / department by name, so a rename carries over to them.
+  function renameReferences(cfg, oldName, newName){
+    var field = cfg.key;
+    var writes = [];
+    [["trainees", state.trainees], ["cohorts", state.cohorts]].forEach(function(pair){
+      pair[1].forEach(function(rec){
+        if (rec[field] !== oldName) return;
+        var patch = {}; patch[field] = newName;
+        if (!dbFn || String(rec.id).indexOf("local-") === 0) rec[field] = newName;
+        else writes.push(dbFn.doc(pair[0] + "/" + rec.id).update(patch));
+      });
+    });
+    return Promise.all(writes);
+  }
+
+  function saveSimpleEntry(cfg, item){
     var name = ((document.getElementById("ns-name") || {}).value || "").trim();
     var statusEl = document.getElementById("simpleSaveStatus");
     if (!name){
       if (statusEl){ statusEl.textContent = "Name is required."; statusEl.className = "save-status err"; }
+      return;
+    }
+    if (item){
+      if (name === item.name){ closeModal(); return; }
+      var failEdit = function(e){
+        var msg = "Couldn't save — try again.";
+        if (e && e.code === "invalid_argument") msg = "You don't have permission to edit entries.";
+        if (statusEl){ statusEl.textContent = msg; statusEl.className = "save-status err"; }
+      };
+      if (!dbFn || String(item.id).indexOf("local-") === 0){
+        state[cfg.stateKey] = state[cfg.stateKey].map(function(it){ return it.id === item.id ? Object.assign({}, it, { name: name }) : it; });
+        renameReferences(cfg, item.name, name);
+        closeModal();
+        renderAll();
+        return;
+      }
+      if (statusEl){ statusEl.textContent = "Saving…"; statusEl.className = "save-status"; }
+      dbFn.doc(cfg.collection + "/" + item.id).update({ name: name })
+        .then(function(){ return renameReferences(cfg, item.name, name); })
+        .then(function(){ closeModal(); })
+        .catch(failEdit);
       return;
     }
     if (!dbFn){

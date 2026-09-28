@@ -321,6 +321,8 @@ const APPS = {
             cc.updateTrainee(btn.dataset.toggleActive, { cohort_status: makeActive ? "active" : "inactive" }).catch(() => (btn.disabled = false));
           })
         );
+        el.querySelectorAll("[data-performance]").forEach((b) => b.addEventListener("click", () => openPlaceholder(el, b.dataset.performance, "Performance")));
+        el.querySelectorAll("[data-notes]").forEach((b) => b.addEventListener("click", () => openPlaceholder(el, b.dataset.notes, "Notes & Feedback")));
         el.querySelectorAll("[data-trainee-menu]").forEach((b) =>
           b.addEventListener("click", (e) => {
             e.stopPropagation();
@@ -612,7 +614,9 @@ function traineeGroupsHtml(c, members) {
     return `<li class="${active ? "" : "is-inactive"}">
       <span>${escapeHtml(t.name)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span>
       <span class="member-actions">
+        <button type="button" class="square-btn" data-performance="${escapeHtml(t.id)}" title="Performance" aria-label="Performance for ${escapeHtml(t.name)}"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20V4M4 20h16M9 16v-5M14 16V8M19 16v-3"/></svg></button>
         <button type="button" class="status-pill${active ? " on" : ""}" data-toggle-active="${escapeHtml(t.id)}" aria-pressed="${active}" title="${active ? "Click to set Inactive" : "Click to set Active"}">${active ? "Active" : "Inactive"}</button>
+        <button type="button" class="outline-btn" data-notes="${escapeHtml(t.id)}">Notes &amp; Feedback</button>
         <button type="button" class="square-btn kebab" title="More options" aria-label="Options for ${escapeHtml(t.name)}" data-trainee-menu="${escapeHtml(c.id)}|${escapeHtml(t.id)}">⋮</button>
       </span>
     </li>`;
@@ -731,6 +735,26 @@ function openAddTrainee(content, cohortId) {
       .catch((err) => (status.textContent = err?.message || "Couldn't add those trainees. Try again."));
   });
   sheet.querySelector("input:not([disabled]), button")?.focus();
+}
+
+// Performance and Notes & Feedback: placeholders until their content is built.
+function openPlaceholder(content, traineeId, title) {
+  const win = content.closest(".window");
+  if (win.querySelector(".sheet")) return;
+  const t = window.CoachingCompass.data().trainees.find((x) => x.id === traineeId);
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML = `
+    <div class="sheet-card" role="dialog" aria-label="${escapeHtml(title)}">
+      <h3>${escapeHtml(title)}${t ? ` · ${escapeHtml(t.name)}` : ""}</h3>
+      <p class="muted">Coming soon.</p>
+      <div class="sheet-actions"><button type="button" class="btn-primary" data-cancel>Close</button></div>
+    </div>`;
+  win.appendChild(sheet);
+  const close = () => sheet.remove();
+  sheet.querySelector("[data-cancel]").addEventListener("click", close);
+  sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  sheet.querySelector("[data-cancel]").focus();
 }
 
 // Small ⋮ menu anchored to a button, inside the button's window.

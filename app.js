@@ -10,12 +10,6 @@ const MY_CLASS = {
   ],
 };
 
-const COHORTS = [
-  { name: "Batch 12", program: "Customer Care Onboarding", start: "2026-09-07", size: 5, status: "active" },
-  { name: "Batch 13", program: "Customer Care Onboarding", start: "2026-10-12", size: 8, status: "upcoming" },
-  { name: "Batch 11", program: "Customer Care Onboarding", start: "2026-08-03", size: 7, status: "completed" },
-  { name: "Upskill A", program: "Escalations Handling", start: "2026-09-21", size: 4, status: "active" },
-];
 
 // ---------- Settings (persisted per browser) ----------
 const DEFAULT_SETTINGS = { version: 2, theme: "system", wallpaper: "default", iconSize: 64, magnify: true, dockOrder: [], settingsPage: "appearance" };
@@ -156,20 +150,65 @@ const APPS = {
     title: "Cohorts",
     icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21.5 20a6.5 6.5 0 0 0-4-6"/>',
     color: "#f59e0b",
-    size: { w: 560, h: 400 },
+    size: { w: 720, h: 520 },
+    // Cohorts, departments and team leads come from the shared roster (Settings → Roster),
+    // the same records Coaching Compass uses.
     render(el) {
-      const fmt = (d) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-      el.innerHTML = `
-        <div class="cohort-grid">
-          ${COHORTS.map(
-            (c) => `
-            <article class="cohort-card">
-              <h4>${escapeHtml(c.name)}</h4>
-              <div class="meta">${escapeHtml(c.program)}<br>Starts ${fmt(c.start)} · ${c.size} trainees</div>
-              <span class="badge ${c.status}">${c.status}</span>
-            </article>`
-          ).join("")}
-        </div>`;
+      const cc = window.CoachingCompass;
+      if (!cc) {
+        el.innerHTML = `<p class="muted">Cohorts aren't available right now.</p>`;
+        return;
+      }
+      const draw = () => {
+        const { cohorts, trainees } = cc.data();
+        const today = new Date().toISOString().slice(0, 10);
+        const statusOf = (c) => (!c.training_start_date ? "unscheduled" : c.training_start_date > today ? "upcoming" : "active");
+        const counts = { active: 0, upcoming: 0, unscheduled: 0 };
+        cohorts.forEach((c) => counts[statusOf(c)]++);
+        const rosterIds = new Set(trainees.map((t) => t.id));
+        const assigned = new Set(cohorts.flatMap((c) => (c.trainee_ids || []).filter((id) => rosterIds.has(id))));
+        const next = cohorts
+          .filter((c) => statusOf(c) === "upcoming")
+          .sort((a, b) => a.training_start_date.localeCompare(b.training_start_date))[0];
+        const sorted = [...cohorts].sort((a, b) => (b.training_start_date || "").localeCompare(a.training_start_date || ""));
+        const label = { active: "Active", upcoming: "Upcoming", unscheduled: "No start date" };
+
+        el.innerHTML = `
+          <div class="app-head">
+            <h3>Overview</h3>
+            <button type="button" class="btn-primary" data-add-class>+ Add Class</button>
+          </div>
+          <div class="stats stats-4">
+            <div class="stat"><div class="value">${cohorts.length}</div><div class="label">Cohorts</div></div>
+            <div class="stat"><div class="value">${counts.active}</div><div class="label">Active</div></div>
+            <div class="stat"><div class="value">${counts.upcoming}</div><div class="label">Upcoming${next ? ` · next ${escapeHtml(fmtDate(next.training_start_date))}` : ""}</div></div>
+            <div class="stat"><div class="value">${assigned.size}<span class="of"> / ${trainees.length}</span></div><div class="label">Trainees in a cohort</div></div>
+          </div>
+          <h3>All cohorts</h3>
+          ${
+            sorted.length
+              ? `<div class="cohort-grid">${sorted
+                  .map(
+                    (c) => `
+                <article class="cohort-card">
+                  <h4>${escapeHtml(c.name)}</h4>
+                  <div class="meta">
+                    ${escapeHtml(c.department || "No department")} · ${escapeHtml(c.team_lead ? `Led by ${c.team_lead}` : "No team lead")}<br>
+                    ${c.training_start_date ? `Starts ${escapeHtml(fmtDate(c.training_start_date))}` : "Start date not set"} · ${(c.trainee_ids || []).length} trainee${(c.trainee_ids || []).length === 1 ? "" : "s"}
+                  </div>
+                  <span class="badge ${statusOf(c)}">${label[statusOf(c)]}</span>
+                </article>`
+                  )
+                  .join("")}</div>`
+              : `<p class="muted">No cohorts yet. Use Add Class to create your first one.</p>`
+          }`;
+        el.querySelector("[data-add-class]").addEventListener("click", () => openAddClass(el));
+      };
+      draw();
+      APPS.cohorts.unsubscribe = cc.onChange(draw);
+    },
+    onClose() {
+      APPS.cohorts.unsubscribe?.();
     },
   },
 };
@@ -323,6 +362,59 @@ async function shrinkPhoto(file) {
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+const fmtDate = (d) =>
+  new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+// "Add Class" sheet for the Cohorts app. Department and Team Lead lists come from Settings → Roster.
+function openAddClass(content) {
+  const win = content.closest(".window");
+  if (win.querySelector(".sheet")) return;
+  const { departments, teamLeads } = window.CoachingCompass.data();
+  const options = (items, emptyText) =>
+    items.length
+      ? `<option value="">— Select —</option>` + items.map((i) => `<option value="${escapeHtml(i.name)}">${escapeHtml(i.name)}</option>`).join("")
+      : `<option value="">${emptyText}</option>`;
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML = `
+    <form class="sheet-card" novalidate>
+      <h3>Add Class</h3>
+      <label class="field"><span>Cohort name</span><input id="ac-name" type="text" placeholder="e.g. October Cohort A" required /></label>
+      <label class="field"><span>Department</span><select id="ac-dept"${departments.length ? "" : " disabled"}>${options(departments, "Add a department in Settings → Roster first")}</select></label>
+      <label class="field"><span>Team Lead</span><select id="ac-lead"${teamLeads.length ? "" : " disabled"}>${options(teamLeads, "Add a team lead in Settings → Roster first")}</select></label>
+      <label class="field"><span>Start Date</span><input id="ac-date" type="date" /></label>
+      <p class="sheet-status" id="ac-status" role="status"></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn" data-cancel>Cancel</button>
+        <button type="submit" class="btn-primary">Add Class</button>
+      </div>
+    </form>`;
+  win.appendChild(sheet);
+  const close = () => sheet.remove();
+  const status = sheet.querySelector("#ac-status");
+  sheet.querySelector("[data-cancel]").addEventListener("click", close);
+  sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  sheet.querySelector("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = sheet.querySelector("#ac-name").value.trim();
+    if (!name) {
+      status.textContent = "Give the cohort a name.";
+      sheet.querySelector("#ac-name").focus();
+      return;
+    }
+    status.textContent = "Saving…";
+    window.CoachingCompass.addCohort({
+      name,
+      department: sheet.querySelector("#ac-dept").value,
+      team_lead: sheet.querySelector("#ac-lead").value,
+      training_start_date: sheet.querySelector("#ac-date").value,
+    })
+      .then(close)
+      .catch(() => (status.textContent = "Couldn't save the class. Try again."));
+  });
+  sheet.querySelector("#ac-name").focus();
 }
 
 // ---------- Window manager ----------

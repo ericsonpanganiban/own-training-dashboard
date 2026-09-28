@@ -3733,6 +3733,7 @@
     renderSettings();
     renderRosterPanel();
     updateReportActions();
+    changeListeners.forEach(function(fn){ try { fn(); } catch (e){ /* one app's error shouldn't stop the rest */ } });
   }
 
   // ---- Wiring ----
@@ -3944,7 +3945,27 @@
       });
   }
 
+  // ---- Shared data for other Trainer Desk apps (Settings → Roster is the one list) ----
+  var changeListeners = [];
+  function copy(list){ return list.map(function(x){ return Object.assign({}, x); }); }
+
   window.CoachingCompass = {
+    data: function(){
+      return { trainees: copy(state.trainees), cohorts: copy(state.cohorts), teamLeads: copy(state.teamLeads), departments: copy(state.departments) };
+    },
+    onChange: function(fn){
+      changeListeners.push(fn);
+      return function(){ changeListeners = changeListeners.filter(function(f){ return f !== fn; }); };
+    },
+    addCohort: function(fields){
+      var record = { name: fields.name, department: fields.department || "", team_lead: fields.team_lead || "", training_start_date: fields.training_start_date || "", trainee_ids: [], created_at: new Date().toISOString() };
+      if (!dbFn){
+        state.cohorts = state.cohorts.concat([Object.assign({ id: "local-" + Date.now() }, record)]);
+        renderAll();
+        return Promise.resolve();
+      }
+      return dbFn.collection("cohorts").add(record);
+    },
     mountRoster: function(host){
       rosterHost = host;
       if (state.themeKey && state.themeKey !== "default") host.parentElement.setAttribute("data-cc-theme", state.themeKey);

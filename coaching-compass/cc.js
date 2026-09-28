@@ -44,7 +44,6 @@
   var RESOURCE_TABS = [
     { key: "resources", label: "Resources" },
     { key: "knowledge_base", label: "Knowledge Base" },
-    { key: "roster", label: "Roster" },
     { key: "appearance", label: "Appearance" }
   ];
   var THEMES = [
@@ -175,6 +174,21 @@
     if (isNaN(d.getTime())) return iso;
     return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   }
+
+  // ---- Overlays ----
+  // Modals and menus open over the surface the coach is using: the Coaching Compass
+  // window, or the Roster page in Trainer Desk's Settings (any .cc-ui element).
+  var overlayHost = ccRoot;
+  function trackOverlayHost(e){
+    var host = e.target && e.target.closest ? e.target.closest(".cc-ui, .cc-root") : null;
+    if (!host || host === overlayHost || el.modalRoot.contains(e.target) || el.kebabMenu.contains(e.target)) return;
+    if (!el.modalRoot.hidden || !el.kebabMenu.hidden) return;
+    overlayHost = host;
+    host.appendChild(el.modalRoot);
+    host.appendChild(el.kebabMenu);
+  }
+  document.addEventListener("pointerdown", trackOverlayHost, true);
+  document.addEventListener("focusin", trackOverlayHost, true);
 
   // ---- Modal ----
   function openModal(bodyHtml){
@@ -1732,7 +1746,6 @@
   function renderSettings(){
     renderResourceTabs();
     if (state.resourceTab === "knowledge_base") renderKnowledgeBasePanel();
-    else if (state.resourceTab === "roster") renderRosterPanel();
     else if (state.resourceTab === "appearance") renderAppearancePanel();
     else renderQaSheetPanel();
     renderBreadcrumb();
@@ -1887,8 +1900,10 @@
   // ---- Appearance ----
   function applyTheme(themeKey){
     var key = themeKey || "default";
-    if (key === "default") ccRoot.removeAttribute("data-cc-theme");
-    else ccRoot.setAttribute("data-cc-theme", key);
+    document.querySelectorAll(".cc-root, .cc-ui").forEach(function(node){
+      if (key === "default") node.removeAttribute("data-cc-theme");
+      else node.setAttribute("data-cc-theme", key);
+    });
     state.themeKey = key;
   }
 
@@ -1940,8 +1955,10 @@
       });
   }
 
-  // ---- Roster ----
+  // ---- Roster (shown in Trainer Desk → Settings → Roster) ----
+  var rosterHost = null;
   function renderRosterPanel(){
+    if (!rosterHost || !rosterHost.isConnected) return;
     var tabsHtml = ROSTER_TABS.map(function(t){
       var active = t.key === state.rosterTab ? " active" : "";
       return "<button class=\"subtab" + active + "\" data-roster-tab=\"" + t.key + "\" type=\"button\">" + esc(t.label) + "</button>";
@@ -1949,9 +1966,9 @@
 
     var cardHtml = state.rosterTab === "trainee" ? traineeCardHtml() : simpleListCardHtml(simpleListConfig(state.rosterTab));
 
-    el.settingsBody.innerHTML = "<div class=\"subtabs roster-subtabs\">" + tabsHtml + "</div>" + cardHtml;
+    rosterHost.innerHTML = "<div class=\"subtabs roster-subtabs\">" + tabsHtml + "</div>" + cardHtml;
 
-    el.settingsBody.querySelectorAll("[data-roster-tab]").forEach(function(btn){
+    rosterHost.querySelectorAll("[data-roster-tab]").forEach(function(btn){
       btn.addEventListener("click", function(){
         state.rosterTab = btn.getAttribute("data-roster-tab");
         renderRosterPanel();
@@ -1960,7 +1977,6 @@
 
     if (state.rosterTab === "trainee") wireTraineeCard();
     else wireSimpleListCard(simpleListConfig(state.rosterTab));
-    renderBreadcrumb();
   }
 
   function simpleListConfig(key){
@@ -1981,7 +1997,7 @@
   function openKebab(btn, id, items){
     if (el.kebabMenu.dataset.forId === id && !el.kebabMenu.hidden){ closeKebab(); return; }
     var rect = btn.getBoundingClientRect();
-    var box = ccRoot.getBoundingClientRect();
+    var box = overlayHost.getBoundingClientRect();
     el.kebabMenu.innerHTML = items.map(function(it, i){
       return "<button type=\"button\" data-kebab-idx=\"" + i + "\"" + (it.danger ? " class=\"danger\"" : "") + ">" + esc(it.label) + "</button>";
     }).join("");
@@ -2031,7 +2047,7 @@
 
   function wireTraineeCard(){
     document.getElementById("addTraineeBtn").addEventListener("click", openAddTraineeModal);
-    el.settingsBody.querySelectorAll("[data-kebab-trainee]").forEach(function(btn){
+    rosterHost.querySelectorAll("[data-kebab-trainee]").forEach(function(btn){
       var id = btn.getAttribute("data-kebab-trainee");
       btn.addEventListener("click", function(e){
         e.stopPropagation();
@@ -2164,7 +2180,7 @@
 
   function wireSimpleListCard(cfg){
     document.getElementById("addSimpleBtn").addEventListener("click", function(){ openAddSimpleModal(cfg); });
-    el.settingsBody.querySelectorAll("[data-del-simple]").forEach(function(btn){
+    rosterHost.querySelectorAll("[data-del-simple]").forEach(function(btn){
       btn.addEventListener("click", function(){ deleteSimpleEntry(cfg, btn.getAttribute("data-del-simple")); });
     });
   }
@@ -3674,6 +3690,7 @@
     renderAskPage();
     renderCohortsPanel();
     renderSettings();
+    renderRosterPanel();
     updateReportActions();
   }
 
@@ -3885,6 +3902,14 @@
         });
       });
   }
+
+  window.CoachingCompass = {
+    mountRoster: function(host){
+      rosterHost = host;
+      if (state.themeKey && state.themeKey !== "default") host.parentElement.setAttribute("data-cc-theme", state.themeKey);
+      renderRosterPanel();
+    }
+  };
 
   if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(function(){ start(); });
   else start();

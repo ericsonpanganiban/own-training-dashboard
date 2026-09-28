@@ -18,7 +18,7 @@ const COHORTS = [
 ];
 
 // ---------- Settings (persisted per browser) ----------
-const DEFAULT_SETTINGS = { version: 2, theme: "system", wallpaper: "default", iconSize: 64, magnify: true, dockOrder: [] };
+const DEFAULT_SETTINGS = { version: 2, theme: "system", wallpaper: "default", iconSize: 64, magnify: true, dockOrder: [], settingsPage: "appearance" };
 
 function loadSettings() {
   try {
@@ -37,10 +37,20 @@ function saveSettings() {
   } catch {}
 }
 
+// A wallpaper photo is kept apart from the settings so a large image can't stop them saving.
+const PHOTO_KEY = "trainer.wallpaperPhoto";
+let wallpaperPhoto = null;
+try {
+  wallpaperPhoto = localStorage.getItem(PHOTO_KEY);
+} catch {}
+
 function applySettings() {
   if (settings.theme === "system") delete document.body.dataset.appearance;
   else document.body.dataset.appearance = settings.theme;
-  document.body.dataset.wallpaper = settings.wallpaper;
+  const wallpaper = settings.wallpaper === "photo" && !wallpaperPhoto ? "default" : settings.wallpaper;
+  document.body.dataset.wallpaper = wallpaper;
+  if (wallpaperPhoto) document.body.style.setProperty("--wallpaper-photo", `url("${wallpaperPhoto}")`);
+  else document.body.style.removeProperty("--wallpaper-photo");
   document.documentElement.style.setProperty("--icon-size", `${settings.iconSize}px`);
 }
 
@@ -55,52 +65,38 @@ const APPS = {
     title: "Settings",
     icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
     color: "#64748b",
-    size: { w: 440, h: 340 },
+    size: { w: 780, h: 540 },
+    custom: true,
     render(el) {
+      el.classList.add("flush");
       el.innerHTML = `
-        <div class="form-row">
-          <label for="set-theme">Appearance</label>
-          <select id="set-theme">
-            <option value="system">Match system</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <label for="set-wallpaper">Wallpaper</label>
-          <select id="set-wallpaper">
-            <option value="default">Dusk</option>
-            <option value="ocean">Ocean</option>
-            <option value="sunset">Sunset</option>
-            <option value="forest">Forest</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <label for="set-size">Dock icon size</label>
-          <input id="set-size" type="range" min="48" max="88" step="2" />
-        </div>
-        <div class="form-row">
-          <label for="set-magnify">Dock magnification</label>
-          <input id="set-magnify" type="checkbox" />
+        <div class="settings-layout">
+          <nav class="settings-nav" aria-label="Settings pages">
+            ${SETTINGS_PAGES.map(
+              (p) => `<button type="button" data-page="${p.id}">
+                <span class="nav-icon" style="background:${p.color}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p.icon}</svg></span>
+                ${p.title}</button>`
+            ).join("")}
+          </nav>
+          <div class="settings-page-slot"></div>
         </div>`;
-      const theme = el.querySelector("#set-theme");
-      const wallpaper = el.querySelector("#set-wallpaper");
-      const size = el.querySelector("#set-size");
-      const magnify = el.querySelector("#set-magnify");
-      theme.value = settings.theme;
-      wallpaper.value = settings.wallpaper;
-      size.value = settings.iconSize;
-      magnify.checked = settings.magnify;
-
-      const update = () => {
-        settings.theme = theme.value;
-        settings.wallpaper = wallpaper.value;
-        settings.iconSize = Number(size.value);
-        settings.magnify = magnify.checked;
-        applySettings();
+      const slot = el.querySelector(".settings-page-slot");
+      const show = (id) => {
+        const page = SETTINGS_PAGES.find((p) => p.id === id) || SETTINGS_PAGES[0];
+        settings.settingsPage = page.id;
         saveSettings();
+        el.querySelectorAll(".settings-nav button").forEach((b) => {
+          if (b.dataset.page === page.id) b.setAttribute("aria-current", "page");
+          else b.removeAttribute("aria-current");
+        });
+        slot.replaceChildren();
+        page.render(slot);
       };
-      [theme, wallpaper, size, magnify].forEach((input) => input.addEventListener("input", update));
+      el.querySelector(".settings-nav").addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-page]");
+        if (btn) show(btn.dataset.page);
+      });
+      show(settings.settingsPage);
     },
   },
 
@@ -144,6 +140,7 @@ const APPS = {
     icon: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
     color: "#10b981",
     size: { w: 1040, h: 680 },
+    custom: true,
     // Coaching Compass boots once with the page (coaching-compass/), so its state
     // survives closing the window; the window only borrows its root element.
     render(el) {
@@ -176,6 +173,157 @@ const APPS = {
     },
   },
 };
+
+// ---------- Settings pages ----------
+const SETTINGS_PAGES = [
+  {
+    id: "appearance",
+    title: "Appearance",
+    color: "#3b82f6",
+    icon: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/>',
+    render(slot) {
+      slot.innerHTML = `
+        <div class="settings-page app-body">
+          <h3>Appearance</h3>
+          <div class="form-row">
+            <label for="set-theme">Themes</label>
+            <select id="set-theme">
+              <option value="system">Match system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="set-wallpaper">Wallpaper</label>
+            <select id="set-wallpaper">
+              <option value="default">Dusk</option>
+              <option value="ocean">Ocean</option>
+              <option value="sunset">Sunset</option>
+              <option value="forest">Forest</option>
+              <option value="photo">My photo</option>
+            </select>
+          </div>
+          <div class="form-row photo-row">
+            <div>
+              <span>Wallpaper photo</span>
+              <p class="muted photo-note" id="photo-note"></p>
+            </div>
+            <div class="photo-controls">
+              <span class="photo-thumb" id="photo-thumb" hidden></span>
+              <label class="button-like">
+                <input id="set-photo" type="file" accept="image/*" />
+                <span id="photo-pick-label">Add photo</span>
+              </label>
+              <button type="button" class="button-like" id="photo-remove" hidden>Remove</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="set-size">Dock icon size</label>
+            <input id="set-size" type="range" min="48" max="88" step="2" />
+          </div>
+          <div class="form-row">
+            <label for="set-magnify">Dock magnification</label>
+            <input id="set-magnify" type="checkbox" />
+          </div>
+        </div>`;
+      const $ = (id) => slot.querySelector(id);
+      const theme = $("#set-theme");
+      const wallpaper = $("#set-wallpaper");
+      const size = $("#set-size");
+      const magnify = $("#set-magnify");
+      const note = $("#photo-note");
+
+      const syncPhoto = () => {
+        wallpaper.querySelector('[value="photo"]').disabled = !wallpaperPhoto;
+        wallpaper.value = settings.wallpaper === "photo" && !wallpaperPhoto ? "default" : settings.wallpaper;
+        $("#photo-thumb").hidden = !wallpaperPhoto;
+        $("#photo-thumb").style.backgroundImage = wallpaperPhoto ? `url("${wallpaperPhoto}")` : "";
+        $("#photo-remove").hidden = !wallpaperPhoto;
+        $("#photo-pick-label").textContent = wallpaperPhoto ? "Change photo" : "Add photo";
+      };
+      theme.value = settings.theme;
+      size.value = settings.iconSize;
+      magnify.checked = settings.magnify;
+      note.textContent = "A JPG or PNG from your computer. It stays in this browser.";
+      syncPhoto();
+
+      const update = () => {
+        settings.theme = theme.value;
+        settings.wallpaper = wallpaper.value;
+        settings.iconSize = Number(size.value);
+        settings.magnify = magnify.checked;
+        applySettings();
+        saveSettings();
+      };
+      [theme, wallpaper, size, magnify].forEach((input) => input.addEventListener("input", update));
+
+      $("#set-photo").addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        e.target.value = "";
+        if (!file) return;
+        note.textContent = "Loading photo…";
+        try {
+          wallpaperPhoto = await shrinkPhoto(file);
+        } catch {
+          note.textContent = "That file couldn't be opened as a photo. Try a JPG or PNG.";
+          return;
+        }
+        try {
+          localStorage.setItem(PHOTO_KEY, wallpaperPhoto);
+          note.textContent = "Photo set as your wallpaper.";
+        } catch {
+          note.textContent = "Photo set, but this browser couldn't save it, so it will reset when you reload.";
+        }
+        settings.wallpaper = "photo";
+        applySettings();
+        saveSettings();
+        syncPhoto();
+      });
+      $("#photo-remove").addEventListener("click", () => {
+        wallpaperPhoto = null;
+        try {
+          localStorage.removeItem(PHOTO_KEY);
+        } catch {}
+        if (settings.wallpaper === "photo") settings.wallpaper = "default";
+        note.textContent = "Photo removed.";
+        applySettings();
+        saveSettings();
+        syncPhoto();
+      });
+    },
+  },
+  {
+    id: "roster",
+    title: "Roster",
+    color: "#10b981",
+    icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21.5 20a6.5 6.5 0 0 0-4-6"/>',
+    // The roster belongs to Coaching Compass's data; it renders its own page here.
+    render(slot) {
+      slot.innerHTML = `<div class="settings-page cc-ui"><div class="cc-ui-scroll"></div></div>`;
+      const host = slot.querySelector(".cc-ui-scroll");
+      if (window.CoachingCompass) window.CoachingCompass.mountRoster(host);
+      else host.innerHTML = `<p class="muted">The roster isn't available right now.</p>`;
+    },
+  },
+];
+
+// Scale a photo down to screen size so it fits in browser storage.
+async function shrinkPhoto(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const scale = Math.min(1, 2560 / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 // ---------- Window manager ----------
 const desktop = document.getElementById("desktop");
@@ -224,7 +372,9 @@ function openApp(appId) {
   win.style.left = `${Math.max(8, (bounds.width - w) / 2 - 80 + offset)}px`;
   win.style.top = `${Math.max(8, 40 + offset)}px`;
 
-  app.render(win.querySelector(".content"));
+  const content = win.querySelector(".content");
+  if (!app.custom) content.classList.add("app-body");
+  app.render(content);
   wireWindow(win, appId);
   desktop.appendChild(win);
   openWindows.set(appId, win);

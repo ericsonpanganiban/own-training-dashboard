@@ -464,10 +464,12 @@ function buildDock() {
     btn.dataset.app = id;
     btn.setAttribute("aria-label", app.title);
     btn.innerHTML = `
-      <span class="dock-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${app.icon}</svg>
-      </span>
-      <span class="dock-label">${escapeHtml(app.title)}</span>`;
+      <span class="dock-face">
+        <span class="dock-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${app.icon}</svg>
+        </span>
+        <span class="dock-label">${escapeHtml(app.title)}</span>
+      </span>`;
     btn.addEventListener("click", () => {
       if (!openWindows.has(id)) {
         btn.classList.remove("bounce");
@@ -501,7 +503,18 @@ function buildDock() {
       const next = Math.abs(target - from) < 0.002 ? target : from + (target - from) * 0.3;
       if (next !== target) moving = true;
       current.set(item, next);
-      item.querySelector(".dock-icon").style.setProperty("--mag", next.toFixed(4));
+    });
+    // Neighbours slide apart by the extra width each enlarged icon takes, like the macOS dock.
+    const items = [...dock.querySelectorAll(".dock-item")];
+    const extra = items.map((item) => item.offsetWidth * ((current.get(item) ?? 1) - 1));
+    const total = extra.reduce((a, b) => a + b, 0);
+    let before = 0;
+    items.forEach((item, i) => {
+      const shift = before + extra[i] / 2 - total / 2;
+      before += extra[i];
+      const face = item.querySelector(".dock-face");
+      face.style.setProperty("--mag", (current.get(item) ?? 1).toFixed(4));
+      face.style.setProperty("--shift", `${shift.toFixed(2)}px`);
     });
     if (moving) frame = requestAnimationFrame(tick);
   };

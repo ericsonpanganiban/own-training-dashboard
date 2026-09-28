@@ -125,16 +125,24 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   user-select: none;
   -webkit-user-select: none;
 }
+/* Magnification scales the icon and its name together, upward from the base,
+   so the dock itself never changes size. */
+.dock-face {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(var(--shift, 0px)) scale(var(--mag, 1));
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
 .dock-icon {
   width: var(--icon-size);
   height: var(--icon-size);
   border-radius: 24%;
   display: grid;
   place-items: center;
-  /* Magnification scales the icon upward from its base, so the dock never changes size. */
-  transform: scale(var(--mag, 1));
-  transform-origin: 50% 100%;
-  will-change: transform;
 }
 .dock-icon svg {
   width: 82%;

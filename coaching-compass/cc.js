@@ -2037,7 +2037,8 @@
 
     return "<div class=\"card\">" +
         "<div class=\"resource-head\"><span class=\"r-icon\">" + ICONS.roster + "</span><h2>Trainee</h2>" +
-          "<button class=\"primary small\" id=\"addTraineeBtn\" style=\"margin-left:auto;\" type=\"button\">+ Add trainee</button>" +
+          "<button class=\"ghost small\" id=\"bulkTraineeBtn\" style=\"margin-left:auto;\" type=\"button\">Bulk add</button>" +
+          "<button class=\"primary small\" id=\"addTraineeBtn\" style=\"margin-left:8px;\" type=\"button\">+ Add trainee</button>" +
         "</div>" +
         "<p class=\"hint\">One record per trainee, so Coaching Compass can match the CRM name on a QA audit back to a real person, their team lead and department. Team lead and department are picked from the lists on their own tabs.</p>" +
         rosterHtml +
@@ -2046,6 +2047,7 @@
 
   function wireTraineeCard(){
     document.getElementById("addTraineeBtn").addEventListener("click", openAddTraineeModal);
+    document.getElementById("bulkTraineeBtn").addEventListener("click", openBulkTraineeModal);
     rosterHost.querySelectorAll("[data-kebab-trainee]").forEach(function(btn){
       var id = btn.getAttribute("data-kebab-trainee");
       btn.addEventListener("click", function(e){
@@ -2068,15 +2070,98 @@
     return s ? s.label : NESTING_STATUSES[0].label;
   }
 
+  // Nesting status is set later (Edit), not when a trainee is first added.
   function traineeModalFields(t){
+    var editing = !!t;
     t = t || { name: "", crm_name: "", team_lead: "", department: "", nesting_status: "" };
     return "<div class=\"field\"><label for=\"nt-name\">Name</label><input type=\"text\" id=\"nt-name\" placeholder=\"Jordan Diaz\" value=\"" + esc(t.name) + "\"></div>" +
       "<div class=\"field\"><label for=\"nt-crm\">CRM name</label><input type=\"text\" id=\"nt-crm\" placeholder=\"As it appears in the QA sheet\" value=\"" + esc(t.crm_name) + "\"></div>" +
       selectField("nt-lead", "Team lead", state.teamLeads, "Add a Team Lead first", t.team_lead) +
       selectField("nt-dept", "Department", state.departments, "Add a Department first", t.department) +
-      "<div class=\"field\"><label for=\"nt-nesting\">Nesting status</label><select id=\"nt-nesting\">" +
-        NESTING_STATUSES.map(function(s){ return "<option value=\"" + s.key + "\"" + (s.key === (t.nesting_status || "") ? " selected" : "") + ">" + esc(s.label) + "</option>"; }).join("") +
-      "</select></div>";
+      (editing
+        ? "<div class=\"field\"><label for=\"nt-nesting\">Nesting status</label><select id=\"nt-nesting\">" +
+            NESTING_STATUSES.map(function(s){ return "<option value=\"" + s.key + "\"" + (s.key === (t.nesting_status || "") ? " selected" : "") + ">" + esc(s.label) + "</option>"; }).join("") +
+          "</select></div>"
+        : "");
+  }
+
+  // ---- Bulk add: one trainee per line, columns in the order Name, CRM name, Team lead, Department.
+  // Pasting rows straight from a sheet works (tabs); commas work too. Team lead and department must
+  // match the lists on their tabs; anything else is left blank and reported.
+  function parseBulkTrainees(text){
+    var byName = function(list){ var m = {}; list.forEach(function(x){ m[String(x.name).trim().toLowerCase()] = x.name; }); return m; };
+    var leads = byName(state.teamLeads), depts = byName(state.departments);
+    var existing = {};
+    state.trainees.forEach(function(t){
+      existing["n:" + String(t.name || "").trim().toLowerCase()] = true;
+      if ((t.crm_name || "").trim()) existing["c:" + t.crm_name.trim().toLowerCase()] = true;
+    });
+    var out = { rows: [], duplicates: [], unmatched: [] };
+    text.split(/\r?\n/).forEach(function(line, i){
+      if (!line.trim()) return;
+      var cells = (line.indexOf("\t") !== -1 ? line.split("\t") : line.split(",")).map(function(c){ return c.trim(); });
+      var name = cells[0] || "";
+      if (!name || (i === 0 && /^name$/i.test(name))) return; // skip a header row
+      var crm = cells[1] || "", lead = cells[2] || "", dept = cells[3] || "";
+      var nk = "n:" + name.toLowerCase(), ck = crm ? "c:" + crm.toLowerCase() : null;
+      if (existing[nk] || (ck && existing[ck])){ out.duplicates.push(name); return; }
+      existing[nk] = true; if (ck) existing[ck] = true;
+      var row = { name: name, crm_name: crm, team_lead: "", department: "", nesting_status: "" };
+      if (lead){ if (leads[lead.toLowerCase()]) row.team_lead = leads[lead.toLowerCase()]; else out.unmatched.push(name + ": team lead \u201c" + lead + "\u201d"); }
+      if (dept){ if (depts[dept.toLowerCase()]) row.department = depts[dept.toLowerCase()]; else out.unmatched.push(name + ": department \u201c" + dept + "\u201d"); }
+      out.rows.push(row);
+    });
+    return out;
+  }
+
+  function openBulkTraineeModal(){
+    openModal(
+      "<h3 class=\"modal-title\">Bulk add trainees</h3>" +
+      "<p class=\"hint\" style=\"margin:-8px 0 12px;\">One trainee per line: <b>Name, CRM name, Team lead, Department</b>. Only Name is required. You can paste rows straight from a sheet.</p>" +
+      "<div class=\"field\"><label for=\"bulk-text\">Trainees</label><textarea id=\"bulk-text\" rows=\"8\" spellcheck=\"false\" placeholder=\"Jordan Diaz, jdiaz, K. Alvarez, Customer Support&#10;Sam Lee, slee\"></textarea></div>" +
+      "<p class=\"hint\" id=\"bulkPreview\" style=\"margin:8px 0 0;\"></p>" +
+      "<div class=\"modal-actions\">" +
+        "<button class=\"ghost small\" id=\"cancelBulkBtn\" type=\"button\">Cancel</button>" +
+        "<button class=\"primary small\" id=\"saveBulkBtn\" type=\"button\" disabled>Add trainees</button>" +
+      "</div>" +
+      "<span class=\"save-status\" id=\"bulkStatus\"></span>"
+    );
+    var box = document.getElementById("bulk-text"), preview = document.getElementById("bulkPreview"), saveBtn = document.getElementById("saveBulkBtn");
+    var parsed = { rows: [], duplicates: [], unmatched: [] };
+    function update(){
+      parsed = parseBulkTrainees(box.value);
+      var bits = [];
+      if (parsed.rows.length) bits.push(parsed.rows.length + " trainee" + (parsed.rows.length === 1 ? "" : "s") + " ready to add");
+      if (parsed.duplicates.length) bits.push(parsed.duplicates.length + " already on the roster, skipped (" + parsed.duplicates.join(", ") + ")");
+      if (parsed.unmatched.length) bits.push("left blank, not in your lists: " + parsed.unmatched.join("; "));
+      preview.textContent = bits.join(" · ");
+      saveBtn.disabled = !parsed.rows.length;
+      saveBtn.textContent = parsed.rows.length ? "Add " + parsed.rows.length + " trainee" + (parsed.rows.length === 1 ? "" : "s") : "Add trainees";
+    }
+    box.addEventListener("input", update);
+    document.getElementById("cancelBulkBtn").addEventListener("click", closeModal);
+    saveBtn.addEventListener("click", function(){
+      var rows = parsed.rows, statusEl = document.getElementById("bulkStatus");
+      if (!rows.length) return;
+      saveBtn.disabled = true;
+      var now = new Date().toISOString();
+      if (!dbFn){
+        state.trainees = state.trainees.concat(rows.map(function(r, i){ return Object.assign({ id: "local-" + Date.now() + "-" + i }, r); }));
+        closeModal();
+        renderAll();
+        return;
+      }
+      statusEl.textContent = "Adding " + rows.length + "…"; statusEl.className = "save-status";
+      var failed = 0;
+      rows.reduce(function(p, r){
+        return p.then(function(){ return dbFn.collection("trainees").add(Object.assign({ created_at: now }, r)).catch(function(){ failed++; }); });
+      }, Promise.resolve()).then(function(){
+        if (!failed){ closeModal(); return; }
+        statusEl.textContent = (rows.length - failed) + " added, " + failed + " couldn't be saved. Try those again."; statusEl.className = "save-status err";
+        saveBtn.disabled = false;
+      });
+    });
+    box.focus();
   }
 
   function openAddTraineeModal(){
@@ -2121,8 +2206,10 @@
       if (statusEl){ statusEl.textContent = "Name is required."; statusEl.className = "save-status err"; }
       return;
     }
-    var nesting = ((document.getElementById("nt-nesting") || {}).value || "").trim();
-    var record = { name: name, crm_name: crm, team_lead: lead, department: dept, nesting_status: nesting };
+    var nestingEl = document.getElementById("nt-nesting");
+    var record = { name: name, crm_name: crm, team_lead: lead, department: dept };
+    if (nestingEl) record.nesting_status = nestingEl.value;
+    else if (!editId) record.nesting_status = "";
 
     if (!dbFn || (editId && String(editId).indexOf("local-") === 0)){
       if (editId){

@@ -18,7 +18,7 @@ const COHORTS = [
 ];
 
 // ---------- Settings (persisted per browser) ----------
-const DEFAULT_SETTINGS = { theme: "light", wallpaper: "default", iconSize: 56, magnify: true };
+const DEFAULT_SETTINGS = { theme: "system", wallpaper: "default", iconSize: 56, magnify: true };
 
 function loadSettings() {
   try {
@@ -35,7 +35,8 @@ function saveSettings() {
 }
 
 function applySettings() {
-  document.documentElement.dataset.theme = settings.theme;
+  if (settings.theme === "system") delete document.body.dataset.appearance;
+  else document.body.dataset.appearance = settings.theme;
   document.body.dataset.wallpaper = settings.wallpaper;
   document.documentElement.style.setProperty("--icon-size", `${settings.iconSize}px`);
 }
@@ -57,6 +58,7 @@ const APPS = {
         <div class="form-row">
           <label for="set-theme">Appearance</label>
           <select id="set-theme">
+            <option value="system">Match system</option>
             <option value="light">Light</option>
             <option value="dark">Dark</option>
           </select>
@@ -138,12 +140,15 @@ const APPS = {
     title: "Coaching Compass",
     icon: "🧭",
     color: "linear-gradient(135deg, #5b8c6f, #3c6e57)",
-    size: { w: 420, h: 280 },
+    size: { w: 1040, h: 680 },
+    // Coaching Compass boots once with the page (coaching-compass/), so its state
+    // survives closing the window; the window only borrows its root element.
     render(el) {
-      el.innerHTML = `
-        <h3>Coaching Compass</h3>
-        <p class="muted">QA data requests, team and individual coaching briefs, cohorts and Ask AI. It keeps its own saved data, so it opens in its own tab.</p>
-        <a class="open-link" href="https://claude.ai/artifact/NdG6LDssqEEVC6dzUvdad3" target="_blank" rel="noopener">Open Coaching Compass ↗</a>`;
+      el.classList.add("embed");
+      el.appendChild(document.getElementById("ccRoot"));
+    },
+    onClose() {
+      document.getElementById("ccHolder").appendChild(document.getElementById("ccRoot"));
     },
   },
 
@@ -229,6 +234,7 @@ function closeApp(appId) {
   if (!win) return;
   openWindows.delete(appId);
   setRunning(appId, false);
+  APPS[appId].onClose?.();
   win.classList.add("closing");
   win.addEventListener("animationend", () => win.remove(), { once: true });
   refreshActiveLabel();

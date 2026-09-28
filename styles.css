@@ -13,7 +13,20 @@
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
 }
 
-:root[data-theme="dark"] {
+/* Dark follows the viewer's theme; Settings → Appearance can pin light or dark. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) body:not([data-appearance="light"]) {
+    color-scheme: dark;
+    --glass: rgba(30, 30, 30, 0.45);
+    --glass-border: rgba(255, 255, 255, 0.15);
+    --window-bg: #1f2023;
+    --window-fg: #e6e6e6;
+    --muted: #9ca3af;
+    --line: #34363b;
+  }
+}
+:root[data-theme="dark"] body:not([data-appearance="light"]),
+body[data-appearance="dark"] {
   color-scheme: dark;
   --glass: rgba(30, 30, 30, 0.45);
   --glass-border: rgba(255, 255, 255, 0.15);
@@ -21,6 +34,15 @@
   --window-fg: #e6e6e6;
   --muted: #9ca3af;
   --line: #34363b;
+}
+body[data-appearance="light"] {
+  color-scheme: light;
+  --glass: rgba(255, 255, 255, 0.28);
+  --glass-border: rgba(255, 255, 255, 0.45);
+  --window-bg: #ffffff;
+  --window-fg: #1f2328;
+  --muted: #6b7280;
+  --line: #e5e7eb;
 }
 
 * { box-sizing: border-box; }
@@ -44,11 +66,12 @@ body[data-wallpaper="forest"] { --bg-1: #134e5e; --bg-2: #71b280; }
 .menubar {
   position: fixed;
   inset: 0 0 auto 0;
-  height: var(--menubar-h);
+  height: calc(var(--menubar-h) + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 14px;
+  padding-inline: 14px;
   font-size: 13px;
   color: #fff;
   background: rgba(0, 0, 0, 0.25);
@@ -57,20 +80,20 @@ body[data-wallpaper="forest"] { --bg-1: #134e5e; --bg-2: #71b280; }
   z-index: 10000;
 }
 .menubar-left { display: flex; gap: 18px; }
-.brand { font-weight: 700; }
+.menubar .brand { font-weight: 700; }
 .active-app { font-weight: 600; }
 
 /* ---------- Desktop ---------- */
 .desktop {
   position: absolute;
-  inset: var(--menubar-h) 0 0 0;
+  inset: calc(var(--menubar-h) + env(safe-area-inset-top, 0px)) 0 0 0;
 }
 
 /* ---------- Dock ---------- */
-.dock {
+#dock {
   position: fixed;
   left: 50%;
-  bottom: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   display: flex;
   align-items: flex-end;
@@ -223,10 +246,10 @@ body[data-wallpaper="forest"] { --bg-1: #134e5e; --bg-2: #71b280; }
 }
 
 /* ---------- App content ---------- */
-.content h3 { margin: 0 0 10px; font-size: 15px; }
-.muted { color: var(--muted); }
+.content:not(.embed) h3 { margin: 0 0 10px; font-size: 15px; }
+.content:not(.embed) .muted { color: var(--muted); }
 
-.form-row {
+.content:not(.embed) .form-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -234,84 +257,82 @@ body[data-wallpaper="forest"] { --bg-1: #134e5e; --bg-2: #71b280; }
   border-bottom: 1px solid var(--line);
   gap: 12px;
 }
-.form-row:last-child { border-bottom: 0; }
-.form-row select,
-.form-row input[type="range"] { min-width: 160px; }
+.content:not(.embed) .form-row:last-child { border-bottom: 0; }
+.content:not(.embed) .form-row select, .content:not(.embed) .form-row input[type="range"] { min-width: 160px; }
 
-.stats {
+.content:not(.embed) .stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   margin-bottom: 18px;
 }
-.stat {
+.content:not(.embed) .stat {
   padding: 12px;
   border-radius: 10px;
   border: 1px solid var(--line);
 }
-.stat .value { font-size: 22px; font-weight: 700; }
-.stat .label { font-size: 12px; color: var(--muted); }
+.content:not(.embed) .stat .value { font-size: 22px; font-weight: 700; }
+.content:not(.embed) .stat .label { font-size: 12px; color: var(--muted); }
 
-table { width: 100%; border-collapse: collapse; }
-th, td {
+.content:not(.embed) table { width: 100%; border-collapse: collapse; }
+.content:not(.embed) th, .content:not(.embed) td {
   text-align: left;
   padding: 8px 6px;
   border-bottom: 1px solid var(--line);
 }
-th { font-size: 12px; color: var(--muted); font-weight: 600; }
+.content:not(.embed) th { font-size: 12px; color: var(--muted); font-weight: 600; }
 
-.progress {
+.content:not(.embed) .progress {
   height: 6px;
   border-radius: 3px;
   background: var(--line);
   overflow: hidden;
 }
-.progress > span {
+.content:not(.embed) .progress > span {
   display: block;
   height: 100%;
   background: var(--accent);
 }
 
-.cohort-grid {
+.content:not(.embed) .cohort-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 12px;
 }
-.cohort-card {
+.content:not(.embed) .cohort-card {
   padding: 14px;
   border-radius: 12px;
   border: 1px solid var(--line);
 }
-.cohort-card h4 { margin: 0 0 4px; font-size: 14px; }
-.cohort-card .meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-.badge {
+.content:not(.embed) .cohort-card h4 { margin: 0 0 4px; font-size: 14px; }
+.content:not(.embed) .cohort-card .meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.content:not(.embed) .badge {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
 }
-.badge.active { background: #dcfce7; color: #166534; }
-.badge.upcoming { background: #dbeafe; color: #1e40af; }
-.badge.completed { background: #e5e7eb; color: #374151; }
+.content:not(.embed) .badge.active { background: #dcfce7; color: #166534; }
+.content:not(.embed) .badge.upcoming { background: #dbeafe; color: #1e40af; }
+.content:not(.embed) .badge.completed { background: #e5e7eb; color: #374151; }
 
 @media (max-width: 640px) {
   .window {
     left: 8px !important;
     width: calc(100% - 16px) !important;
   }
-  .stats { grid-template-columns: 1fr; }
+  .content:not(.embed) .stats { grid-template-columns: 1fr; }
 }
 
-.open-link {
-  display: inline-block;
-  margin-top: 8px;
-  padding: 9px 16px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  font-weight: 600;
-  text-decoration: none;
+.content.embed {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
 }
-.open-link:hover { filter: brightness(1.08); }
-.open-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .window, .window.closing, .dock-item.bounce { animation: none; }
+  .dock-item { transition: none; }
+}
+.dock-item:focus-visible { outline: 2px solid #fff; outline-offset: 4px; border-radius: 14px; }

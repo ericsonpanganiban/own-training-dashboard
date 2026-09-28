@@ -464,7 +464,7 @@ function buildDock() {
     btn.dataset.app = id;
     btn.setAttribute("aria-label", app.title);
     btn.innerHTML = `
-      <span class="dock-icon" style="background:${app.color}">
+      <span class="dock-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${app.icon}</svg>
       </span>
       <span class="dock-label">${escapeHtml(app.title)}</span>`;

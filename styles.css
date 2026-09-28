@@ -115,7 +115,7 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  width: calc(var(--icon-size) + 28px);
+  width: calc(var(--icon-size) + 44px);
   border: 0;
   padding: 0;
   background: none;
@@ -137,13 +137,14 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   will-change: transform;
 }
 .dock-icon svg {
-  width: 52%;
-  height: 52%;
+  width: 82%;
+  height: 82%;
   color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
 }
 .dock-label {
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
@@ -161,7 +162,7 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 }
 #dock.reordering .dock-item { cursor: grabbing; }
 .dock-item.dragging { z-index: 1; opacity: 0.9; }
-.dock-item.dragging .dock-icon { box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3); }
+.dock-item.dragging .dock-icon svg { filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.4)); }
 .dock-item.bounce { animation: bounce 0.5s ease; }
 @keyframes bounce {
   0%, 100% { transform: translateY(0); }

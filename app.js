@@ -510,7 +510,8 @@ const fmtDate = (d) =>
 
 // ---------- Cohort schedule ----------
 // 20 training days: 5 days on, 2 days off, counted from the start date.
-// Weeks 1–2 are classroom training, weeks 3–4 are nesting.
+// Weeks 1–2 are classroom training, weeks 3–4 are nesting. Production endorsement is the next
+// training day after nesting, once the 2 days off have passed (Fri Oct 16 → Mon Oct 19).
 const TRAINING_DAYS = 20;
 const NESTING_LABELS = { "": "In nesting", passed: "Passed nesting", not_passed: "Did not pass" };
 
@@ -532,7 +533,14 @@ function cohortSchedule(start) {
     start: plus(i * 7),
     end: plus(i * 7 + 4),
   }));
-  return { start, end: weeks[3].end, weeks };
+  return {
+    start,
+    end: weeks[3].end,
+    weeks,
+    classroom: { start: weeks[0].start, end: weeks[1].end },
+    nesting: { start: weeks[2].start, end: weeks[3].end },
+    endorsement: plus(3 * 7 + 4 + 3),
+  };
 }
 
 function scheduleStatus(s, today) {
@@ -559,12 +567,15 @@ const fmtShort = (d) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, 
 const fmtRange = (a, b) => `${fmtShort(a)} – ${fmtShort(b)}, ${new Date(`${b}T00:00:00`).getFullYear()}`;
 
 function timelineHtml(s, today) {
-  return `<ol class="timeline">${s.weeks
-    .map((w) => {
-      const state = today > w.end ? "done" : today >= w.start ? "now" : "later";
-      return `<li class="tl-${state} tl-${w.phase.toLowerCase()}"><span class="tl-label">${w.label}</span><span class="tl-dates">${fmtShort(w.start)} – ${fmtShort(w.end)}</span></li>`;
-    })
-    .join("")}</ol>`;
+  const phase = (label, range) => {
+    const state = today > range.end ? "done" : today >= range.start ? "now" : "later";
+    return `<li class="sch-${state}"><span class="sch-label">${label}:</span> ${fmtShort(range.start)} – ${fmtShort(range.end)}</li>`;
+  };
+  return `<ul class="schedule">
+    ${phase("Classroom Training", s.classroom)}
+    ${phase("Nesting", s.nesting)}
+    <li class="sch-endorse"><b>Production Endorsement Date: ${fmtShort(s.endorsement)}</b></li>
+  </ul>`;
 }
 
 function cohortSectionsHtml(cohorts, trainees, today, openRows) {
@@ -601,7 +612,7 @@ function cohortSectionsHtml(cohorts, trainees, today, openRows) {
         ${
           open
             ? `<div class="row-detail">
-                ${s ? `<h5>Schedule · 20 training days</h5>${timelineHtml(s, today)}` : `<p class="muted">No start date yet, so there's no schedule.</p>`}
+                ${s ? `<h5>Schedule</h5>${timelineHtml(s, today)}` : `<p class="muted">No start date yet, so there's no schedule.</p>`}
                 <h5>Trainees</h5>
                 ${
                   members.length

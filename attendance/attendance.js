@@ -47,12 +47,17 @@
     if (h < 24) return `${h}h ago`;
     return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   };
-  const slackError = (err) =>
-    err?.code === "not_granted"
-      ? "Slack isn't connected for this dashboard. Allow Slack when the dashboard asks, then try again."
-      : `Slack didn't respond${err?.message ? ` (${err.message})` : ""}. Try again.`;
-  const driveError = (err) =>
-    err?.code === "not_granted" ? "Google Drive isn't connected for this dashboard." : "Google Drive didn't respond. Try again.";
+  const connectorError = (name, err) =>
+    ({
+      not_granted: `${name} isn't available in this view of the dashboard.`,
+      server_not_connected: `Add ${name} in claude.ai Settings → Connectors, then try again.`,
+      needs_reauth: `Reconnect ${name} in claude.ai Settings → Connectors, then try again.`,
+      not_in_manifest: `${name} isn't allowed for this dashboard. Turn it on in the dashboard's connector settings.`,
+      selection_required: `Pick which ${name} account to use when the dashboard asks, then try again.`,
+      server_unavailable: `${name} isn't responding right now. Try again in a moment.`,
+    })[err?.code] || `${name} couldn't do that${err?.message ? ` (${err.message})` : ""}. Try again.`;
+  const slackError = (err) => connectorError("Slack", err);
+  const driveError = (err) => connectorError("Google Drive", err);
   const needMcp = () =>
     mcpReady.then((m) => {
       if (!m) throw Object.assign(new Error("not connected"), { code: "not_granted" });
@@ -206,7 +211,7 @@
     let mcp;
     return needMcp()
       .then((m) => ((mcp = m), mcp.callTool(SLACK, "slack_send_message", { channel_id: channelId, message })))
-      .then(() => mcp.callTool(SLACK, "slack_read_channel", { channel_id: channelId, limit: 5, response_format: "detailed" }))
+      .then(() => mcp.callTool(SLACK, "slack_read_channel", { channel_id: channelId, limit: 5, response_format: "detailed" }, { cache: false }))
       .then((r) => {
         // The newest message right after our send is ours; these channels are quiet.
         const mine = parseChannelMessages(r?.payload?.messages).sort((a, b) => parseFloat(b.ts) - parseFloat(a.ts))[0];
@@ -229,7 +234,7 @@
   // Earliest reply per Slack user in the check-in thread, in ms.
   function replyMap(session) {
     return needMcp()
-      .then((mcp) => mcp.callTool(SLACK, "slack_read_thread", { channel_id: session.channelId, message_ts: session.sentAtTs, response_format: "detailed" }))
+      .then((mcp) => mcp.callTool(SLACK, "slack_read_thread", { channel_id: session.channelId, message_ts: session.sentAtTs, response_format: "detailed" }, { cache: false }))
       .then((r) => {
         const map = {};
         parseThreadReplies(r?.payload?.messages).forEach((reply) => {

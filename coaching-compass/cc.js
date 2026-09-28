@@ -4208,6 +4208,15 @@
       }
       return dbFn.doc("trainees/" + id).update(fields);
     },
+    // Merge fields into a cohort record (Attendance keeps its channel, message and day grid here).
+    updateCohort: function(id, fields){
+      if (!dbFn || String(id).indexOf("local-") === 0){
+        state.cohorts = state.cohorts.map(function(c){ return c.id === id ? Object.assign({}, c, fields) : c; });
+        renderAll();
+        return Promise.resolve();
+      }
+      return dbFn.doc("cohorts/" + id).update(fields);
+    },
     // Replace a cohort's trainees. Rejects when any trainee already belongs to another cohort.
     setCohortTrainees: function(cohortId, ids){
       var cohort = state.cohorts.filter(function(c){ return c.id === cohortId; })[0];

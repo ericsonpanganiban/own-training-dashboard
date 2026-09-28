@@ -351,6 +351,20 @@ const APPS = {
   },
 };
 
+// Attendance lives in attendance/attendance.js (loaded after Coaching Compass).
+APPS.attendance = {
+  title: "Attendance",
+  icon: '<rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="m9 15 2 2 4-4"/>',
+  color: "#8b5cf6",
+  render(el) {
+    if (window.TrainerAttendance) window.TrainerAttendance.render(el);
+    else el.innerHTML = `<p class="muted">Attendance isn't available right now.</p>`;
+  },
+  onClose() {
+    window.TrainerAttendance?.onClose();
+  },
+};
+
 // ---------- Settings pages ----------
 const SETTINGS_PAGES = [
   {

@@ -4186,6 +4186,36 @@
       out.weeks = Object.keys(out.weeks).length;
       return out;
     },
+    // One trainee's saved QA weeks (newest first), matched by CRM name the same way
+    // Coaching Compass's Cohorts and Individual pages do. HTML parts use Coaching Compass styles,
+    // so show them inside a .cc-ui element.
+    traineePerformance: function(traineeId){
+      var t = state.trainees.filter(function(x){ return x.id === traineeId; })[0];
+      var out = { loaded: Array.isArray(state.allAnalyses) || !dbFn, name: t ? t.name : "", crm: t ? (t.crm_name || "") : "", weeks: [] };
+      if (!t) return out;
+      var index = traineeWeekIndex();
+      var key = (t.crm_name || "").trim().toLowerCase();
+      if (!index[key]) key = resolveTraineeKey(index, t.name);
+      var entry = key ? index[key] : null;
+      if (!entry) return out;
+      out.weeks = sortedWeeks(entry).map(function(w){
+        var wk = entry.weeks[w];
+        var d = wk.doc || {};
+        var tally = tallyPassRate(wk.headers, wk.rows);
+        var item = { analysis: wk.brief, rawRows: wk.rows || [] };
+        return {
+          week: w,
+          source: d.mode === "cohort" ? (d.target_label || "Cohort pull") : d.mode === "trainee" ? "Individual pull" : (d.target_label || "Saved pull"),
+          audits: (wk.rows || []).length,
+          pass: tally.pass,
+          total: tally.total,
+          analyzed: !!wk.brief,
+          talkingHtml: talkingPointsModalHtml(item),
+          markdownsHtml: markdownsModalHtml(item, { headers: wk.headers }, false)
+        };
+      });
+      return out;
+    },
     mountQaSheets: function(host){
       qaSheetHost = host;
       if (state.themeKey && state.themeKey !== "default") host.parentElement.setAttribute("data-cc-theme", state.themeKey);

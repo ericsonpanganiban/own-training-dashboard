@@ -321,7 +321,7 @@ const APPS = {
             cc.updateTrainee(btn.dataset.toggleActive, { cohort_status: makeActive ? "active" : "inactive" }).catch(() => (btn.disabled = false));
           })
         );
-        el.querySelectorAll("[data-performance]").forEach((b) => b.addEventListener("click", () => openPlaceholder(el, b.dataset.performance, "Performance")));
+        el.querySelectorAll("[data-performance]").forEach((b) => b.addEventListener("click", () => openPerformance(el, b.dataset.performance)));
         el.querySelectorAll("[data-notes]").forEach((b) => b.addEventListener("click", () => openPlaceholder(el, b.dataset.notes, "Notes & Feedback")));
         el.querySelectorAll("[data-trainee-menu]").forEach((b) =>
           b.addEventListener("click", (e) => {
@@ -769,6 +769,75 @@ function openPlaceholder(content, traineeId, title) {
   sheet.querySelector("[data-cancel]").addEventListener("click", close);
   sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
   sheet.querySelector("[data-cancel]").focus();
+}
+
+// Performance: a trainee's saved QA weeks from Coaching Compass (the same weeks its Cohorts
+// page shows under the trainee's name): overall score, a score per week, and each week's
+// coaching talking points and markdowns.
+function openPerformance(content, traineeId) {
+  const win = content.closest(".window");
+  if (win.querySelector(".sheet")) return;
+  const cc = window.CoachingCompass;
+  const view = { week: null, tab: "talking" };
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="sheet-card perf-card" role="dialog" aria-label="Performance"></div>`;
+  win.appendChild(sheet);
+  const card = sheet.querySelector(".sheet-card");
+  const pct = (w) => (w.total ? `${Math.round((w.pass / w.total) * 100)}%` : "—");
+
+  const draw = () => {
+    const p = cc.traineePerformance(traineeId);
+    const weeks = p.weeks;
+    if (!weeks.some((w) => w.week === view.week)) view.week = weeks[0]?.week ?? null;
+    const w = weeks.find((x) => x.week === view.week);
+    const all = weeks.reduce((a, x) => ({ pass: a.pass + x.pass, total: a.total + x.total }), { pass: 0, total: 0 });
+    let body;
+    if (!p.name) body = `<p class="muted">This trainee is no longer on the roster.</p>`;
+    else if (!weeks.length && !p.loaded) body = `<p class="muted">Loading saved QA weeks…</p>`;
+    else if (!weeks.length)
+      body = `<p class="muted">No saved QA weeks for ${escapeHtml(p.name)} yet${p.crm ? ` (CRM name “${escapeHtml(p.crm)}”)` : ""}. In Coaching Compass, request this trainee's cohort in QA Data Request and save the week.${p.crm ? "" : " Add their CRM name in Settings → Roster so their audits can be matched."}</p>`;
+    else
+      body = `
+        <div class="perf-summary">
+          <div class="stat"><div class="value">${pct(all)}</div><div class="label">Overall QA score</div><div class="hint">${all.total ? `${Math.round(all.pass * 100) / 100} of ${all.total} audits passed` : "No Pass/Fail scores"}</div></div>
+          <div class="stat"><div class="value">${weeks.length}</div><div class="label">Week${weeks.length === 1 ? "" : "s"} saved</div><div class="hint">Latest: Week ${escapeHtml(weeks[0].week)}</div></div>
+          <div class="stat"><div class="value">${weeks.reduce((n, x) => n + x.audits, 0)}</div><div class="label">Audits</div></div>
+        </div>
+        <div class="perf-weeks" role="tablist" aria-label="Weeks">${weeks
+          .map((x) => `<button type="button" role="tab" class="pill${x.week === view.week ? " on" : ""}" aria-selected="${x.week === view.week}" data-week="${escapeHtml(x.week)}">Week ${escapeHtml(x.week)} <b>${pct(x)}</b></button>`)
+          .join("")}</div>
+        <p class="muted perf-meta">Week ${escapeHtml(w.week)} · ${escapeHtml(w.source)} · ${w.audits} audit${w.audits === 1 ? "" : "s"}${w.analyzed ? "" : " · not analyzed yet"}</p>
+        <div class="perf-tabs">
+          <button type="button" class="pill${view.tab === "talking" ? " on" : ""}" data-tab="talking">Coaching talking points</button>
+          <button type="button" class="pill${view.tab === "markdowns" ? " on" : ""}" data-tab="markdowns">Markdowns</button>
+        </div>
+        <div class="cc-ui perf-detail">${view.tab === "talking" ? w.talkingHtml : w.markdownsHtml}</div>`;
+    card.innerHTML = `
+      <h3>Performance${p.name ? ` · ${escapeHtml(p.name)}` : ""}</h3>
+      ${body}
+      <div class="sheet-actions"><button type="button" class="btn-primary" data-cancel>Close</button></div>`;
+  };
+
+  const unsubscribe = cc.onChange(() => sheet.isConnected && draw());
+  const close = () => {
+    unsubscribe();
+    sheet.remove();
+  };
+  card.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.week) view.week = b.dataset.week;
+    else if (b.dataset.tab) view.tab = b.dataset.tab;
+    else if ("cancel" in b.dataset) return close();
+    else return;
+    draw();
+    card.querySelector(`[data-${b.dataset.week ? "week" : "tab"}="${CSS.escape(b.dataset.week || b.dataset.tab)}"]`)?.focus();
+  });
+  sheet.addEventListener("click", (e) => e.target === sheet && close());
+  sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  draw();
+  card.querySelector("[data-cancel]").focus();
 }
 
 // Small ⋮ menu anchored to a button, inside the button's window.

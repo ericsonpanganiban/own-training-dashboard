@@ -2065,10 +2065,6 @@
     { key: "passed", label: "Passed nesting" },
     { key: "not_passed", label: "Did not pass" }
   ];
-  function nestingLabel(key){
-    var s = NESTING_STATUSES.filter(function(x){ return x.key === (key || ""); })[0];
-    return s ? s.label : NESTING_STATUSES[0].label;
-  }
 
   // Nesting status is set later (Edit), not when a trainee is first added.
   function traineeModalFields(t){

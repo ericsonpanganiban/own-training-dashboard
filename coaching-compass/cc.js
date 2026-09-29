@@ -4291,6 +4291,22 @@
         return dbFn.doc("trainees/" + traineeId).collection("notes").doc(noteId).delete();
       }
     },
+    // Create a Google Doc from report blocks ({type:"h1"|"h2"|"h3"|"note"|"p"|"ul", ...}), the same
+    // way Coaching Compass's own "Export to Google Doc" does. Resolves with the doc's link (or null);
+    // rejects with { message } when there's something to tell the viewer.
+    exportGoogleDoc: function(title, blocks){
+      if (!mcpFn) return Promise.reject({ message: "Google Doc export isn't available in this view." });
+      return mcpFn.callTool("Google Drive", "create_file", { title: title, textContent: blocksToHtml(blocks), contentMimeType: "text/html" })
+        .then(function(result){
+          var payload = (result && result.payload) || {};
+          var link = payload.webViewLink || payload.alternateLink;
+          if (!link && payload.id) link = "https://docs.google.com/document/d/" + encodeURIComponent(payload.id) + "/edit";
+          return link || null;
+        }, function(e){
+          var msg = docErrorCopy(e && e.code);
+          return Promise.reject({ message: msg || "", cancelled: msg === null });
+        });
+    },
     // Delete a cohort. Its trainees stay on the roster, free to join another cohort.
     deleteCohort: function(id){
       if (!dbFn || String(id).indexOf("local-") === 0){

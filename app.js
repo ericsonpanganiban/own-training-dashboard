@@ -871,7 +871,11 @@ function openNotes(content, traineeId) {
           <ul class="note-list" aria-label="${escapeHtml(sp.title)}"></ul>
         </section>`
       ).join("")}</div>
-      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Close</button></div>
+      <div class="sheet-actions notes-actions">
+        <button type="button" class="btn" data-export-doc>Export to Google Docs</button>
+        <span class="sheet-status" data-export-status role="status"></span>
+        <button type="button" class="btn" data-cancel>Close</button>
+      </div>
     </div>`;
   win.appendChild(sheet);
 
@@ -964,6 +968,7 @@ function openNotes(content, traineeId) {
     if ("cancel" in b.dataset) return close();
     if ("add" in b.dataset) return add(b.closest(".note-space"));
     if (b.dataset.tab) return showTab(b.dataset.tab);
+    if ("exportDoc" in b.dataset) return exportDoc(b);
     if (b.dataset.noteMenu) {
       e.stopPropagation();
       const id = b.dataset.noteMenu;
@@ -995,6 +1000,40 @@ function openNotes(content, traineeId) {
         });
     }
   });
+  // All three note types in one Google Doc: a heading per type, each note with its timestamp.
+  const exportDoc = (btn) => {
+    const out = sheet.querySelector("[data-export-status]");
+    if (!notes) {
+      out.textContent = notes === null ? "Notes didn't load, so there's nothing to export." : "Still loading notes…";
+      return;
+    }
+    const cohort = cc.data().cohorts.find((c) => (c.trainee_ids || []).includes(traineeId));
+    const today = new Date().toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+    const who = [cohort?.name, t.department, t.team_lead ? `Team lead: ${t.team_lead}` : ""].filter(Boolean).join(" · ");
+    const blocks = [
+      { type: "h1", text: `Notes & Feedback — ${t.name}` },
+      { type: "note", text: `${who ? `${who} · ` : ""}Exported ${today}` },
+    ];
+    NOTE_SPACES.forEach((sp) => {
+      const mine = notes.filter((n) => n.category === sp.key);
+      blocks.push({ type: "h2", text: `${sp.title} (${mine.length})` });
+      if (!mine.length) blocks.push({ type: "note", text: "No notes." });
+      mine.forEach((n) =>
+        blocks.push({ type: "p", label: fmtStamp(n.created_at) + (n.updated_at ? ` (edited ${fmtStamp(n.updated_at)})` : ""), text: n.text })
+      );
+    });
+    btn.disabled = true;
+    out.textContent = "Creating the Google Doc…";
+    cc.exportGoogleDoc(`Notes & Feedback — ${t.name} — ${isoDate(new Date())}`, blocks)
+      .then((link) => {
+        out.innerHTML = link
+          ? `Saved to Google Docs · <a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Open doc</a>`
+          : "Saved to Google Docs.";
+      })
+      .catch((e) => (out.textContent = e?.cancelled ? "" : e?.message || "Couldn't export. Try again."))
+      .finally(() => (btn.disabled = false));
+  };
+
   // One space at a time; a typed-but-unsaved note stays in its box when switching tabs.
   const showTab = (key, focusTab) => {
     sheet.querySelectorAll("[data-tab]").forEach((tb) => {

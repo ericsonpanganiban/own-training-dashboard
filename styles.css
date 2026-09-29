@@ -910,3 +910,4 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .notes-card .notes-actions { align-items: center; }
 .notes-card .notes-actions [data-export-status] { flex: 1; min-height: 0; }
 .notes-card .notes-actions a { color: var(--accent); font-weight: 600; }
+.notes-card .doc-stale { color: #b45309; font-weight: 600; }

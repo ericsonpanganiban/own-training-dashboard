@@ -928,14 +928,19 @@ function openNotes(content, traineeId) {
       }
     }
   };
+  let refreshExport = () => {}; // set once the export controls below are ready
   const unsubscribe = cc.notes.subscribe(traineeId, (list) => {
     notes = list;
-    if (sheet.isConnected) drawLists();
+    if (sheet.isConnected) {
+      drawLists();
+      refreshExport();
+    }
   });
   drawLists();
 
   const close = () => {
     unsubscribe?.();
+    offChange();
     sheet.remove();
   };
   const add = (box) => {
@@ -968,7 +973,7 @@ function openNotes(content, traineeId) {
     if ("cancel" in b.dataset) return close();
     if ("add" in b.dataset) return add(b.closest(".note-space"));
     if (b.dataset.tab) return showTab(b.dataset.tab);
-    if ("exportDoc" in b.dataset) return exportDoc(b);
+    if ("exportDoc" in b.dataset) return exportDoc();
     if (b.dataset.noteMenu) {
       e.stopPropagation();
       const id = b.dataset.noteMenu;
@@ -1001,18 +1006,43 @@ function openNotes(content, traineeId) {
     }
   });
   // All three note types in one Google Doc: a heading per type, each note with its timestamp.
-  const exportDoc = (btn) => {
+  // The trainee keeps a pointer to the current doc (notes_doc). Drive can't rewrite a doc's
+  // contents, so Update makes a fresh doc with the latest notes and moves the old one to the trash.
+  const docInfo = () => cc.data().trainees.find((x) => x.id === traineeId)?.notes_doc || null;
+  let exportMsg = ""; // HTML shown after an export, until the next one
+  let exporting = false;
+  const changesSinceExport = () => {
+    const d = docInfo();
+    if (!d || !notes) return 0;
+    return notes.filter((n) => (n.updated_at || n.created_at || "") > d.exported_at).length;
+  };
+  const drawExport = () => {
+    const btn = sheet.querySelector("[data-export-doc]");
     const out = sheet.querySelector("[data-export-status]");
+    const d = docInfo();
+    const changes = changesSinceExport();
+    btn.textContent = exporting ? (d ? "Updating…" : "Exporting…") : d ? "Update Google Doc" : "Export to Google Docs";
+    btn.disabled = exporting;
+    // Highlighted when there are notes the doc doesn't have yet.
+    btn.className = d && changes ? "btn-primary" : "btn";
+    if (exportMsg) out.innerHTML = exportMsg;
+    else if (d)
+      out.innerHTML = `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener noreferrer">Open doc</a> · updated ${escapeHtml(fmtStamp(d.exported_at))}${
+        changes ? ` · <b class="doc-stale">${changes} new or edited note${changes === 1 ? "" : "s"} not in the doc</b>` : " · up to date"
+      }`;
+    else out.textContent = "";
+  };
+  const exportDoc = () => {
     if (!notes) {
-      out.textContent = notes === null ? "Notes didn't load, so there's nothing to export." : "Still loading notes…";
-      return;
+      exportMsg = escapeHtml(notes === null ? "Notes didn't load, so there's nothing to export." : "Still loading notes…");
+      return drawExport();
     }
     const cohort = cc.data().cohorts.find((c) => (c.trainee_ids || []).includes(traineeId));
-    const today = new Date().toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+    const now = new Date();
     const who = [cohort?.name, t.department, t.team_lead ? `Team lead: ${t.team_lead}` : ""].filter(Boolean).join(" · ");
     const blocks = [
       { type: "h1", text: `Notes & Feedback — ${t.name}` },
-      { type: "note", text: `${who ? `${who} · ` : ""}Exported ${today}` },
+      { type: "note", text: `${who ? `${who} · ` : ""}Updated ${fmtStamp(now.toISOString())}` },
     ];
     NOTE_SPACES.forEach((sp) => {
       const mine = notes.filter((n) => n.category === sp.key);
@@ -1022,17 +1052,39 @@ function openNotes(content, traineeId) {
         blocks.push({ type: "p", label: fmtStamp(n.created_at) + (n.updated_at ? ` (edited ${fmtStamp(n.updated_at)})` : ""), text: n.text })
       );
     });
-    btn.disabled = true;
-    out.textContent = "Creating the Google Doc…";
-    cc.exportGoogleDoc(`Notes & Feedback — ${t.name} — ${isoDate(new Date())}`, blocks)
-      .then((link) => {
-        out.innerHTML = link
-          ? `Saved to Google Docs · <a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Open doc</a>`
-          : "Saved to Google Docs.";
+    const previous = docInfo();
+    exporting = true;
+    exportMsg = escapeHtml(previous ? "Updating the Google Doc…" : "Creating the Google Doc…");
+    drawExport();
+    cc.exportGoogleDoc(`Notes & Feedback — ${t.name}`, blocks)
+      .then(async (doc) => {
+        if (!doc.link) {
+          exportMsg = "Saved to Google Docs, but Drive didn't return a link. Look for it in Drive.";
+          return;
+        }
+        await cc.updateTrainee(traineeId, { notes_doc: { id: doc.id, url: doc.link, exported_at: now.toISOString() } }).catch(() => {});
+        let trashNote = "";
+        if (previous?.id && previous.id !== doc.id)
+          trashNote = await cc.trashDriveFile(previous.id).then(
+            () => " The previous copy is in Drive's Trash.",
+            () => " The previous copy couldn't be moved to the trash, so it's still in Drive."
+          );
+        exportMsg = `${previous ? "Google Doc updated" : "Saved to Google Docs"} · <a href="${escapeHtml(doc.link)}" target="_blank" rel="noopener noreferrer">Open doc</a>${escapeHtml(trashNote)}`;
+        setTimeout(() => {
+          exportMsg = "";
+          if (sheet.isConnected) drawExport();
+        }, 8000);
       })
-      .catch((e) => (out.textContent = e?.cancelled ? "" : e?.message || "Couldn't export. Try again."))
-      .finally(() => (btn.disabled = false));
+      .catch((e) => (exportMsg = e?.cancelled ? "" : escapeHtml(e?.message || "Couldn't export. Try again.")))
+      .finally(() => {
+        exporting = false;
+        if (sheet.isConnected) drawExport();
+      });
   };
+  // Keep the button and "not in the doc" count current as notes and the trainee record change.
+  const offChange = cc.onChange(() => sheet.isConnected && drawExport());
+  refreshExport = drawExport;
+  drawExport();
 
   // One space at a time; a typed-but-unsaved note stays in its box when switching tabs.
   const showTab = (key, focusTab) => {

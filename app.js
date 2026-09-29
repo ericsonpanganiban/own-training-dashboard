@@ -795,6 +795,7 @@ function openPerformance(content, traineeId) {
       body = `<p class="muted">No saved QA weeks for ${escapeHtml(p.name)} yet${p.crm ? ` (CRM name “${escapeHtml(p.crm)}”)` : ""}. In Coaching Compass, request this trainee's cohort in QA Data Request and save the week.${p.crm ? "" : " Add their CRM name in Settings → Roster so their audits can be matched."}</p>`;
     else
       body = `
+        <div class="perf-head">
         <div class="perf-summary">
           <div class="stat"><div class="value">${pct(all)}</div><div class="label">Overall QA score</div><div class="hint">${all.total ? `${Math.round(all.pass * 100) / 100} of ${all.total} audits passed` : "No Pass/Fail scores"}</div></div>
           <div class="stat"><div class="value">${weeks.length}</div><div class="label">Week${weeks.length === 1 ? "" : "s"} saved</div><div class="hint">Latest: Week ${escapeHtml(weeks[0].week)}</div></div>
@@ -808,7 +809,9 @@ function openPerformance(content, traineeId) {
           <button type="button" class="pill${view.tab === "talking" ? " on" : ""}" data-tab="talking">Coaching talking points</button>
           <button type="button" class="pill${view.tab === "markdowns" ? " on" : ""}" data-tab="markdowns">Markdowns</button>
         </div>
+        </div>
         <div class="cc-ui perf-detail">${view.tab === "talking" ? w.talkingHtml : w.markdownsHtml}</div>`;
+    // The name, scores, week and view pickers stay put; only the detail below them scrolls.
     card.innerHTML = `
       <h3>Performance${p.name ? ` · ${escapeHtml(p.name)}` : ""}</h3>
       ${body}

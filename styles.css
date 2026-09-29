@@ -839,7 +839,9 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 }
 
 /* ---------- Performance (Cohorts → trainee) ---------- */
-.sheet-card.perf-card { width: min(780px, 100%); max-height: calc(100% - 32px); overflow: auto; }
+.sheet-card.perf-card { width: min(780px, 100%); max-height: calc(100% - 32px); overflow: hidden; }
+.perf-card > h3, .perf-card .perf-head, .perf-card .sheet-actions { flex: none; }
+.perf-card .perf-head { display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .perf-card .perf-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .perf-card .stat { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
 .perf-card .stat .value { font-size: 22px; font-weight: 700; }
@@ -852,7 +854,7 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .perf-card .pill.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .perf-card .pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .perf-card .perf-meta { margin: 0; font-size: 12px; }
-.perf-card .perf-detail { padding: 14px; border-radius: 10px; background: var(--surface, var(--window-bg)); color: var(--ink, inherit); font-size: 13px; }
+.perf-card .perf-detail { flex: 1 1 auto; min-height: 120px; overflow: auto; padding: 14px; border-radius: 10px; background: var(--surface, var(--window-bg)); color: var(--ink, inherit); font-size: 13px; }
 @media (max-width: 560px) { .perf-card .perf-summary { grid-template-columns: 1fr; } }
 
 /* Cohort row actions: + Add Trainee and the cohort ⋮ menu */

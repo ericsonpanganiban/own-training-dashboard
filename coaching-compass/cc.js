@@ -4212,7 +4212,7 @@
           total: tally.total,
           analyzed: !!wk.brief,
           talkingHtml: talkingPointsModalHtml(item),
-          markdownsHtml: markdownsModalHtml(item, { headers: wk.headers }, false)
+          markdownsHtml: markdownsModalHtml(item, { headers: wk.headers }, true)
         };
       });
       return out;

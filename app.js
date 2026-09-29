@@ -882,6 +882,51 @@ function openNotes(content, traineeId) {
     </div>`;
   win.appendChild(sheet);
 
+  // Auto-save: whatever is typed in a box (and a note being edited) is kept as a draft in this
+  // browser and put back the next time this trainee's notes are opened. A draft only becomes a
+  // note on Add note / Save.
+  const DRAFT_KEY = `trainer.noteDrafts.${traineeId}`;
+  const drafts = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}") || {};
+    } catch {
+      return {};
+    }
+  })();
+  let draftTimer = null;
+  const writeDrafts = () => {
+    clearTimeout(draftTimer);
+    draftTimer = null;
+    try {
+      const keep = Object.fromEntries(Object.entries(drafts).filter(([, v]) => (typeof v === "string" ? v.trim() : v?.text?.trim())));
+      if (Object.keys(keep).length) localStorage.setItem(DRAFT_KEY, JSON.stringify(keep));
+      else localStorage.removeItem(DRAFT_KEY);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const draftNote = (box, text) => {
+    const out = box?.querySelector(".note-add .sheet-status");
+    if (out) out.textContent = text;
+  };
+  // Saves shortly after typing pauses, and right away when the panel closes.
+  const queueDraft = (box) => {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+      const ok = writeDrafts();
+      if (box) draftNote(box, ok ? `Draft saved · ${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Couldn't save a draft in this browser.");
+    }, 600);
+  };
+  NOTE_SPACES.forEach((sp) => {
+    const box = sheet.querySelector(`[data-space="${sp.key}"]`);
+    if (typeof drafts[sp.key] === "string" && drafts[sp.key]) {
+      box.querySelector("textarea").value = drafts[sp.key];
+      draftNote(box, "Draft restored");
+    }
+  });
+  let editRestored = false; // an unsaved edit is reopened once, when the notes first load
+
   // A note's ⋮ menu offers Edit (in place), Send to trainee on Slack (coaching notes; previewed
   // first) and Delete (asks first, in place).
   let editing = null; // { id, draft } while a note is being edited
@@ -949,6 +994,12 @@ function openNotes(content, traineeId) {
   let refreshExport = () => {}; // set once the export controls below are ready
   const unsubscribe = cc.notes.subscribe(traineeId, (list) => {
     notes = list;
+    if (!editRestored && Array.isArray(list)) {
+      editRestored = true;
+      const d = drafts.edit;
+      if (d?.id && list.some((n) => n.id === d.id)) editing = { id: d.id, draft: d.text };
+      else delete drafts.edit;
+    }
     if (sheet.isConnected) {
       drawLists();
       refreshExport();
@@ -957,6 +1008,7 @@ function openNotes(content, traineeId) {
   drawLists();
 
   const close = () => {
+    if (draftTimer) writeDrafts();
     unsubscribe?.();
     offChange();
     sheet.remove();
@@ -978,6 +1030,8 @@ function openNotes(content, traineeId) {
       .add(traineeId, key, text)
       .then(() => {
         area.value = "";
+        delete drafts[key];
+        writeDrafts();
         note.textContent = "Saved ✓";
         setTimeout(() => note.textContent === "Saved ✓" && (note.textContent = ""), 2000);
       })
@@ -1177,7 +1231,7 @@ function openNotes(content, traineeId) {
     }
   };
   const startEdit = (n) => {
-    editing = { id: n.id, draft: n.text };
+    editing = { id: n.id, draft: drafts.edit?.id === n.id ? drafts.edit.text : n.text };
     confirming = null;
     sharing = null;
     drawLists();
@@ -1188,6 +1242,10 @@ function openNotes(content, traineeId) {
   const cancelEdit = () => {
     const id = editing?.id;
     editing = null;
+    if (drafts.edit) {
+      delete drafts.edit;
+      writeDrafts();
+    }
     drawLists();
     if (id) sheet.querySelector(`[data-note-menu="${CSS.escape(id)}"]`)?.focus();
   };
@@ -1217,7 +1275,19 @@ function openNotes(content, traineeId) {
   };
   sheet.addEventListener("input", (e) => {
     if (e.target.classList.contains("note-share-text") && sharing) sharing.draft = e.target.value;
-    if (e.target.classList.contains("note-edit") && editing) editing.draft = e.target.value;
+    if (e.target.classList.contains("note-edit") && editing) {
+      editing.draft = e.target.value;
+      drafts.edit = { id: editing.id, text: e.target.value };
+      queueDraft(null);
+      const out = e.target.closest(".note")?.querySelector(".sheet-status");
+      clearTimeout(e.target._draftMsg);
+      e.target._draftMsg = setTimeout(() => out && (out.textContent = "Draft saved"), 650);
+    }
+    if (e.target.matches(".note-space > textarea")) {
+      const box = e.target.closest(".note-space");
+      drafts[box.dataset.space] = e.target.value;
+      queueDraft(box);
+    }
   });
   // Ctrl/⌘ + Enter adds a note (or saves an edit); Escape leaves an edit, then closes.
   sheet.addEventListener("keydown", (e) => {

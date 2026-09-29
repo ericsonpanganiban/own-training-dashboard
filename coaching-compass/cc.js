@@ -4156,6 +4156,7 @@
 
   // ---- Shared data for other Trainer Desk apps (Settings → Roster is the one list) ----
   var changeListeners = [];
+  var localNotes = {}, localNoteListeners = {}; // notes kept in memory when there is no db
   function copy(list){ return list.map(function(x){ return Object.assign({}, x); }); }
 
   window.CoachingCompass = {
@@ -4246,6 +4247,39 @@
         return Promise.resolve();
       }
       return dbFn.doc("cohorts/" + id).update(fields);
+    },
+    // A trainee's notes (Notes & Feedback): trainees/{id}/notes, one record per post with
+    // category ("coaching" | "behavioral" | "performance"), text and created_at (ISO time).
+    notes: {
+      subscribe: function(traineeId, fn){
+        if (!dbFn || String(traineeId).indexOf("local-") === 0){
+          var tick = function(){ fn((localNotes[traineeId] || []).slice()); };
+          (localNoteListeners[traineeId] = localNoteListeners[traineeId] || []).push(tick);
+          tick();
+          return function(){ localNoteListeners[traineeId] = (localNoteListeners[traineeId] || []).filter(function(f){ return f !== tick; }); };
+        }
+        return dbFn.doc("trainees/" + traineeId).collection("notes").orderBy("created_at", "desc").onSnapshot(
+          function(snap){ fn(snap.docs.map(function(d){ return Object.assign({ id: d.id }, thawed(d.data())); })); },
+          function(){ fn(null); }
+        );
+      },
+      add: function(traineeId, category, text){
+        var record = { category: category, text: text, created_at: new Date().toISOString() };
+        if (!dbFn || String(traineeId).indexOf("local-") === 0){
+          (localNotes[traineeId] = localNotes[traineeId] || []).unshift(Object.assign({ id: "local-" + Date.now() }, record));
+          (localNoteListeners[traineeId] || []).forEach(function(f){ f(); });
+          return Promise.resolve();
+        }
+        return dbFn.doc("trainees/" + traineeId).collection("notes").add(record);
+      },
+      remove: function(traineeId, noteId){
+        if (!dbFn || String(traineeId).indexOf("local-") === 0){
+          localNotes[traineeId] = (localNotes[traineeId] || []).filter(function(n){ return n.id !== noteId; });
+          (localNoteListeners[traineeId] || []).forEach(function(f){ f(); });
+          return Promise.resolve();
+        }
+        return dbFn.doc("trainees/" + traineeId).collection("notes").doc(noteId).delete();
+      }
     },
     // Delete a cohort. Its trainees stay on the roster, free to join another cohort.
     deleteCohort: function(id){

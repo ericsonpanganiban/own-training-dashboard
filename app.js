@@ -661,7 +661,7 @@ function wireCohortRows(el, onToggle) {
     })
   );
   el.querySelectorAll("[data-performance]").forEach((b) => b.addEventListener("click", () => openPerformance(el, b.dataset.performance)));
-  el.querySelectorAll("[data-notes]").forEach((b) => b.addEventListener("click", () => openPlaceholder(el, b.dataset.notes, "Notes & Feedback")));
+  el.querySelectorAll("[data-notes]").forEach((b) => b.addEventListener("click", () => openNotes(el, b.dataset.notes)));
   el.querySelectorAll("[data-trainee-menu]").forEach((b) =>
     b.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -767,26 +767,6 @@ function openAddTrainee(content, cohortId) {
   sheet.querySelector("input:not([disabled]), button")?.focus();
 }
 
-// Performance and Notes & Feedback: placeholders until their content is built.
-function openPlaceholder(content, traineeId, title) {
-  const win = content.closest(".window");
-  if (win.querySelector(".sheet")) return;
-  const t = window.CoachingCompass.data().trainees.find((x) => x.id === traineeId);
-  const sheet = document.createElement("div");
-  sheet.className = "sheet";
-  sheet.innerHTML = `
-    <div class="sheet-card" role="dialog" aria-label="${escapeHtml(title)}">
-      <h3>${escapeHtml(title)}${t ? ` · ${escapeHtml(t.name)}` : ""}</h3>
-      <p class="muted">Coming soon.</p>
-      <div class="sheet-actions"><button type="button" class="btn-primary" data-cancel>Close</button></div>
-    </div>`;
-  win.appendChild(sheet);
-  const close = () => sheet.remove();
-  sheet.querySelector("[data-cancel]").addEventListener("click", close);
-  sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
-  sheet.querySelector("[data-cancel]").focus();
-}
-
 // Performance: a trainee's saved QA weeks from Coaching Compass (the same weeks its Cohorts
 // page shows under the trainee's name): overall score, a score per week, and each week's
 // coaching talking points and markdowns.
@@ -854,6 +834,128 @@ function openPerformance(content, traineeId) {
   sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
   draw();
   card.querySelector("[data-cancel]").focus();
+}
+
+// Notes & Feedback: three spaces (Coaching, Behavioral, Performance) where notes are typed in
+// by hand. Each post is saved with the time it was added, newest first.
+const NOTE_SPACES = [
+  { key: "coaching", title: "Coaching Notes", placeholder: "What you coached, agreed next steps…" },
+  { key: "behavioral", title: "Behavioral Notes", placeholder: "Attendance, attitude, conduct…" },
+  { key: "performance", title: "Performance Notes", placeholder: "QA, speed, targets, progress…" },
+];
+const fmtStamp = (iso) => {
+  const d = new Date(iso);
+  return isNaN(d) ? "" : d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+};
+
+function openNotes(content, traineeId) {
+  const win = content.closest(".window");
+  if (win.querySelector(".sheet")) return;
+  const cc = window.CoachingCompass;
+  const t = cc.data().trainees.find((x) => x.id === traineeId);
+  if (!t) return;
+  let notes = undefined; // undefined: loading, null: couldn't load
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML = `
+    <div class="sheet-card notes-card" role="dialog" aria-label="Notes and feedback for ${escapeHtml(t.name)}">
+      <h3>Notes &amp; Feedback · ${escapeHtml(t.name)}</h3>
+      <div class="notes-spaces">${NOTE_SPACES.map(
+        (sp) => `
+        <section class="note-space" data-space="${sp.key}">
+          <h4>${sp.title} <span class="muted" data-count></span></h4>
+          <textarea rows="3" placeholder="${escapeHtml(sp.placeholder)}" aria-label="New ${escapeHtml(sp.title.toLowerCase())}"></textarea>
+          <div class="note-add"><span class="sheet-status" role="status"></span><button type="button" class="btn-primary btn-small" data-add>Add note</button></div>
+          <ul class="note-list" aria-label="${escapeHtml(sp.title)}"></ul>
+        </section>`
+      ).join("")}</div>
+      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Close</button></div>
+    </div>`;
+  win.appendChild(sheet);
+
+  // Only the post lists redraw, so text being typed in a box is never disturbed.
+  const drawLists = () => {
+    NOTE_SPACES.forEach((sp) => {
+      const box = sheet.querySelector(`[data-space="${sp.key}"]`);
+      const list = box.querySelector(".note-list");
+      const mine = (notes || []).filter((n) => n.category === sp.key);
+      box.querySelector("[data-count]").textContent = notes ? String(mine.length) : "";
+      list.innerHTML =
+        notes === undefined ? `<li class="muted note-empty">Loading…</li>`
+        : notes === null ? `<li class="muted note-empty">Couldn't load notes. Close and open again.</li>`
+        : !mine.length ? `<li class="muted note-empty">No notes yet.</li>`
+        : mine
+            .map(
+              (n) => `<li class="note">
+                <div class="note-head"><time datetime="${escapeHtml(n.created_at || "")}">${escapeHtml(fmtStamp(n.created_at))}</time>
+                  <button type="button" class="note-del" data-del="${escapeHtml(n.id)}" aria-label="Delete this note">Delete</button></div>
+                <p>${escapeHtml(n.text)}</p>
+              </li>`
+            )
+            .join("");
+    });
+  };
+  const unsubscribe = cc.notes.subscribe(traineeId, (list) => {
+    notes = list;
+    if (sheet.isConnected) drawLists();
+  });
+  drawLists();
+
+  const close = () => {
+    unsubscribe?.();
+    sheet.remove();
+  };
+  const add = (box) => {
+    const key = box.dataset.space;
+    const area = box.querySelector("textarea");
+    const note = box.querySelector(".sheet-status");
+    const btn = box.querySelector("[data-add]");
+    const text = area.value.trim();
+    if (!text) {
+      note.textContent = "Type a note first.";
+      area.focus();
+      return;
+    }
+    btn.disabled = true;
+    note.textContent = "Saving…";
+    cc.notes
+      .add(traineeId, key, text)
+      .then(() => {
+        area.value = "";
+        note.textContent = "Saved ✓";
+        setTimeout(() => note.textContent === "Saved ✓" && (note.textContent = ""), 2000);
+      })
+      .catch(() => (note.textContent = "Couldn't save. Try again."))
+      .finally(() => (btn.disabled = false));
+  };
+  sheet.addEventListener("click", (e) => {
+    if (e.target === sheet) return close();
+    const b = e.target.closest("button");
+    if (!b) return;
+    if ("cancel" in b.dataset) return close();
+    if ("add" in b.dataset) return add(b.closest(".note-space"));
+    if (b.dataset.del) {
+      // Two clicks: the first asks, the second deletes.
+      if (b.dataset.confirm !== "1") {
+        b.dataset.confirm = "1";
+        b.textContent = "Delete?";
+        b.classList.add("armed");
+        setTimeout(() => b.isConnected && ((b.dataset.confirm = ""), (b.textContent = "Delete"), b.classList.remove("armed")), 3000);
+        return;
+      }
+      b.disabled = true;
+      cc.notes.remove(traineeId, b.dataset.del).catch(() => (b.disabled = false));
+    }
+  });
+  // Ctrl/⌘ + Enter adds the note from inside a box.
+  sheet.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") return close();
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.target.matches("textarea")) {
+      e.preventDefault();
+      add(e.target.closest(".note-space"));
+    }
+  });
+  sheet.querySelector("textarea").focus();
 }
 
 // Small ⋮ menu anchored to a button, inside the button's window.

@@ -1202,14 +1202,20 @@ function buildDock() {
   });
 
   // macOS-style magnification: icons grow toward the cursor. Targets update on
-  // mousemove; a requestAnimationFrame loop eases each icon toward its target so
-  // the motion renders every frame (60fps) instead of stepping with mouse events.
+  // mousemove; a requestAnimationFrame loop eases each icon toward its target, so the
+  // motion renders on every frame the display shows (60, 90, 120fps…) instead of
+  // stepping with mouse events. The easing is time-based, so it feels the same at any
+  // refresh rate: 30% of the remaining distance per 1/60 s.
   let pointerX = null;
   let frame = null;
+  let lastTime = null;
   const current = new Map();
 
-  const tick = () => {
+  const tick = (now) => {
     frame = null;
+    const dt = lastTime === null ? 1000 / 60 : Math.min(100, now - lastTime);
+    lastTime = now;
+    const ease = 1 - Math.pow(1 - 0.3, dt / (1000 / 60));
     let moving = false;
     dock.querySelectorAll(".dock-item").forEach((item) => {
       let target = 1;
@@ -1219,7 +1225,7 @@ function buildDock() {
         target = 1 + Math.max(0, 1 - dist / 140) * 0.45;
       }
       const from = current.get(item) ?? 1;
-      const next = Math.abs(target - from) < 0.002 ? target : from + (target - from) * 0.3;
+      const next = Math.abs(target - from) < 0.002 ? target : from + (target - from) * ease;
       if (next !== target) moving = true;
       current.set(item, next);
     });
@@ -1236,6 +1242,7 @@ function buildDock() {
       face.style.setProperty("--shift", `${shift.toFixed(2)}px`);
     });
     if (moving) frame = requestAnimationFrame(tick);
+    else lastTime = null;
   };
   const schedule = () => {
     if (frame === null) frame = requestAnimationFrame(tick);

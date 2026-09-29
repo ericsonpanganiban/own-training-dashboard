@@ -860,10 +860,12 @@ function openNotes(content, traineeId) {
   sheet.innerHTML = `
     <div class="sheet-card notes-card" role="dialog" aria-label="Notes and feedback for ${escapeHtml(t.name)}">
       <h3>Notes &amp; Feedback · ${escapeHtml(t.name)}</h3>
+      <div class="notes-tabs" role="tablist" aria-label="Note type">${NOTE_SPACES.map(
+        (sp, i) => `<button type="button" role="tab" id="nt-${sp.key}" aria-controls="np-${sp.key}" data-tab="${sp.key}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${sp.title} <span class="tab-count" data-tab-count="${sp.key}"></span></button>`
+      ).join("")}</div>
       <div class="notes-spaces">${NOTE_SPACES.map(
-        (sp) => `
-        <section class="note-space" data-space="${sp.key}">
-          <h4>${sp.title} <span class="muted" data-count></span></h4>
+        (sp, i) => `
+        <section class="note-space" data-space="${sp.key}" role="tabpanel" id="np-${sp.key}" aria-labelledby="nt-${sp.key}"${i === 0 ? "" : " hidden"}>
           <textarea rows="3" placeholder="${escapeHtml(sp.placeholder)}" aria-label="New ${escapeHtml(sp.title.toLowerCase())}"></textarea>
           <div class="note-add"><span class="sheet-status" role="status"></span><button type="button" class="btn-primary btn-small" data-add>Add note</button></div>
           <ul class="note-list" aria-label="${escapeHtml(sp.title)}"></ul>
@@ -907,7 +909,7 @@ function openNotes(content, traineeId) {
       const box = sheet.querySelector(`[data-space="${sp.key}"]`);
       const list = box.querySelector(".note-list");
       const mine = (notes || []).filter((n) => n.category === sp.key);
-      box.querySelector("[data-count]").textContent = notes ? String(mine.length) : "";
+      sheet.querySelector(`[data-tab-count="${sp.key}"]`).textContent = notes ? String(mine.length) : "";
       list.innerHTML =
         notes === undefined ? `<li class="muted note-empty">Loading…</li>`
         : notes === null ? `<li class="muted note-empty">Couldn't load notes. Close and open again.</li>`
@@ -961,6 +963,7 @@ function openNotes(content, traineeId) {
     if (!b) return;
     if ("cancel" in b.dataset) return close();
     if ("add" in b.dataset) return add(b.closest(".note-space"));
+    if (b.dataset.tab) return showTab(b.dataset.tab);
     if (b.dataset.noteMenu) {
       e.stopPropagation();
       const id = b.dataset.noteMenu;
@@ -991,6 +994,25 @@ function openNotes(content, traineeId) {
           b.closest(".note-bar").querySelector("span").textContent = "Couldn't delete. Try again?";
         });
     }
+  });
+  // One space at a time; a typed-but-unsaved note stays in its box when switching tabs.
+  const showTab = (key, focusTab) => {
+    sheet.querySelectorAll("[data-tab]").forEach((tb) => {
+      const on = tb.dataset.tab === key;
+      tb.setAttribute("aria-selected", String(on));
+      tb.tabIndex = on ? 0 : -1;
+      if (on && focusTab) tb.focus();
+    });
+    sheet.querySelectorAll(".note-space").forEach((sp) => (sp.hidden = sp.dataset.space !== key));
+    if (!focusTab) sheet.querySelector(`[data-space="${key}"] > textarea`)?.focus();
+  };
+  sheet.querySelector(".notes-tabs").addEventListener("keydown", (e) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    const keys = NOTE_SPACES.map((sp) => sp.key);
+    const cur = keys.indexOf(sheet.querySelector('[data-tab][aria-selected="true"]').dataset.tab);
+    const next = e.key === "Home" ? 0 : e.key === "End" ? keys.length - 1 : (cur + (e.key === "ArrowRight" ? 1 : -1) + keys.length) % keys.length;
+    showTab(keys[next], true);
   });
   const startEdit = (n) => {
     editing = { id: n.id, draft: n.text };

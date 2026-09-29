@@ -4272,6 +4272,16 @@
         }
         return dbFn.doc("trainees/" + traineeId).collection("notes").add(record);
       },
+      // Change a note's text. The original created_at stays; updated_at records the edit.
+      update: function(traineeId, noteId, text){
+        var patch = { text: text, updated_at: new Date().toISOString() };
+        if (!dbFn || String(traineeId).indexOf("local-") === 0){
+          localNotes[traineeId] = (localNotes[traineeId] || []).map(function(n){ return n.id === noteId ? Object.assign({}, n, patch) : n; });
+          (localNoteListeners[traineeId] || []).forEach(function(f){ f(); });
+          return Promise.resolve();
+        }
+        return dbFn.doc("trainees/" + traineeId).collection("notes").doc(noteId).update(patch);
+      },
       remove: function(traineeId, noteId){
         if (!dbFn || String(traineeId).indexOf("local-") === 0){
           localNotes[traineeId] = (localNotes[traineeId] || []).filter(function(n){ return n.id !== noteId; });

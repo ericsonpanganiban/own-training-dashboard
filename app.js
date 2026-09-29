@@ -873,8 +873,36 @@ function openNotes(content, traineeId) {
     </div>`;
   win.appendChild(sheet);
 
+  // A note's ⋮ menu offers Edit (in place) and Delete (asks first, in place).
+  let editing = null; // { id, draft } while a note is being edited
+  let confirming = null; // id of the note asking "Delete this note?"
+  let hadEditFocus = false;
+  const noteHtml = (n) => {
+    const id = escapeHtml(n.id);
+    const stamp = `<time datetime="${escapeHtml(n.created_at || "")}">${escapeHtml(fmtStamp(n.created_at))}</time>${
+      n.updated_at ? ` <span class="note-edited" title="Edited ${escapeHtml(fmtStamp(n.updated_at))}">· edited ${escapeHtml(fmtStamp(n.updated_at))}</span>` : ""
+    }`;
+    if (editing?.id === n.id)
+      return `<li class="note editing" data-note="${id}">
+        <div class="note-head"><span>${stamp}</span></div>
+        <textarea class="note-edit" rows="3" aria-label="Edit note">${escapeHtml(editing.draft)}</textarea>
+        <div class="note-bar"><span class="sheet-status" role="status"></span><button type="button" class="btn btn-small" data-edit-cancel>Cancel</button><button type="button" class="btn-primary btn-small" data-edit-save="${id}">Save</button></div>
+      </li>`;
+    return `<li class="note" data-note="${id}">
+      <div class="note-head"><span>${stamp}</span>
+        <button type="button" class="square-btn kebab note-menu" data-note-menu="${id}" title="Note options" aria-label="Options for this note">⋮</button></div>
+      <p>${escapeHtml(n.text)}</p>
+      ${
+        confirming === n.id
+          ? `<div class="note-bar confirm"><span>Delete this note?</span><button type="button" class="btn btn-small" data-del-cancel>Cancel</button><button type="button" class="btn-danger btn-small" data-del="${id}">Delete</button></div>`
+          : ""
+      }
+    </li>`;
+  };
+
   // Only the post lists redraw, so text being typed in a box is never disturbed.
   const drawLists = () => {
+    hadEditFocus = document.activeElement?.classList?.contains("note-edit") || false;
     NOTE_SPACES.forEach((sp) => {
       const box = sheet.querySelector(`[data-space="${sp.key}"]`);
       const list = box.querySelector(".note-list");
@@ -884,16 +912,15 @@ function openNotes(content, traineeId) {
         notes === undefined ? `<li class="muted note-empty">Loading…</li>`
         : notes === null ? `<li class="muted note-empty">Couldn't load notes. Close and open again.</li>`
         : !mine.length ? `<li class="muted note-empty">No notes yet.</li>`
-        : mine
-            .map(
-              (n) => `<li class="note">
-                <div class="note-head"><time datetime="${escapeHtml(n.created_at || "")}">${escapeHtml(fmtStamp(n.created_at))}</time>
-                  <button type="button" class="note-del" data-del="${escapeHtml(n.id)}" aria-label="Delete this note">Delete</button></div>
-                <p>${escapeHtml(n.text)}</p>
-              </li>`
-            )
-            .join("");
+        : mine.map(noteHtml).join("");
     });
+    if (editing) {
+      const area = sheet.querySelector(".note-edit");
+      if (area && hadEditFocus) {
+        area.focus();
+        area.setSelectionRange(area.value.length, area.value.length);
+      }
+    }
   };
   const unsubscribe = cc.notes.subscribe(traineeId, (list) => {
     notes = list;
@@ -934,23 +961,87 @@ function openNotes(content, traineeId) {
     if (!b) return;
     if ("cancel" in b.dataset) return close();
     if ("add" in b.dataset) return add(b.closest(".note-space"));
+    if (b.dataset.noteMenu) {
+      e.stopPropagation();
+      const id = b.dataset.noteMenu;
+      const n = (notes || []).find((x) => x.id === id);
+      if (!n) return;
+      openMenu(b, [
+        { label: "Edit", run: () => startEdit(n) },
+        { label: "Delete", danger: true, run: () => ((confirming = id), (editing = null), drawLists(), sheet.querySelector(`[data-del="${CSS.escape(id)}"]`)?.focus()) },
+      ]);
+      return;
+    }
+    if ("editCancel" in b.dataset) return cancelEdit();
+    if (b.dataset.editSave) return saveEdit();
+    if ("delCancel" in b.dataset) {
+      const id = confirming;
+      confirming = null;
+      drawLists();
+      sheet.querySelector(`[data-note-menu="${CSS.escape(id)}"]`)?.focus();
+      return;
+    }
     if (b.dataset.del) {
-      // Two clicks: the first asks, the second deletes.
-      if (b.dataset.confirm !== "1") {
-        b.dataset.confirm = "1";
-        b.textContent = "Delete?";
-        b.classList.add("armed");
-        setTimeout(() => b.isConnected && ((b.dataset.confirm = ""), (b.textContent = "Delete"), b.classList.remove("armed")), 3000);
-        return;
-      }
       b.disabled = true;
-      cc.notes.remove(traineeId, b.dataset.del).catch(() => (b.disabled = false));
+      cc.notes
+        .remove(traineeId, b.dataset.del)
+        .then(() => (confirming = null))
+        .catch(() => {
+          b.disabled = false;
+          b.closest(".note-bar").querySelector("span").textContent = "Couldn't delete. Try again?";
+        });
     }
   });
-  // Ctrl/⌘ + Enter adds the note from inside a box.
+  const startEdit = (n) => {
+    editing = { id: n.id, draft: n.text };
+    confirming = null;
+    drawLists();
+    const area = sheet.querySelector(".note-edit");
+    area?.focus();
+    area?.setSelectionRange(area.value.length, area.value.length);
+  };
+  const cancelEdit = () => {
+    const id = editing?.id;
+    editing = null;
+    drawLists();
+    if (id) sheet.querySelector(`[data-note-menu="${CSS.escape(id)}"]`)?.focus();
+  };
+  const saveEdit = () => {
+    const li = sheet.querySelector(".note.editing");
+    if (!editing || !li) return;
+    const text = li.querySelector(".note-edit").value.trim();
+    const status = li.querySelector(".sheet-status");
+    const n = (notes || []).find((x) => x.id === editing.id);
+    if (!text) {
+      status.textContent = "A note can't be empty. Use Delete to remove it.";
+      return;
+    }
+    if (n && text === n.text) return cancelEdit();
+    li.querySelectorAll("button").forEach((x) => (x.disabled = true));
+    status.textContent = "Saving…";
+    const id = editing.id;
+    cc.notes
+      .update(traineeId, id, text)
+      .then(() => {
+        if (editing?.id === id) cancelEdit();
+      })
+      .catch(() => {
+        li.querySelectorAll("button").forEach((x) => (x.disabled = false));
+        status.textContent = "Couldn't save. Try again.";
+      });
+  };
+  sheet.addEventListener("input", (e) => {
+    if (e.target.classList.contains("note-edit") && editing) editing.draft = e.target.value;
+  });
+  // Ctrl/⌘ + Enter adds a note (or saves an edit); Escape leaves an edit, then closes.
   sheet.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") return close();
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.target.matches("textarea")) {
+    const inEdit = e.target.classList?.contains("note-edit");
+    if (e.key === "Escape") return inEdit ? (e.preventDefault(), cancelEdit()) : close();
+    if (inEdit && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      return saveEdit();
+    }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && e.target.matches(".note-space > textarea")) {
       e.preventDefault();
       add(e.target.closest(".note-space"));
     }

@@ -1205,7 +1205,7 @@ function buildDock() {
   // mousemove; a requestAnimationFrame loop eases each icon toward its target, so the
   // motion renders on every frame the display shows (60, 90, 120fps…) instead of
   // stepping with mouse events. The easing is time-based, so it feels the same at any
-  // refresh rate: 30% of the remaining distance per 1/60 s.
+  // refresh rate: 45% of the remaining distance per 1/60 s (settles in about a quarter second).
   let pointerX = null;
   let frame = null;
   let lastTime = null;
@@ -1215,7 +1215,7 @@ function buildDock() {
     frame = null;
     const dt = lastTime === null ? 1000 / 60 : Math.min(100, now - lastTime);
     lastTime = now;
-    const ease = 1 - Math.pow(1 - 0.3, dt / (1000 / 60));
+    const ease = 1 - Math.pow(1 - 0.45, dt / (1000 / 60));
     let moving = false;
     dock.querySelectorAll(".dock-item").forEach((item) => {
       let target = 1;

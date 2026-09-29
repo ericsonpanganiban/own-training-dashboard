@@ -4282,6 +4282,15 @@
         }
         return dbFn.doc("trainees/" + traineeId).collection("notes").doc(noteId).update(patch);
       },
+      // Merge bookkeeping fields into a note (e.g. slack_sent_at) without marking it edited.
+      mark: function(traineeId, noteId, fields){
+        if (!dbFn || String(traineeId).indexOf("local-") === 0){
+          localNotes[traineeId] = (localNotes[traineeId] || []).map(function(n){ return n.id === noteId ? Object.assign({}, n, fields) : n; });
+          (localNoteListeners[traineeId] || []).forEach(function(f){ f(); });
+          return Promise.resolve();
+        }
+        return dbFn.doc("trainees/" + traineeId).collection("notes").doc(noteId).update(fields);
+      },
       remove: function(traineeId, noteId){
         if (!dbFn || String(traineeId).indexOf("local-") === 0){
           localNotes[traineeId] = (localNotes[traineeId] || []).filter(function(n){ return n.id !== noteId; });

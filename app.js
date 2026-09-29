@@ -879,15 +879,19 @@ function openNotes(content, traineeId) {
     </div>`;
   win.appendChild(sheet);
 
-  // A note's ⋮ menu offers Edit (in place) and Delete (asks first, in place).
+  // A note's ⋮ menu offers Edit (in place), Send to trainee on Slack (coaching notes; previewed
+  // first) and Delete (asks first, in place).
   let editing = null; // { id, draft } while a note is being edited
   let confirming = null; // id of the note asking "Delete this note?"
+  let sharing = null; // { id, draft, status } while a coaching note's Slack message is being previewed
   let hadEditFocus = false;
+  // The Slack DM a coaching note becomes; shown for editing before anything is sent.
+  const slackDraft = (n) => `**Coaching note — ${fmtStamp(n.created_at)}**\n\n${n.text}`;
   const noteHtml = (n) => {
     const id = escapeHtml(n.id);
     const stamp = `<time datetime="${escapeHtml(n.created_at || "")}">${escapeHtml(fmtStamp(n.created_at))}</time>${
       n.updated_at ? ` <span class="note-edited" title="Edited ${escapeHtml(fmtStamp(n.updated_at))}">· edited ${escapeHtml(fmtStamp(n.updated_at))}</span>` : ""
-    }`;
+    }${n.slack_sent_at ? ` <span class="note-sent" title="Sent to ${escapeHtml(t.name)} on Slack">· sent on Slack ${escapeHtml(fmtStamp(n.slack_sent_at))}</span>` : ""}`;
     if (editing?.id === n.id)
       return `<li class="note editing" data-note="${id}">
         <div class="note-head"><span>${stamp}</span></div>
@@ -901,6 +905,17 @@ function openNotes(content, traineeId) {
       ${
         confirming === n.id
           ? `<div class="note-bar confirm"><span>Delete this note?</span><button type="button" class="btn btn-small" data-del-cancel>Cancel</button><button type="button" class="btn-danger btn-small" data-del="${id}">Delete</button></div>`
+          : ""
+      }
+      ${
+        sharing?.id === n.id
+          ? `<div class="note-share">
+              <label>Direct message to ${escapeHtml(t.name)} on Slack${n.slack_sent_at ? " (already sent once; this sends it again)" : ""}
+                <textarea class="note-share-text" rows="6">${escapeHtml(sharing.draft)}</textarea></label>
+              <div class="note-bar"><span class="sheet-status" role="status">${escapeHtml(sharing.status || "")}</span>
+                <button type="button" class="btn btn-small" data-share-cancel${sharing.busy ? " disabled" : ""}>Cancel</button>
+                <button type="button" class="btn-primary btn-small" data-share-send="${id}"${sharing.busy ? " disabled" : ""}>${sharing.busy ? "Sending…" : "Send"}</button></div>
+            </div>`
           : ""
       }
     </li>`;
@@ -981,10 +996,19 @@ function openNotes(content, traineeId) {
       if (!n) return;
       openMenu(b, [
         { label: "Edit", run: () => startEdit(n) },
-        { label: "Delete", danger: true, run: () => ((confirming = id), (editing = null), drawLists(), sheet.querySelector(`[data-del="${CSS.escape(id)}"]`)?.focus()) },
+        ...(n.category === "coaching" ? [{ label: "Send to trainee on Slack", run: () => startShare(n) }] : []),
+        { label: "Delete", danger: true, run: () => ((confirming = id), (editing = null), (sharing = null), drawLists(), sheet.querySelector(`[data-del="${CSS.escape(id)}"]`)?.focus()) },
       ]);
       return;
     }
+    if ("shareCancel" in b.dataset) {
+      const id = sharing?.id;
+      sharing = null;
+      drawLists();
+      if (id) sheet.querySelector(`[data-note-menu="${CSS.escape(id)}"]`)?.focus();
+      return;
+    }
+    if (b.dataset.shareSend) return sendShare();
     if ("editCancel" in b.dataset) return cancelEdit();
     if (b.dataset.editSave) return saveEdit();
     if ("delCancel" in b.dataset) {
@@ -1105,9 +1129,54 @@ function openNotes(content, traineeId) {
     const next = e.key === "Home" ? 0 : e.key === "End" ? keys.length - 1 : (cur + (e.key === "ArrowRight" ? 1 : -1) + keys.length) % keys.length;
     showTab(keys[next], true);
   });
+  // Coaching note → the trainee's Slack DMs. Their Slack account is found from their work email.
+  const startShare = (n) => {
+    sharing = { id: n.id, draft: slackDraft(n), status: "", busy: false };
+    editing = null;
+    confirming = null;
+    drawLists();
+    sheet.querySelector(".note-share-text")?.focus();
+  };
+  const sendShare = async () => {
+    const slack = window.TrainerSlack;
+    if (!sharing || sharing.busy) return;
+    const message = (sheet.querySelector(".note-share-text")?.value ?? sharing.draft).trim();
+    const set = (status, busy = false) => {
+      if (!sharing) return;
+      Object.assign(sharing, { status, busy });
+      drawLists();
+    };
+    if (!message) return set("The message can't be empty.");
+    if (!slack) return set("Slack isn't available right now.");
+    sharing.draft = message;
+    const trainee = cc.data().trainees.find((x) => x.id === traineeId) || t;
+    if (!trainee.slack_user_id && !trainee.email) return set(`Add ${trainee.name}'s work email in Settings → Roster first, so they can be found on Slack.`);
+    set(trainee.slack_user_id ? "Sending…" : "Finding them on Slack…", true);
+    const noteId = sharing.id;
+    try {
+      const userId = await slack.userIdFor(trainee);
+      if (!userId) return set(`Couldn't find a Slack account for ${trainee.email}. Check the work email in Settings → Roster.`);
+      set("Sending…", true);
+      await slack.sendDirect(userId, message);
+      await cc.notes.mark(traineeId, noteId, { slack_sent_at: new Date().toISOString() }).catch(() => {});
+      sharing = null;
+      drawLists();
+      exportMsg = escapeHtml(`Sent to ${trainee.name} on Slack ✓`);
+      refreshExport();
+      setTimeout(() => {
+        if (exportMsg === escapeHtml(`Sent to ${trainee.name} on Slack ✓`)) {
+          exportMsg = "";
+          if (sheet.isConnected) refreshExport();
+        }
+      }, 5000);
+    } catch (err) {
+      set(slack.errorText(err));
+    }
+  };
   const startEdit = (n) => {
     editing = { id: n.id, draft: n.text };
     confirming = null;
+    sharing = null;
     drawLists();
     const area = sheet.querySelector(".note-edit");
     area?.focus();
@@ -1144,11 +1213,17 @@ function openNotes(content, traineeId) {
       });
   };
   sheet.addEventListener("input", (e) => {
+    if (e.target.classList.contains("note-share-text") && sharing) sharing.draft = e.target.value;
     if (e.target.classList.contains("note-edit") && editing) editing.draft = e.target.value;
   });
   // Ctrl/⌘ + Enter adds a note (or saves an edit); Escape leaves an edit, then closes.
   sheet.addEventListener("keydown", (e) => {
     const inEdit = e.target.classList?.contains("note-edit");
+    if (e.key === "Escape" && e.target.classList?.contains("note-share-text")) {
+      e.preventDefault();
+      sharing = null;
+      return drawLists();
+    }
     if (e.key === "Escape") return inEdit ? (e.preventDefault(), cancelEdit()) : close();
     if (inEdit && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();

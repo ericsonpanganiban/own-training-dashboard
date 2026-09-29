@@ -911,3 +911,7 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .notes-card .notes-actions [data-export-status] { flex: 1; min-height: 0; }
 .notes-card .notes-actions a { color: var(--accent); font-weight: 600; }
 .notes-card .doc-stale { color: #b45309; font-weight: 600; }
+.notes-card .note-sent { color: #15803d; }
+.notes-card .note-share { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.notes-card .note-share label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.notes-card .note-share textarea { font-weight: 400; color: var(--window-fg); }

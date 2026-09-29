@@ -850,6 +850,21 @@
     s?.sheet.querySelector("[data-cancel]").focus();
   }
 
+  // Slack helpers for other Trainer Desk apps (Notes & Feedback sends coaching notes by DM).
+  window.TrainerSlack = {
+    // The trainee's Slack user ID: the saved one, or matched from their work email (then saved).
+    userIdFor(trainee) {
+      if (trainee.slack_user_id) return Promise.resolve(trainee.slack_user_id);
+      const copy = { ...trainee };
+      return resolveSlackIds([copy]).then(() => copy.slack_user_id || null);
+    },
+    // A direct message: Slack takes the user ID as the channel.
+    sendDirect(userId, message) {
+      return needMcp().then((mcp) => mcp.callTool(SLACK, "slack_send_message", { channel_id: userId, message }));
+    },
+    errorText: slackError,
+  };
+
   window.TrainerAttendance = {
     render(el) {
       if (!cc()) {

@@ -114,8 +114,9 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
   width: calc(var(--icon-size) + 44px);
+  /* The face is drawn at full magnified size and scaled down, so the item keeps the base size. */
+  height: calc(var(--icon-size) + 21.6px);
   border: 0;
   padding: 0;
   background: none;
@@ -125,21 +126,26 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   user-select: none;
   -webkit-user-select: none;
 }
-/* Magnification scales the icon and its name together, upward from the base,
-   so the dock itself never changes size. */
+/* Magnification scales the icon and its name together, upward from the base, so the dock
+   itself never changes size. The face is laid out at the largest magnification (--dock-max)
+   and scaled down to --mag / --dock-max: the browser caches it as a bitmap at that full size,
+   so magnifying only ever shrinks the bitmap less, never stretches it (no visible pixels). */
 .dock-face {
-  position: relative;
+  --dock-max: 1.45; /* keep in step with the 0.45 boost in app.js */
+  position: absolute;
+  left: 50%;
+  bottom: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  transform: translateX(var(--shift, 0px)) scale(var(--mag, 1));
+  gap: calc(6px * var(--dock-max));
+  transform: translateX(-50%) translateX(var(--shift, 0px)) scale(calc(var(--mag, 1) / var(--dock-max)));
   transform-origin: 50% 100%;
   will-change: transform;
 }
 .dock-icon {
-  width: var(--icon-size);
-  height: var(--icon-size);
+  width: calc(var(--icon-size) * var(--dock-max));
+  height: calc(var(--icon-size) * var(--dock-max));
   border-radius: 24%;
   display: grid;
   place-items: center;
@@ -148,29 +154,29 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   width: 82%;
   height: 82%;
   color: #fff;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(0 1.5px 3px rgba(0, 0, 0, 0.35));
 }
 .dock-label {
-  font-size: 13px;
+  font-size: calc(13px * var(--dock-max));
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1.5px 3px rgba(0, 0, 0, 0.45);
 }
 .dock-item.running .dock-icon::after {
   content: "";
   position: absolute;
-  top: calc(var(--icon-size) + 1px);
+  top: calc((var(--icon-size) + 1px) * var(--dock-max));
   left: 50%;
-  width: 4px;
-  height: 4px;
-  margin-left: -2px;
+  width: calc(4px * var(--dock-max));
+  height: calc(4px * var(--dock-max));
+  margin-left: calc(-2px * var(--dock-max));
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.9);
 }
 #dock.reordering .dock-item { cursor: grabbing; }
 .dock-item.dragging { z-index: 1; opacity: 0.9; }
-.dock-item.dragging .dock-icon svg { filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.4)); }
+.dock-item.dragging .dock-icon svg { filter: drop-shadow(0 9px 15px rgba(0, 0, 0, 0.4)); }
 .dock-item.bounce { animation: bounce 0.5s ease; }
 @keyframes bounce {
   0%, 100% { transform: translateY(0); }

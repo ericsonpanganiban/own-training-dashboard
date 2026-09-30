@@ -33,6 +33,11 @@ Each quiz has a type (default Short quiz 30%, Weekly quiz 70%; edit in `quiz_set
 trainee's average per type and the weighted average; types with no scores yet are left out and the rest scaled to 100%.
 Click a trainee's name for their page: every quiz sent to them (newest first) with its type, whether they answered,
 score, pass/below, and View answers.
+In Check Quiz: **View all answers** (every trainee's answer per question, with an "only wrong" filter),
+**✨ Analyze answers with Claude** (common mistakes, topics to re-discuss by priority, what went well; trainees are
+numbered, not named, in the request; saved on the send as `analysis` and flagged when answers change since), and in a
+trainee's answers **Send result to trainee** (an editable Slack DM, by default a reply in the quiz thread, with their
+score and each missed question with the right answer; saved as `feedback_sent_at`).
 
 `quiz/quiz.js`. Write a quiz by hand (multiple choice, true/false, short answer; points per question, a passing
 score), send it to a cohort's active trainees as Slack DMs, then **Check replies**. Trainees answer by replying to the

@@ -275,7 +275,8 @@
     const allShort = [];
     Object.entries(replies).forEach(([tid, text]) => {
       const g = gradeLocal(quiz, text, responses[tid]);
-      responses[tid] = { text, results: g.results, source, checked_at: new Date().toISOString() };
+      const sentAt = responses[tid]?.feedback_sent_at;
+      responses[tid] = { text, results: g.results, source, checked_at: new Date().toISOString(), ...(sentAt ? { feedback_sent_at: sentAt } : {}) };
       g.pendingShort.forEach((x) => allShort.push({ ...x, key: `${tid}|${x.qid}` }));
     });
     const graded = await gradeShort(allShort);
@@ -342,6 +343,8 @@
     cohortId: "",
     runId: null,
     traineeId: null, // Roster: the trainee whose quiz page is open
+    checkView: "", // Check Quiz: "" (results) or "all" (every trainee's answers on one page)
+    onlyWrong: false, // All answers: show only wrong / to-review answers
     busy: "",
     note: "",
   };
@@ -354,6 +357,7 @@
     ui.draft = q ? JSON.parse(JSON.stringify(q)) : null;
     if (ui.draft) ui.draft.questions = ui.draft.questions || [];
     ui.runId = null;
+    ui.checkView = "";
     ui.note = "";
     watchRuns(id);
     draw();
@@ -592,6 +596,7 @@
     if (!runs.length) return `<div class="quiz-run-row">${quizPickerHtml("Quiz")}</div><p class="muted">This quiz hasn't been sent yet. Send it from <button type="button" class="linkish" data-section="send">Send Quiz</button>; results show up here.</p>${ui.note ? `<p class="quiz-note" role="status">${ui.note}</p>` : ""}`;
     const run = runs.find((r) => r.id === ui.runId) || runs[0];
     ui.runId = run.id;
+    if (ui.checkView === "all") return allAnswersHtml(run);
     const quiz = run.quiz;
     const recs = Object.entries(run.recipients || {});
     const resp = run.responses || {};
@@ -627,6 +632,8 @@
         <div class="stat"><div class="value">${scored.length ? `${passed}<span class="of"> / ${scored.length}</span>` : "—"}</div><div class="label">Passed (${pass}% or more)</div></div>
         <div class="stat"><div class="value">${pending}</div><div class="label">Answers to review</div><div class="hint">${pending ? "Open a trainee to mark them" : "Nothing waiting"}</div></div>
       </div>
+      ${reviewToolsHtml(run, scored.length)}
+      ${analysisHtml(run)}
       <h4 class="quiz-h">By question</h4>
       <ul class="quiz-byq">${perQ
         .map(
@@ -639,7 +646,8 @@
         .map(({ tid, r, x }) => {
           const status = x?.text
             ? (x.pending ? `<span class="chip warn">${plural(x.pending, "answer")} to review</span>` : x.pct >= pass ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${pass}%</span>`) +
-              (x.source === "manual" ? ` <small class="muted">entered by hand</small>` : "")
+              (x.source === "manual" ? ` <small class="muted">entered by hand</small>` : "") +
+              (x.feedback_sent_at ? ` <small class="muted" title="Result sent ${escapeHtml(stamp(x.feedback_sent_at))}">· result sent ✓</small>` : "")
             : !r.sent
               ? `<span class="chip bad">Not sent</span> <small class="muted">${escapeHtml(r.error || "")}</small>`
               : `<span class="chip">No reply yet</span>`;
@@ -650,10 +658,173 @@
       <p class="muted quiz-send-help">Scores use the quiz as it was sent on ${escapeHtml(stamp(run.sent_at))}, so later edits to the questions don't change them.</p>`;
   }
 
+  // ---- Reviewing a send: every answer on one page, and Claude's read on common mistakes ----
+  const answeredOf = (run) => Object.entries(run.responses || {}).filter(([, x]) => x?.text);
+  // Changes whenever an answer is added, re-checked or re-marked, so an old analysis can say it's out of date.
+  const answersSig = (run) => answeredOf(run).map(([tid, x]) => `${tid}:${x.checked_at || ""}`).sort().join("|");
+  const keyText = (q) => (q.type === "mc" ? `${LETTERS[q.answer]}) ${q.choices[q.answer]}` : q.type === "tf" ? (q.answer ? "True" : "False") : String(q.answer || ""));
+  const resultChip = (r) =>
+    r?.correct === true ? `<span class="chip ok">Correct</span>` : r?.correct === false ? `<span class="chip bad">Wrong</span>` : `<span class="chip warn">To review</span>`;
+
+  function reviewToolsHtml(run, answered, withAll = true) {
+    const busy = ui.busy === "analyze";
+    return `<div class="review-tools">
+      ${withAll ? `<button type="button" class="btn" data-all-answers${answered ? "" : " disabled"}>View all answers</button>` : ""}
+      <button type="button" class="btn" data-analyze${answered && !ui.busy ? "" : " disabled"}>${busy ? "Claude is reading the answers…" : run.analysis ? "✨ Analyze again" : "✨ Analyze answers with Claude"}</button>
+      <small class="muted">${answered ? "Finds the common mistakes and the topics worth going over again." : "Available once someone has answered."}</small>
+    </div>`;
+  }
+
+  function analysisHtml(run) {
+    const a = run.analysis;
+    if (!a?.result) return "";
+    const r = a.result;
+    const stale = a.sig !== answersSig(run);
+    const qs = (list) => (list?.length ? `<small class="muted">Q${list.join(", Q")}</small>` : "");
+    return `<section class="analysis-card" aria-label="Claude's analysis">
+      <div class="analysis-head"><h4>✨ What Claude noticed</h4><small class="muted">${plural(a.answered, "trainee")}' answers · ${escapeHtml(stamp(a.at))}</small></div>
+      ${stale ? `<p class="quiz-note">Answers have changed since this analysis. Click “Analyze again” to include them.</p>` : ""}
+      ${r.summary ? `<p class="analysis-summary">${escapeHtml(r.summary)}</p>` : ""}
+      ${
+        r.rediscuss?.length
+          ? `<h5>Topics to re-discuss</h5><ol class="analysis-list">${r.rediscuss
+              .map((t) => `<li><span class="chip ${t.priority === "high" ? "bad" : t.priority === "medium" ? "warn" : ""}">${escapeHtml(t.priority || "medium")}</span> <b>${escapeHtml(t.topic)}</b> ${qs(t.questions)}<div class="muted">${escapeHtml(t.why || "")}</div></li>`)
+              .join("")}</ol>`
+          : ""
+      }
+      ${
+        r.common_mistakes?.length
+          ? `<h5>Common mistakes</h5><ul class="analysis-list">${r.common_mistakes
+              .map((m) => `<li><b>${escapeHtml(m.mistake)}</b> ${qs(m.questions)}${m.count ? ` <small class="muted">· ${m.count}${m.of ? ` of ${m.of}` : ""} trainees</small>` : ""}${m.example ? `<div class="muted">e.g. “${escapeHtml(m.example)}”</div>` : ""}</li>`)
+              .join("")}</ul>`
+          : `<p class="muted">No mistake came up more than once.</p>`
+      }
+      ${r.strengths?.length ? `<h5>What went well</h5><ul class="analysis-list">${r.strengths.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
+    </section>`;
+  }
+
+  // Every trainee's answer to every question, grouped by question, hardest first in the tiles above.
+  function allAnswersHtml(run) {
+    const quiz = run.quiz;
+    const answered = answeredOf(run);
+    const names = (tid) => run.recipients?.[tid]?.name || "Trainee";
+    const sorted = answered.slice().sort(([a], [b]) => names(a).localeCompare(names(b)));
+    const cards = quiz.questions
+      .map((q, i) => {
+        const rows = sorted.map(([tid, x]) => ({ tid, r: x.results?.[q.id] || { answer: "", correct: false } }));
+        const got = rows.filter((x) => x.r.correct === true).length;
+        const shown = ui.onlyWrong ? rows.filter((x) => x.r.correct !== true) : rows;
+        return `<section class="aa-card">
+          <div class="aa-q"><span class="byq-n">${i + 1}</span><div><b>${escapeHtml(q.prompt)}</b>
+            <small class="muted">${TYPES[q.type]} · ${Number(q.points) || 1} pt · ${pctText(got, rows.length)} correct (${got}/${rows.length})</small>
+            ${q.type === "mc" ? `<div class="aa-choices">${q.choices.map((c, j) => `<span class="${j === q.answer ? "is-key" : ""}">${LETTERS[j]}) ${escapeHtml(c)}</span>`).join("")}</div>` : ""}
+            <div class="aa-key"><span class="qa-label">Key</span> ${escapeHtml(keyText(q))}</div></div></div>
+          ${
+            shown.length
+              ? `<table class="quiz-table aa-table"><tbody>${shown
+                  .map(
+                    ({ tid, r }) => `<tr><td><button type="button" class="trainee-link" data-view="${escapeHtml(tid)}">${escapeHtml(names(tid))}</button></td>
+                      <td class="aa-answer">${r.answer ? escapeHtml(r.answer) : '<i class="muted">No answer</i>'}</td>
+                      <td>${resultChip(r)} <small class="muted">${escapeHtml(r.by === "manual" ? "Marked by you" : r.by === "claude" ? `Claude: ${r.reason || ""}` : r.reason || "")}</small></td></tr>`
+                  )
+                  .join("")}</tbody></table>`
+              : `<p class="muted aa-none">${rows.length ? "Everyone got this right ✓" : "No answers yet."}</p>`
+          }
+        </section>`;
+      })
+      .join("");
+    return `
+      <div class="aa-top">
+        <button type="button" class="btn btn-small" data-results>‹ Results</button>
+        <span class="muted">${escapeHtml(quiz.title)} · sent ${escapeHtml(stamp(run.sent_at))} · ${plural(answered.length, "trainee")} answered</span>
+        <label class="aa-filter"><input type="checkbox" data-only-wrong${ui.onlyWrong ? " checked" : ""} /> Only wrong or to review</label>
+      </div>
+      ${ui.note ? `<p class="quiz-note" role="status">${ui.note}</p>` : ""}
+      ${reviewToolsHtml(run, answered.length, false)}
+      ${analysisHtml(run)}
+      ${answered.length ? cards : `<p class="muted">No one has answered yet. Click “Check replies” on the results page first.</p>`}`;
+  }
+
+  async function analyzeAnswers() {
+    const run = runs.find((r) => r.id === ui.runId);
+    if (!run) return;
+    const answered = answeredOf(run);
+    if (!answered.length) return;
+    const sample = await sampleReady;
+    if (!sample) {
+      ui.note = "Claude isn't available on this page right now.";
+      return draw();
+    }
+    ui.busy = "analyze";
+    ui.note = "";
+    draw();
+    const quiz = run.quiz;
+    // Trainees are numbered, not named: Claude only needs the answers to find patterns.
+    const data = quiz.questions.map((q, i) => ({
+      n: i + 1,
+      type: TYPES[q.type],
+      question: q.prompt,
+      choices: q.type === "mc" ? q.choices.map((c, j) => `${LETTERS[j]}) ${c}`) : undefined,
+      correct_answer: keyText(q),
+      answers: answered.map(([, x], k) => {
+        const r = x.results?.[q.id] || {};
+        return { trainee: k + 1, answer: r.answer || "(no answer)", result: r.correct === true ? "correct" : r.correct === false ? "wrong" : "not reviewed yet" };
+      }),
+    }));
+    const prompt = [
+      "You help a trainer of new customer-support trainees review a quiz they took.",
+      "Find the common mistakes and the topics the trainer should go over again with the class.",
+      "Rules: use only the answers below. A common mistake is one that 2 or more trainees made (with 3 or fewer answers, a single mistake can count; say so). For multiple choice, name the wrong choice people picked and the misunderstanding it shows. For short answers, describe what was missing or misunderstood. Name topics by the concept (e.g. \"refund window for cancelled jobs\"), not by question number. Priority: high = most of the class got it wrong or it is a serious misunderstanding; medium = several did; low = minor. Order topics by priority. Keep every sentence short and plain.",
+      'Reply with JSON only: {"summary":"2-3 sentences on how the class did overall","common_mistakes":[{"questions":[2],"mistake":"…","count":3,"of":5,"example":"a short wrong answer, quoted, or empty"}],"rediscuss":[{"topic":"…","why":"…","questions":[2,5],"priority":"high|medium|low"}],"strengths":["what most got right"]}',
+      "",
+      `Quiz: ${quiz.title} (${answered.length} trainees answered)`,
+      JSON.stringify(data),
+    ].join("\n");
+    try {
+      const out = await sample.json(prompt, { modelTier: "default" });
+      const list = (v) => (Array.isArray(v) ? v : []);
+      const nums = (v) => list(v).map(Number).filter((n) => n >= 1 && n <= quiz.questions.length);
+      const result = {
+        summary: String(out?.summary || ""),
+        common_mistakes: list(out?.common_mistakes)
+          .filter((m) => m?.mistake)
+          .map((m) => ({ questions: nums(m.questions), mistake: String(m.mistake), count: Number(m.count) || 0, of: Number(m.of) || answered.length, example: String(m.example || "") })),
+        rediscuss: list(out?.rediscuss)
+          .filter((t) => t?.topic)
+          .map((t) => ({ topic: String(t.topic), why: String(t.why || ""), questions: nums(t.questions), priority: ["high", "medium", "low"].includes(t.priority) ? t.priority : "medium" })),
+        strengths: list(out?.strengths).map(String).filter(Boolean),
+      };
+      if (!result.summary && !result.common_mistakes.length && !result.rediscuss.length) throw new Error("empty");
+      const latest = runs.find((r) => r.id === run.id) || run;
+      await saveRun(ui.selected, { ...latest, analysis: { at: new Date().toISOString(), answered: answered.length, sig: answersSig(run), result } });
+    } catch (e) {
+      ui.note = e?.code === "rate_limited" ? "Claude is busy right now. Try again in a minute." : e?.code === "not_granted" ? "Claude isn't allowed for this page. Allow it when asked, then try again." : "Couldn't analyze the answers. Try again.";
+    }
+    ui.busy = "";
+    draw();
+  }
+
+  // The result message a trainee gets on Slack: score, then each question they missed with the right answer.
+  function feedbackMessage(quiz, resp, name) {
+    const pass = quiz.passing ?? 80;
+    const sc = score(quiz, resp.results);
+    const missed = quiz.questions.map((q, i) => ({ q, i, r: resp.results?.[q.id] || {} })).filter((x) => x.r.correct === false);
+    const lines = [`**📝 Your result: ${quiz.title || "Quiz"}**`, `Hi ${String(name || "").split(" ")[0] || "there"}! You scored **${sc.pct}%** (${sc.earned}/${sc.total} points). ${sc.pct >= pass ? "Passed ✅" : `The passing score is ${pass}%.`}`];
+    if (sc.pending) lines.push(`_${plural(sc.pending, "answer")} still being reviewed._`);
+    if (missed.length) {
+      lines.push("", "**To review:**");
+      missed.forEach(({ q, i, r }) => {
+        lines.push("", `**${i + 1}.** ${q.prompt}`, `Your answer: ${r.answer || "(no answer)"}`, `Correct answer: ${keyText(q)}`);
+      });
+    } else if (!sc.pending) lines.push("", "Every answer correct. Great work! 🎉");
+    return lines.join("\n");
+  }
+
   function showSection(key) {
     flushSave();
     ui.section = key;
     ui.traineeId = null;
+    ui.checkView = "";
     ui.note = "";
     try {
       localStorage.setItem(SECTION_KEY, key);
@@ -1196,7 +1367,13 @@
     const t = ui.section === "roster" && ui.traineeId && cc()?.data().trainees.find((x) => x.id === ui.traineeId);
     const d = ui.draft;
     if (t) items.push({ label: t.name });
-    else if (d && ["buckets", "send", "check"].includes(ui.section)) items.push({ label: d.title || "Untitled quiz" });
+    else if (d && ["buckets", "send", "check"].includes(ui.section)) {
+      items.push({ label: d.title || "Untitled quiz" });
+      if (ui.section === "check" && ui.checkView === "all") {
+        items[1].go = () => ((ui.checkView = ""), draw());
+        items.push({ label: "All answers" });
+      }
+    }
     if (items.length > 1) items[0].go = () => showSection(ui.section);
     window.TrainerDesk?.setCrumbs("quiz", items, () => showSection("roster"));
   }
@@ -1261,6 +1438,10 @@
     if ("sendCohort" in ds || "rosterCohort" in ds) {
       ui.cohortId = t.value;
       ui.note = "";
+      return draw();
+    }
+    if ("onlyWrong" in ds) {
+      ui.onlyWrong = t.checked;
       return draw();
     }
     if ("run" in ds) {
@@ -1363,6 +1544,15 @@
     }
     if ("send" in ds) return confirmSend();
     if ("check" in ds) return checkReplies();
+    if ("allAnswers" in ds || "results" in ds) {
+      ui.checkView = "allAnswers" in ds ? "all" : "";
+      ui.note = "";
+      draw();
+      const main = ui.el.querySelector(".quiz-main");
+      if (main) main.scrollTop = 0;
+      return;
+    }
+    if ("analyze" in ds) return analyzeAnswers();
     if (ds.view) return openTrainee(ds.view);
   }
 
@@ -1600,6 +1790,8 @@
     const x = sheet("", "quiz-detail");
     if (!x) return;
     let editing = !run.responses?.[tid]?.text;
+    let sending = false; // writing the result message to send on Slack
+    let feedback = ""; // that message, kept while the sheet redraws
     let local = null; // this sheet's last save, used until the saved copy comes back
     const latest = () => {
       const fromDb = pool().find((r) => r.id === run.id) || run;
@@ -1612,9 +1804,16 @@
       const sc = resp ? score(quiz, resp.results) : null;
       x.s.querySelector(".sheet-card").innerHTML = `
         <h3>${escapeHtml(rec.name)} · ${escapeHtml(quiz.title)}</h3>
-        <p class="muted">${resp?.text ? `<b>${sc.pct}%</b> · ${sc.earned}/${sc.total} points${sc.pending ? ` · ${plural(sc.pending, "answer")} to review` : ""} · ${resp.source === "manual" ? "entered by hand" : "from Slack"} · checked ${escapeHtml(stamp(resp.checked_at))}` : "No answers yet."}</p>
+        <p class="muted">${resp?.text ? `<b>${sc.pct}%</b> · ${sc.earned}/${sc.total} points${sc.pending ? ` · ${plural(sc.pending, "answer")} to review` : ""} · ${resp.source === "manual" ? "entered by hand" : "from Slack"} · checked ${escapeHtml(stamp(resp.checked_at))}${resp.feedback_sent_at ? ` · <b>result sent ${escapeHtml(stamp(resp.feedback_sent_at))}</b>` : ""}` : "No answers yet."}</p>
         ${
-          editing
+          sending
+            ? `<p class="quiz-send-help">Goes to ${escapeHtml(rec.name)} as a Slack DM from you. Change anything before sending, like adding a note of your own.</p>
+               <label class="quiz-paste">Message
+                 <textarea rows="10" data-feedback>${escapeHtml(feedback)}</textarea></label>
+               ${rec.ts ? `<label class="aa-filter"><input type="checkbox" data-in-thread checked /> Reply in the quiz's thread, so it sits under the quiz</label>` : ""}
+               <p class="sheet-status" data-status role="status"></p>
+               <div class="sheet-actions"><button type="button" class="btn" data-stop-send>Back</button><button type="button" class="btn-primary" data-send-feedback>Send on Slack</button></div>`
+            : editing
             ? `<label class="quiz-paste">Their answers, one per line (e.g. “1. B”)
                 <textarea rows="${Math.min(12, quiz.questions.length + 2)}" data-paste>${escapeHtml(resp?.text || "")}</textarea></label>
                <p class="sheet-status" data-status></p>
@@ -1634,16 +1833,71 @@
                 })
                 .join("")}</ol>
                <details class="quiz-raw"><summary>Their reply as written</summary><pre>${escapeHtml(resp.text)}</pre></details>
-               <div class="sheet-actions"><button type="button" class="btn" data-edit>Edit answers</button><span class="flex"></span><button type="button" class="btn-primary" data-cancel>Close</button></div>`
+               <p class="sheet-status" data-status role="status">${sentNote}</p>
+               <div class="sheet-actions"><button type="button" class="btn" data-edit>Edit answers</button><button type="button" class="btn" data-all-from-sheet>All trainees' answers</button><span class="flex"></span><button type="button" class="btn" data-start-send${sc.pending ? ' title="Some answers still need your review"' : ""}>${resp.feedback_sent_at ? "Send result again" : "Send result to trainee"}</button><button type="button" class="btn-primary" data-cancel>Close</button></div>`
         }`;
-      x.s.querySelector("[data-paste]")?.focus();
+      x.s.querySelector("[data-paste], [data-feedback]")?.focus();
     };
+    let sentNote = "";
     render();
+    x.s.addEventListener("input", (e) => "feedback" in e.target.dataset && (feedback = e.target.value));
     x.s.addEventListener("click", async (e) => {
       const b = e.target.closest("button");
       if (!b) return;
       const live = latest();
+      sentNote = "";
       if ("edit" in b.dataset) return (editing = true), render();
+      if ("startSend" in b.dataset) {
+        feedback = feedbackMessage(quiz, live.responses[tid], rec.name);
+        sending = true;
+        return render();
+      }
+      if ("stopSend" in b.dataset) return (sending = false), render();
+      if ("allFromSheet" in b.dataset) {
+        x.close();
+        if (ui.section !== "check") {
+          ui.section = "check";
+          try {
+            localStorage.setItem(SECTION_KEY, "check");
+          } catch {}
+        }
+        ui.traineeId = null;
+        if (ui.selected !== quizId) select(quizId);
+        ui.runId = runId;
+        ui.checkView = "all";
+        ui.note = "";
+        return draw();
+      }
+      if ("sendFeedback" in b.dataset) {
+        const status = x.s.querySelector("[data-status]");
+        const message = feedback.trim();
+        if (!message) return void (status.textContent = "Write the message first.");
+        const s = slack();
+        if (!s) return void (status.textContent = "Slack isn't available right now.");
+        b.disabled = true;
+        status.textContent = "Sending…";
+        try {
+          const trainee = cc()?.data().trainees.find((t) => t.id === tid);
+          const userId = rec.slack_user_id || (trainee ? await s.userIdFor(trainee) : null);
+          if (!userId) throw Object.assign(new Error("Couldn't find them on Slack. Check their work email in Settings → Roster."), { plain: true });
+          const args = { channel_id: userId, message };
+          if (rec.ts && x.s.querySelector("[data-in-thread]")?.checked) {
+            args.channel_id = rec.channel || userId;
+            args.thread_ts = rec.ts;
+          }
+          await s.call("slack_send_message", args);
+        } catch (err) {
+          b.disabled = false;
+          return void (status.textContent = err?.plain ? err.message : s.errorText(err));
+        }
+        const resp = { ...live.responses[tid], feedback_sent_at: new Date().toISOString() };
+        local = { ...live, responses: { ...live.responses, [tid]: resp } };
+        patchAllRuns(quizId, local);
+        await saveRun(quizId, local).catch(() => {});
+        sending = false;
+        sentNote = `Result sent to ${rec.name} on Slack ✓`;
+        return render();
+      }
       if ("stopEdit" in b.dataset) return (editing = false), render();
       if ("grade" in b.dataset) {
         const text = x.s.querySelector("[data-paste]").value.trim();
@@ -1671,7 +1925,7 @@
       }
     });
     const off = (() => {
-      const f = () => x.s.isConnected && !editing && render();
+      const f = () => x.s.isConnected && !editing && !sending && render();
       listeners.add(f);
       return () => listeners.delete(f);
     })();

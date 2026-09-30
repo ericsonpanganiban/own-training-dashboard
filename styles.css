@@ -1093,3 +1093,19 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .ai-choices li { padding: 1px 0; }
 .ai-choices li.is-answer { color: #15803d; font-weight: 600; }
 .ai-key { margin: 0; font-size: 13px; }
+
+/* Quiz → Send Quiz: pick trainees */
+.pick-box { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.pick-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; font-size: 13px; }
+.pick-head .muted { font-size: 12px; }
+.pick-tools { margin-left: auto; font-size: 12px; color: var(--muted); }
+.pick-tools .linkish { text-decoration: none; }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 12px; }
+.pick-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.pick-row:hover { background: color-mix(in srgb, var(--window-fg) 5%, transparent); }
+.pick-row.is-off { cursor: default; color: var(--muted); }
+.pick-row small { font-size: 11px; }
+.pick-name { flex: 0 1 auto; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-row small { flex: 1 1 0; min-width: 60px; line-height: 1.25; }
+.pick-row .chip { flex: none; }
+.pick-sub { margin: 10px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }

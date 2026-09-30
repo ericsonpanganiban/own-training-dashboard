@@ -23,8 +23,7 @@ Trainees are matched to Slack by their work email.
 
 ## Quiz
 
-Side panel: **Roster** (each cohort's trainees from Cohorts, who Slack can reach, and quiz scores; a quiz goes to a
-cohort's active trainees), **Send Quiz**, **Check Quiz**, **Quiz Buckets** (the quizzes and question editor),
+Side panel: **Roster** (each cohort's trainees from Cohorts, who Slack can reach, and quiz scores), **Send Quiz** (pick the cohort, then tick who gets it: active trainees by default, inactive ones optional), **Check Quiz**, **Quiz Buckets** (the quizzes and question editor),
 **Quiz Links** and **Resources** (saved links: `quiz_links`, `quiz_resources`).
 
 `quiz/quiz.js`. Write a quiz by hand (multiple choice, true/false, short answer; points per question, a passing

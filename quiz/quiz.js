@@ -493,12 +493,48 @@
     return (c?.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
   };
 
+  // Who gets the quiz: picked from the chosen cohort. Active trainees Slack can reach start ticked;
+  // inactive trainees start unticked but can be added; anyone without a work email can't be picked.
+  const reachable = (t) => !!(t.slack_user_id || t.email);
+  function pickedIds() {
+    const members = ui.cohortId ? cohortMembers(ui.cohortId) : [];
+    if (ui.picks?.cohortId !== ui.cohortId) ui.picks = { cohortId: ui.cohortId, ids: new Set(members.filter((t) => !isInactive(t) && reachable(t)).map((t) => t.id)) };
+    // Drop anyone who has left the cohort since.
+    const ids = new Set(members.map((t) => t.id));
+    [...ui.picks.ids].forEach((id) => !ids.has(id) && ui.picks.ids.delete(id));
+    return ui.picks.ids;
+  }
+  const pickedMembers = () => {
+    const ids = pickedIds();
+    return cohortMembers(ui.cohortId).filter((t) => ids.has(t.id) && reachable(t));
+  };
+  function recipientsHtml() {
+    const members = cohortMembers(ui.cohortId);
+    if (!members.length) return `<p class="muted">No trainees in this cohort yet. Add them from Cohorts with + Add Trainee.</p>`;
+    const ids = pickedIds();
+    const row = (t) => {
+      const can = reachable(t);
+      return `<label class="pick-row${can ? "" : " is-off"}"><input type="checkbox" data-pick-trainee="${escapeHtml(t.id)}"${ids.has(t.id) && can ? " checked" : ""}${can ? "" : " disabled"} />
+        <span class="pick-name">${escapeHtml(t.name)}</span>
+        ${isInactive(t) ? `<span class="chip">Inactive</span>` : ""}
+        ${can ? (t.slack_user_id ? "" : `<small class="muted">Matched on first send</small>`) : `<small class="bad-text">No work email, can't be reached</small>`}</label>`;
+    };
+    const active = members.filter((t) => !isInactive(t)), inactive = members.filter(isInactive);
+    const n = pickedMembers().length;
+    return `
+      <div class="pick-head">
+        <b>Trainees</b> <span class="muted">${n} of ${members.filter(reachable).length} picked</span>
+        <span class="pick-tools"><button type="button" class="linkish" data-pick-all="active">All active</button> · <button type="button" class="linkish" data-pick-all="all">Everyone</button> · <button type="button" class="linkish" data-pick-all="none">None</button></span>
+      </div>
+      <div class="pick-grid">${active.map(row).join("")}</div>
+      ${inactive.length ? `<p class="muted pick-sub">Inactive</p><div class="pick-grid">${inactive.map(row).join("")}</div>` : ""}`;
+  }
+
   function sendTabHtml(d) {
     const problems = quizProblems(d);
     const opts = cohortOptions();
     if (!ui.cohortId && opts.length) ui.cohortId = (opts.find((o) => o.st === "active") || opts[0]).c.id;
-    const members = ui.cohortId ? cohortMembers(ui.cohortId).filter((t) => !isInactive(t)) : [];
-    const noEmail = members.filter((t) => !t.slack_user_id && !t.email);
+    const members = ui.cohortId ? pickedMembers() : [];
     return `
       ${problems.length ? `<div class="quiz-warn"><b>Fix these before sending:</b><ul>${problems.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul></div>` : ""}
       <div class="quiz-send-row">
@@ -509,11 +545,10 @@
               ? opts.map(({ c, st }) => `<option value="${escapeHtml(c.id)}"${c.id === ui.cohortId ? " selected" : ""}>${escapeHtml(c.name)} · ${st === "unscheduled" ? "no start date" : st}</option>`).join("")
               : `<option value="">No cohorts yet</option>`
           }</select></label>
-        <button type="button" class="btn-primary" data-send${problems.length || !members.length || ui.busy ? " disabled" : ""}>${ui.busy === "send" ? "Sending…" : `Send to ${plural(members.length, "active trainee")}`}</button>
+        <button type="button" class="btn-primary" data-send${problems.length || !members.length || ui.busy ? " disabled" : ""}>${ui.busy === "send" ? "Sending…" : members.length ? `Send to ${plural(members.length, "trainee")}` : "Pick trainees to send to"}</button>
       </div>
-      <p class="muted quiz-send-help">Each active trainee gets the quiz as a Slack direct message from you, and replies with their answers. Inactive trainees are left out.${
-        noEmail.length ? ` <b class="warn-text">${noEmail.map((t) => escapeHtml(t.name)).join(", ")} ${noEmail.length === 1 ? "has" : "have"} no work email in Settings → Roster, so ${noEmail.length === 1 ? "they" : "they"} can't be reached on Slack.</b>` : ""
-      }</p>
+      <div class="pick-box">${ui.cohortId ? recipientsHtml() : ""}</div>
+      <p class="muted quiz-send-help">Each picked trainee gets the quiz as a Slack direct message from you, and replies with their answers. Add a missing work email in Settings → Roster.</p>
       ${ui.note ? `<p class="quiz-note" role="status">${ui.note}</p>` : ""}
       <h4 class="quiz-h">Message preview <span class="muted quiz-h-note">** shows as bold and _ as italics in Slack</span></h4>
       <pre class="quiz-preview">${escapeHtml(quizMessage(d))}</pre>`;
@@ -658,7 +693,7 @@
           <select data-roster-cohort>${opts.map(({ c, st }) => `<option value="${escapeHtml(c.id)}"${c.id === ui.cohortId ? " selected" : ""}>${escapeHtml(c.name)} · ${st === "unscheduled" ? "no start date" : st}</option>`).join("")}</select></label>
         <button type="button" class="btn" data-roster-refresh>↻ Refresh scores</button>
       </div>
-      <p class="muted quiz-send-help">${plural(active.length, "active trainee")} will get this cohort's quizzes${inactive.length ? ` · ${inactive.length} inactive, left out` : ""}${cannot ? ` · <b class="warn-text">${cannot} can't be reached on Slack (no work email)</b>` : ""}. Change who's in the cohort, or Active / Inactive, in Cohorts.</p>
+      <p class="muted quiz-send-help">${plural(active.length, "active trainee")}, ticked by default in Send Quiz${inactive.length ? ` · ${inactive.length} inactive, unticked by default` : ""}${cannot ? ` · <b class="warn-text">${cannot} can't be reached on Slack (no work email)</b>` : ""}. Change who's in the cohort, or Active / Inactive, in Cohorts.</p>
       ${
         members.length
           ? `<table class="quiz-table roster-table"><thead><tr><th>Trainee</th><th>Status</th><th>Work email</th><th>Slack</th><th>Quizzes taken</th><th>Average</th><th>Latest</th></tr></thead>
@@ -976,7 +1011,7 @@
     const head = (title, sub) => `<div class="quiz-top"><h3>${title}</h3>${sub || ""}</div>`;
     switch (ui.section) {
       case "roster":
-        return head("Roster", `<span class="muted quiz-sub">From Cohorts; a quiz goes to a cohort's active trainees</span>`) + rosterHtml();
+        return head("Roster", `<span class="muted quiz-sub">From Cohorts; pick who gets each quiz in Send Quiz</span>`) + rosterHtml();
       case "send":
         return head("Send Quiz") + (d ? sendTabHtml(d) : noQuizzes());
       case "check":
@@ -1053,6 +1088,11 @@
       return draw();
     }
     if ("pickQuiz" in ds) return select(t.value);
+    if (ds.pickTrainee) {
+      const ids = pickedIds();
+      t.checked ? ids.add(ds.pickTrainee) : ids.delete(ds.pickTrainee);
+      return draw();
+    }
     if (ds.aiType) return void (ai.types[ds.aiType] = t.checked);
     if (ds.aiUse) return void (t.checked ? ai.use.add(ds.aiUse) : ai.use.delete(ds.aiUse));
     if (ds.aiPick !== undefined) {
@@ -1094,6 +1134,14 @@
       return;
     }
     if ("rosterRefresh" in ds) return loadAllRuns().then(draw);
+    if (ds.pickAll) {
+      const ids = pickedIds();
+      ids.clear();
+      cohortMembers(ui.cohortId)
+        .filter((m) => reachable(m) && (ds.pickAll === "all" || (ds.pickAll === "active" && !isInactive(m))))
+        .forEach((m) => ids.add(m.id));
+      return draw();
+    }
     if ("aiGo" in ds) return suggestQuestions();
     if ("aiAdd" in ds) return addSuggestions();
     if (ds.openQuiz) {
@@ -1204,7 +1252,7 @@
     flushSave();
     const d = JSON.parse(JSON.stringify(ui.draft));
     const cohort = cc().data().cohorts.find((c) => c.id === ui.cohortId);
-    const members = cohortMembers(ui.cohortId).filter((t) => !isInactive(t));
+    const members = pickedMembers();
     if (!cohort || !members.length) return;
     const x = sheet(
       `<h3>Send “${escapeHtml(d.title)}” to ${escapeHtml(cohort.name)}?</h3>

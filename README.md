@@ -43,6 +43,11 @@ editable Slack DM (by default a reply in the quiz thread): score, then every que
 (correct / wrong / being reviewed), the right answer when wrong, and Claude's feedback on short answers. Saved as
 `feedback_sent_at`.
 
+**Trash** (`quiz_trash/{id}`): deleted quizzes, questions (ones with anything written), quiz links and resources wait
+30 days, with Restore and Delete for good. A trashed quiz's sends and results stay in place, so a restore brings them
+back; deleting it for good also removes its sends and analyses. A restored question goes back into its quiz at its old
+position (the quiz has to be restored first). Items past 30 days are deleted the next time the Quiz app loads.
+
 `quiz/quiz.js`. Write a quiz by hand (multiple choice, true/false, short answer; points per question, a passing
 score), send it to a cohort's active trainees as Slack DMs, then **Check replies**. Trainees answer by replying to the
 DM, one answer per line ("1. B", "2. True", …), in the thread or the DM itself. Multiple choice and true/false are

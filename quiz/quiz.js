@@ -301,6 +301,7 @@
     { key: "buckets", label: "Quiz Buckets", icon: '<path d="M3 7h18l-2 13H5z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/>' },
     { key: "links", label: "Quiz Links", icon: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>' },
     { key: "resources", label: "Resources", icon: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>' },
+    { key: "trash", label: "Trash", icon: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>' },
   ];
   const SECTION_KEY = "trainer.quizSection";
 
@@ -1485,11 +1486,12 @@
   function removeLink(kind, id) {
     const x = linkStore[kind].find((l) => l.id === id);
     if (!x) return;
-    const sh = sheet(`<h3>Delete “${escapeHtml(x.title)}”?</h3><p class="muted">Only the saved link is removed here; the page it points to isn't touched.</p>
-      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-danger" data-yes>Delete</button></div>`);
+    const sh = sheet(`<h3>Delete “${escapeHtml(x.title)}”?</h3><p class="muted">It moves to Trash for ${TRASH_DAYS} days. Only the saved link is removed; the page it points to isn't touched.</p>
+      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-danger" data-yes>Move to Trash</button></div>`);
     if (!sh) return;
     sh.s.querySelector("[data-yes]").addEventListener("click", () => {
       const done = () => sh.close();
+      toTrash(kind, x.title, JSON.parse(JSON.stringify(x))).catch(() => {});
       if (!db) {
         linkStore[kind] = linkStore[kind].filter((l) => l.id !== id);
         notify();
@@ -1498,6 +1500,130 @@
       db.doc(`${LINK_KIND[kind].coll}/${id}`).delete().then(done, done);
     });
     sh.s.querySelector("[data-cancel]").focus();
+  }
+
+  // ---- Trash: deleted quizzes, questions, links and resources, kept 30 days (quiz_trash/{id}) ----
+  // A trashed quiz keeps its sends and results where they are, so restoring it brings everything back.
+  const TRASH_DAYS = 30;
+  const DAY = 86400000;
+  const TRASH_KIND = { quiz: "Quiz", question: "Question", links: "Quiz link", resources: "Resource" };
+  let trash = [];
+  let trashLoaded = false;
+  dbReady.then((d) => {
+    if (!d) return void (trashLoaded = true);
+    d.collection("quiz_trash").orderBy("deleted_at", "desc").onSnapshot(
+      (snap) => {
+        trash = snap.docs.map((doc) => ({ id: doc.id, ...JSON.parse(JSON.stringify(doc.data() || {})) }));
+        trashLoaded = true;
+        purgeExpired();
+        notify();
+      },
+      () => ((trashLoaded = true), notify())
+    );
+  });
+  function toTrash(kind, title, data, extra = {}) {
+    const now = Date.now();
+    const item = { id: `t${now}${uid()}`, kind, title: title || "Untitled", data, deleted_at: new Date(now).toISOString(), expires_at: new Date(now + TRASH_DAYS * DAY).toISOString(), ...extra };
+    trash = [item, ...trash];
+    if (!db) return notify(), Promise.resolve();
+    const { id, ...fields } = item;
+    return db.doc(`quiz_trash/${id}`).set(fields);
+  }
+  function dropTrashItem(id) {
+    trash = trash.filter((t) => t.id !== id);
+    if (!db) return notify(), Promise.resolve();
+    return db.doc(`quiz_trash/${id}`).delete();
+  }
+  const daysLeft = (t) => Math.max(0, Math.ceil((Date.parse(t.expires_at) - Date.now()) / DAY));
+  // Past 30 days, an item is deleted for good the next time the Quiz app loads the trash.
+  let purging = false;
+  function purgeExpired() {
+    if (purging) return;
+    const old = trash.filter((t) => Date.parse(t.expires_at) <= Date.now());
+    if (!old.length) return;
+    purging = true;
+    Promise.all(old.map(deleteForever)).finally(() => (purging = false));
+  }
+  // Deleting for good: a quiz also takes its sends, results and saved analyses with it.
+  async function deleteForever(t) {
+    if (t.kind === "quiz") {
+      const qid = t.data?.id;
+      if (qid && !allQuizzes().some((q) => q.id === qid)) {
+        if (!db) delete mem.runs[qid];
+        else {
+          const snap = await db.doc(`quizzes/${qid}`).collection("runs").get().catch(() => null);
+          await Promise.all((snap?.docs || []).map((doc) => db.doc(`quizzes/${qid}`).collection("runs").doc(doc.id).delete().catch(() => {})));
+          await Promise.all(Object.keys(analyses).filter((k) => k.startsWith(`${qid}__`)).map((k) => (delete analyses[k], db.doc(`quiz_analyses/${k}`).delete().catch(() => {}))));
+        }
+      }
+    }
+    return dropTrashItem(t.id);
+  }
+  async function restoreTrash(id) {
+    const t = trash.find((x) => x.id === id);
+    if (!t) return;
+    if (t.kind === "quiz") await saveQuiz(t.data);
+    else if (t.kind === "links" || t.kind === "resources") await saveLink(t.kind, t.data);
+    else if (t.kind === "question") {
+      const quiz = t.quiz_id === ui.draft?.id ? ui.draft : allQuizzes().find((q) => q.id === t.quiz_id);
+      if (!quiz) {
+        ui.note = `“${escapeHtml(t.quiz_title || "Its quiz")}” isn't in Quiz Buckets. Restore the quiz first, then this question.`;
+        return draw();
+      }
+      const questions = [...(quiz.questions || [])];
+      questions.splice(Math.min(t.index ?? questions.length, questions.length), 0, t.data);
+      if (quiz === ui.draft) {
+        ui.draft.questions = questions;
+        queueSave();
+      } else await saveQuiz({ ...JSON.parse(JSON.stringify(quiz)), questions });
+    }
+    await dropTrashItem(id);
+    ui.note = `Restored “${escapeHtml(t.title)}”${t.kind === "question" ? ` to ${escapeHtml(t.quiz_title || "its quiz")}` : t.kind === "quiz" ? " to Quiz Buckets, with its sends and results" : ""}.`;
+    if (t.kind === "quiz") loadAllRuns().then(() => ui.el && draw());
+    draw();
+  }
+  function confirmForever(ids) {
+    const items = trash.filter((t) => ids.includes(t.id));
+    if (!items.length) return;
+    const one = items.length === 1 ? items[0] : null;
+    const x = sheet(`<h3>${one ? `Delete “${escapeHtml(one.title)}” for good?` : `Empty the trash (${plural(items.length, "item")})?`}</h3>
+      <p class="muted">${items.some((t) => t.kind === "quiz") ? "A quiz goes with its sends, results and Claude's analyses. " : ""}This can't be undone.</p>
+      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-danger" data-yes>${one ? "Delete for good" : "Empty trash"}</button></div>`);
+    if (!x) return;
+    x.s.querySelector("[data-yes]").addEventListener("click", (e) => {
+      e.target.disabled = true;
+      Promise.all(items.map(deleteForever)).finally(() => {
+        x.close();
+        ui.note = one ? `Deleted “${escapeHtml(one.title)}” for good.` : "Trash emptied.";
+        draw();
+      });
+    });
+    x.s.querySelector("[data-cancel]").focus();
+  }
+  function trashHtml() {
+    const note = ui.note ? `<p class="quiz-note" role="status">${ui.note}</p>` : "";
+    if (!trashLoaded) return `<p class="muted">Loading…</p>`;
+    const live = trash.filter((t) => Date.parse(t.expires_at) > Date.now());
+    if (!live.length) return `${note}<p class="muted">Trash is empty. Deleted quizzes, questions, quiz links and resources wait here for ${TRASH_DAYS} days, so you can restore them.</p>`;
+    const where = (t) =>
+      t.kind === "question"
+        ? `From ${escapeHtml(t.quiz_title || "a quiz")}`
+        : t.kind === "quiz"
+          ? `${plural((t.data?.questions || []).length, "question")}${t.sends ? ` · ${plural(t.sends, "send")} and results kept` : ""}`
+          : escapeHtml(t.data?.url || "");
+    return `${note}
+      <div class="trash-head"><span class="muted">${plural(live.length, "item")} · each is deleted for good ${TRASH_DAYS} days after it was deleted</span>
+        <button type="button" class="btn btn-danger-ghost" data-trash-empty>Empty trash</button></div>
+      <table class="quiz-table trash-table"><thead><tr><th>Item</th><th>Type</th><th>Deleted</th><th>Deleted for good</th><th></th></tr></thead><tbody>${live
+        .map((t) => {
+          const left = daysLeft(t);
+          return `<tr><td><b>${escapeHtml(t.title)}</b><small class="muted roster-crm">${where(t)}</small></td>
+            <td><span class="chip">${TRASH_KIND[t.kind] || t.kind}</span></td>
+            <td>${escapeHtml(stamp(t.deleted_at))}</td>
+            <td><span class="${left <= 3 ? "bad-text" : "muted"}">${left <= 1 ? "Within a day" : `In ${left} days`}</span></td>
+            <td><div class="trash-actions"><button type="button" class="btn btn-small" data-trash-restore="${escapeHtml(t.id)}">Restore</button><button type="button" class="btn btn-small btn-danger-ghost" data-trash-forever="${escapeHtml(t.id)}">Delete for good</button></div></td></tr>`;
+        })
+        .join("")}</tbody></table>`;
   }
 
   function sectionHtml() {
@@ -1527,6 +1653,8 @@
         }</div></div>`;
       case "links":
         return head("Quiz Links", `<span class="muted quiz-sub">Links to quizzes kept elsewhere, like Google Forms</span>`) + linkListHtml("links");
+      case "trash":
+        return head("Trash", `<span class="muted quiz-sub">Deleted items, kept ${TRASH_DAYS} days</span>`) + trashHtml();
       case "resources":
         return head("Resources", `<span class="muted quiz-sub">Study material and references for quizzes</span>`) + aiBoxHtml() + `<h4 class="quiz-h">Saved resources</h4>` + linkListHtml("resources");
     }
@@ -1714,6 +1842,15 @@
         { label: "Delete quiz", danger: true, run: () => confirmDelete() },
       ]);
     }
+    if (ds.analyze) return analyzeAnswers(ds.analyze);
+    if (ds.anLevel) {
+      ui.anLevel = ds.anLevel;
+      return draw();
+    }
+    if (ds.checkCohort) return enterCohort(ds.checkCohort);
+    if (ds.trashRestore) return void restoreTrash(ds.trashRestore);
+    if (ds.trashForever) return confirmForever([ds.trashForever]);
+    if ("trashEmpty" in ds) return confirmForever(trash.map((t) => t.id));
     if (!d) return;
     if (ds.qAdd) {
       d.questions.push(blankQuestion(ds.qAdd));
@@ -1723,6 +1860,11 @@
       return;
     }
     if (ds.qDelete) {
+      const index = d.questions.findIndex((q) => q.id === ds.qDelete);
+      const q = d.questions[index];
+      // Blank questions just go; anything written is kept in Trash.
+      if (q && (q.prompt.trim() || (q.choices || []).some((c) => c.trim()) || (q.type === "short" && String(q.answer || "").trim())))
+        toTrash("question", q.prompt.trim() || "Untitled question", JSON.parse(JSON.stringify(q)), { quiz_id: d.id, quiz_title: d.title || "Untitled quiz", index }).catch(() => {});
       d.questions = d.questions.filter((q) => q.id !== ds.qDelete);
       queueSave();
       return draw();
@@ -1760,12 +1902,6 @@
       if (main) main.scrollTop = 0;
       return;
     }
-    if (ds.analyze) return analyzeAnswers(ds.analyze);
-    if (ds.anLevel) {
-      ui.anLevel = ds.anLevel;
-      return draw();
-    }
-    if (ds.checkCohort) return enterCohort(ds.checkCohort);
     if ("checkHome" in ds) {
       ui.checkCohort = "";
       ui.checkView = "";
@@ -1875,13 +2011,17 @@
   function confirmDelete() {
     const d = ui.draft;
     const x = sheet(`<h3>Delete “${escapeHtml(d.title || "Untitled quiz")}”?</h3>
-      <p class="muted">The quiz and its results are removed. Slack messages already sent stay in Slack. This can't be undone.</p>
-      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-danger" data-yes>Delete quiz</button></div>`);
+      <p class="muted">It moves to Trash with its results for ${TRASH_DAYS} days, and you can restore it from there. Slack messages already sent stay in Slack.</p>
+      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-danger" data-yes>Move to Trash</button></div>`);
     if (!x) return;
     x.s.querySelector("[data-yes]").addEventListener("click", () => {
       clearTimeout(ui.saveTimer);
       ui.saveTimer = null;
-      deleteQuiz(d.id).then(() => {
+      const sends = runsFor === d.id ? runs.length : allRuns?.[d.id]?.length || 0;
+      const copy = JSON.parse(JSON.stringify(d));
+      toTrash("quiz", d.title || "Untitled quiz", copy, { sends })
+        .then(() => deleteQuiz(d.id))
+        .then(() => {
         x.close();
         ui.selected = null;
         ui.draft = null;

@@ -1224,3 +1224,8 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .an-pick { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--window-fg); }
 .an-empty { margin: 0; font-size: 13px; }
 .analysis-panel .analysis-card { margin: 0; }
+/* Quiz → Trash */
+.trash-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; }
+.trash-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.btn-danger-ghost, .app-body .btn.btn-danger-ghost { color: #dc2626; }
+.app-body .btn.btn-danger-ghost:hover { border-color: #dc2626; }

@@ -737,6 +737,190 @@
                 .join("")}</ul>`
       }`;
   }
+  // ---- Ask Claude for quiz questions (Resources) ----
+  // A request, optionally grounded in saved resources (Google Drive links are read in full) or pasted
+  // material. Claude suggests questions with answers; picked ones are added to a new or existing quiz.
+  const ai = { request: "", count: 5, types: { mc: true, tf: true, short: true }, use: new Set(), paste: "", busy: false, status: "", suggestions: [], target: "new", added: "" };
+  const MATERIAL_LIMIT = 40000; // characters of material per request (a Claude call from a page is capped)
+  const isDriveLink = (u) => /(docs|drive)\.google\.com\//.test(u || "");
+
+  function aiBoxHtml() {
+    const res = linkStore.resources;
+    const picked = ai.suggestions.filter((q) => q.pick).length;
+    const quizzesList = allQuizzes();
+    return `
+      <section class="ai-box">
+        <h4 class="ai-title">✨ Ask Claude for quiz questions</h4>
+        <textarea data-ai-request rows="3" placeholder="e.g. 8 questions on the refund policy for week-1 trainees. Mostly multiple choice, focus on the 24-hour rule.">${escapeHtml(ai.request)}</textarea>
+        <div class="ai-opts">
+          <label>How many <input type="number" min="1" max="25" data-ai-count value="${ai.count}" /></label>
+          <span class="ai-types">Types:
+            ${Object.entries(TYPES).map(([k, v]) => `<label><input type="checkbox" data-ai-type="${k}"${ai.types[k] ? " checked" : ""} /> ${v}</label>`).join("")}
+          </span>
+        </div>
+        ${
+          res.length
+            ? `<fieldset class="ai-use"><legend>Base them on these resources <span class="muted">(optional)</span></legend>
+                ${res
+                  .map(
+                    (x) => `<label><input type="checkbox" data-ai-use="${escapeHtml(x.id)}"${ai.use.has(x.id) ? " checked" : ""} /> ${escapeHtml(x.title)}
+                      <small class="muted">${isDriveLink(x.url) ? "Claude reads this Google Doc" : "Claude sees the title and note only"}</small></label>`
+                  )
+                  .join("")}</fieldset>`
+            : ""
+        }
+        <details class="ai-paste"${ai.paste ? " open" : ""}><summary>Or paste material for Claude to use</summary>
+          <textarea data-ai-paste rows="5" placeholder="Paste an SOP, policy or module text. Questions will come only from it.">${escapeHtml(ai.paste)}</textarea></details>
+        <div class="ai-actions">
+          <button type="button" class="btn-primary" data-ai-go${ai.busy ? " disabled" : ""}>${ai.busy ? "Thinking…" : ai.suggestions.length ? "Suggest again" : "Suggest questions"}</button>
+          <span class="sheet-status" role="status">${escapeHtml(ai.status)}</span>
+        </div>
+        ${
+          ai.suggestions.length
+            ? `<ol class="ai-list">${ai.suggestions.map(aiQuestionHtml).join("")}</ol>
+               <div class="ai-add">
+                 <label>Add ${plural(picked, "picked question")} to
+                   <select data-ai-target>
+                     <option value="new"${ai.target === "new" ? " selected" : ""}>A new quiz</option>
+                     ${quizzesList.map((q) => `<option value="${escapeHtml(q.id)}"${ai.target === q.id ? " selected" : ""}>${escapeHtml(q.title || "Untitled quiz")}</option>`).join("")}
+                   </select></label>
+                 <button type="button" class="btn-primary" data-ai-add${picked ? "" : " disabled"}>Add to quiz</button>
+                 ${ai.added ? `<span class="ai-added">${ai.added}</span>` : ""}
+               </div>`
+            : ""
+        }
+      </section>`;
+  }
+
+  function aiQuestionHtml(q, i) {
+    const body =
+      q.type === "mc"
+        ? `<ul class="ai-choices">${q.choices.map((c, j) => `<li class="${j === q.answer ? "is-answer" : ""}">${LETTERS[j]}) ${escapeHtml(c)}${j === q.answer ? " ✓" : ""}</li>`).join("")}</ul>`
+        : q.type === "tf"
+          ? `<p class="ai-key">Answer: <b>${q.answer ? "True" : "False"}</b></p>`
+          : `<p class="ai-key">Answer key: ${escapeHtml(q.answer)}</p>`;
+    return `<li class="ai-q${q.pick ? "" : " is-off"}">
+      <label class="ai-pick"><input type="checkbox" data-ai-pick="${i}"${q.pick ? " checked" : ""} aria-label="Use question ${i + 1}" /></label>
+      <div><div class="ai-q-head"><span class="chip">${TYPES[q.type]}</span>${q.source ? `<small class="muted">From: ${escapeHtml(q.source)}</small>` : ""}</div>
+        <p class="ai-prompt">${escapeHtml(q.prompt)}</p>${body}</div>
+    </li>`;
+  }
+
+  // Turns Claude's reply into questions the editor understands; anything malformed is dropped.
+  function cleanSuggestions(out) {
+    return (out?.questions || [])
+      .map((q) => {
+        const type = ["mc", "tf", "short"].includes(q?.type) ? q.type : null;
+        const prompt = String(q?.prompt || "").trim();
+        if (!type || !prompt || !ai.types[type]) return null;
+        const base = { id: uid(), type, prompt, points: Math.max(1, Math.round(Number(q.points) || 1)), source: String(q.source || "").trim(), pick: true };
+        if (type === "mc") {
+          const choices = (Array.isArray(q.choices) ? q.choices : []).map((c) => String(c).trim()).filter(Boolean).slice(0, LETTERS.length);
+          const answer = Number(q.answer);
+          if (choices.length < 2 || !Number.isInteger(answer) || answer < 0 || answer >= choices.length) return null;
+          return { ...base, choices, answer };
+        }
+        if (type === "tf") {
+          const v = q.answer === true || q.answer === false ? q.answer : String(q.answer).toLowerCase() === "true" ? true : String(q.answer).toLowerCase() === "false" ? false : null;
+          return v === null ? null : { ...base, answer: v };
+        }
+        const key = String(q.answer || "").trim();
+        return key ? { ...base, answer: key } : null;
+      })
+      .filter(Boolean);
+  }
+
+  async function suggestQuestions() {
+    const request = ai.request.trim();
+    const types = Object.keys(ai.types).filter((k) => ai.types[k]);
+    if (!request) return setAi("Type what you'd like questions about.");
+    if (!types.length) return setAi("Pick at least one question type.");
+    const sample = await sampleReady;
+    if (!sample) return setAi("Claude isn't available in this view of the dashboard.");
+    ai.busy = true;
+    setAi("Gathering material…");
+    // Material: picked resources (Drive links read in full) and anything pasted.
+    const parts = [];
+    const skipped = [];
+    for (const x of linkStore.resources.filter((r) => ai.use.has(r.id))) {
+      if (isDriveLink(x.url) && cc()?.readDriveText) {
+        try {
+          const text = await cc().readDriveText(x.url);
+          parts.push(`### ${x.title}${x.note ? ` (${x.note})` : ""}\n${text}`);
+          continue;
+        } catch (e) {
+          skipped.push(`${x.title} (${e?.message || "couldn't be read"})`);
+        }
+      }
+      parts.push(`### ${x.title}\n${x.note ? `Note: ${x.note}\n` : ""}(Only the title${x.note ? " and note" : ""} of this resource is available.)`);
+    }
+    if (ai.paste.trim()) parts.push(`### Pasted material\n${ai.paste.trim()}`);
+    let material = parts.join("\n\n");
+    const cut = material.length > MATERIAL_LIMIT;
+    if (cut) material = material.slice(0, MATERIAL_LIMIT);
+    setAi("Claude is writing questions…");
+    const prompt = [
+      "You write quiz questions for new customer-support trainees at a home-cleaning company.",
+      `Trainer's request: ${request}`,
+      `Write ${ai.count} questions. Allowed types: ${types.map((k) => `${k} (${TYPES[k]})`).join(", ")}.`,
+      material
+        ? "Base every question and answer ONLY on the material below. Don't invent policy details that aren't in it. In \"source\", name the material (and section) each question comes from."
+        : "No material was given, so keep to general, widely true customer-support practice, and leave \"source\" empty.",
+      "Rules: one clear correct answer per question; multiple choice has 3-4 plausible choices; true/false statements are unambiguous; short answers have an answer key saying what a correct answer must include.",
+      'Reply with JSON only: {"questions":[{"type":"mc","prompt":"…","choices":["…","…","…"],"answer":0,"points":1,"source":"…"},{"type":"tf","prompt":"…","answer":true,"points":1,"source":"…"},{"type":"short","prompt":"…","answer":"what a correct answer must say","points":1,"source":"…"}]}',
+      "For mc, \"answer\" is the 0-based index of the correct choice.",
+      material ? `\n--- MATERIAL ---\n${material}` : "",
+    ].join("\n");
+    try {
+      const out = await sample.json(prompt, { modelTier: "default" });
+      const qs = cleanSuggestions(out);
+      ai.suggestions = qs;
+      ai.added = "";
+      setAi(
+        qs.length
+          ? `${plural(qs.length, "question")} suggested. Untick any you don't want, then add them to a quiz.${cut ? " The material was long, so only the first part was used." : ""}${skipped.length ? ` Couldn't read: ${skipped.join(", ")}.` : ""}`
+          : "Claude didn't return usable questions. Try rewording the request."
+      );
+    } catch (e) {
+      setAi(e?.code === "rate_limited" ? "Claude is busy right now. Try again in a minute." : e?.code === "not_granted" ? "Claude isn't allowed for this page. Allow it when asked, then try again." : "Couldn't get suggestions. Try again.");
+    }
+    ai.busy = false;
+    draw();
+  }
+  function setAi(msg) {
+    ai.status = msg;
+    draw();
+  }
+
+  function addSuggestions() {
+    const picked = ai.suggestions.filter((q) => q.pick).map(({ pick, source, ...q }) => ({ ...q, id: uid() }));
+    if (!picked.length) return;
+    const now = new Date().toISOString();
+    let quiz, isNew = ai.target === "new";
+    if (isNew) {
+      const title = ai.request.trim().replace(/\s+/g, " ").slice(0, 60) || "Suggested quiz";
+      quiz = { id: `q${Date.now()}`, title, description: "", passing: 80, questions: picked, created_at: now };
+    } else {
+      const base = ui.draft?.id === ai.target ? ui.draft : allQuizzes().find((q) => q.id === ai.target);
+      if (!base) return;
+      quiz = { ...JSON.parse(JSON.stringify(base)), questions: [...(base.questions || []), ...picked] };
+      if (ui.draft?.id === quiz.id) {
+        clearTimeout(ui.saveTimer);
+        ui.saveTimer = null;
+        ui.draft = JSON.parse(JSON.stringify(quiz));
+      }
+    }
+    saveQuiz(quiz).then(
+      () => {
+        ai.target = quiz.id;
+        ai.suggestions = ai.suggestions.map((q) => (q.pick ? { ...q, pick: false, used: true } : q));
+        ai.added = `Added ${plural(picked.length, "question")} to “${escapeHtml(quiz.title)}” ✓ <button type="button" class="linkish" data-open-quiz="${escapeHtml(quiz.id)}">Open in Quiz Buckets</button>`;
+        draw();
+      },
+      () => setAi("Couldn't add them. Try again.")
+    );
+  }
+
   function addLink(kind) {
     const form = ui.el.querySelector(`[data-link-form="${kind}"]`);
     const status = ui.el.querySelector(`[data-link-status="${kind}"]`);
@@ -811,7 +995,7 @@
       case "links":
         return head("Quiz Links", `<span class="muted quiz-sub">Links to quizzes kept elsewhere, like Google Forms</span>`) + linkListHtml("links");
       case "resources":
-        return head("Resources", `<span class="muted quiz-sub">Study material and references for quizzes</span>`) + linkListHtml("resources");
+        return head("Resources", `<span class="muted quiz-sub">Study material and references for quizzes</span>`) + aiBoxHtml() + `<h4 class="quiz-h">Saved resources</h4>` + linkListHtml("resources");
     }
     return "";
   }
@@ -833,8 +1017,11 @@
   const findQ = (id) => ui.draft?.questions.find((q) => q.id === id);
   function onInput(e) {
     const t = e.target, d = ui.draft;
-    if (!d) return;
     const ds = t.dataset;
+    if ("aiRequest" in ds) return void (ai.request = t.value);
+    if ("aiPaste" in ds) return void (ai.paste = t.value);
+    if ("aiCount" in ds) return void (ai.count = Math.min(25, Math.max(1, Math.round(Number(t.value) || 5))));
+    if (!d) return;
     if ("fTitle" in ds) {
       d.title = t.value;
       const h = ui.el.querySelector(".quiz-top h3");
@@ -866,6 +1053,13 @@
       return draw();
     }
     if ("pickQuiz" in ds) return select(t.value);
+    if (ds.aiType) return void (ai.types[ds.aiType] = t.checked);
+    if (ds.aiUse) return void (t.checked ? ai.use.add(ds.aiUse) : ai.use.delete(ds.aiUse));
+    if (ds.aiPick !== undefined) {
+      ai.suggestions[+ds.aiPick].pick = t.checked;
+      return draw();
+    }
+    if ("aiTarget" in ds) return void (ai.target = t.value);
     if ("sendCohort" in ds || "rosterCohort" in ds) {
       ui.cohortId = t.value;
       ui.note = "";
@@ -900,6 +1094,12 @@
       return;
     }
     if ("rosterRefresh" in ds) return loadAllRuns().then(draw);
+    if ("aiGo" in ds) return suggestQuestions();
+    if ("aiAdd" in ds) return addSuggestions();
+    if (ds.openQuiz) {
+      ui.section = "buckets";
+      return select(ds.openQuiz);
+    }
     if ("quizMenu" in ds) {
       e.stopPropagation();
       return openMenu(b, [

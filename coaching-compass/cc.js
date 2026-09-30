@@ -4316,6 +4316,20 @@
           return Promise.reject({ message: msg || "", cancelled: msg === null });
         });
     },
+    // The text of a Google Doc / Sheet / Drive file, from its link. Rejects with { message } when the
+    // link isn't a Drive file or Drive can't read it.
+    readDriveText: function(url){
+      var m = String(url || "").match(/\/d\/([a-zA-Z0-9_-]{20,})/) || String(url || "").match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+      if (!m) return Promise.reject({ message: "Not a Google Drive link." });
+      if (!mcpFn) return Promise.reject({ message: "Google Drive isn't available in this view." });
+      return mcpFn.callTool("Google Drive", "read_file_content", { fileId: m[1] }).then(function(result){
+        var text = extractTextFromToolResult(result);
+        if (!text || !text.trim()) return Promise.reject({ message: "That file looks empty." });
+        return text;
+      }, function(e){
+        return Promise.reject({ message: docErrorCopy(e && e.code) || "Google Drive couldn't open that file." });
+      });
+    },
     // Move a Drive file to the trash (recoverable from Drive's Trash for 30 days).
     trashDriveFile: function(fileId){
       if (!mcpFn) return Promise.reject({ message: "Google Drive isn't available in this view." });

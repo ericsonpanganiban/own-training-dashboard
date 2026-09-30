@@ -15,7 +15,7 @@
   const TYPES = { mc: "Multiple choice", tf: "True / False", short: "Short answer" };
   const LETTERS = "ABCDEF";
   const uid = () => Math.random().toString(36).slice(2, 10);
-  const plural = (n, w) => `${n} ${n === 1 ? w : w.endsWith("y") && !/[aeiou]y$/.test(w) ? `${w.slice(0, -1)}ies` : `${w}s`}`;
+  const plural = (n, w) => `${n} ${n === 1 ? w : w.endsWith("z") ? `${w}zes` : w.endsWith("y") && !/[aeiou]y$/.test(w) ? `${w.slice(0, -1)}ies` : `${w}s`}`;
   const pctText = (n, d) => (d ? `${Math.round((n / d) * 100)}%` : "—");
   const stamp = (iso) => (iso ? fmtStamp(iso) : "");
 
@@ -91,6 +91,7 @@
       .onSnapshot(
         (snap) => {
           runs = snap.docs.map((doc) => ({ id: doc.id, ...JSON.parse(JSON.stringify(doc.data() || {})) }));
+          if (allRuns) allRuns[quizId] = runs;
           notify();
         },
         () => notify()
@@ -101,6 +102,7 @@
     if (!db) {
       mem.runs[quizId] = [run, ...(mem.runs[quizId] || []).filter((r) => r.id !== id)].sort((a, b) => b.sent_at.localeCompare(a.sent_at));
       if (runsFor === quizId) runs = mem.runs[quizId];
+      if (allRuns) allRuns[quizId] = mem.runs[quizId];
       notify();
       return Promise.resolve();
     }
@@ -345,6 +347,9 @@
     traineeId: null, // Roster: the trainee whose quiz page is open
     checkView: "", // Check Quiz: "" (results) or "all" (every trainee's answers on one page)
     onlyWrong: false, // All answers: show only wrong / to-review answers
+    checkCohort: "", // Check Quiz: the cohort being checked ("" = pick a cohort)
+    anLevel: "cohort", // Analyze at: pool | cohort | trainee
+    anTrainee: "",
     busy: "",
     note: "",
   };
@@ -592,11 +597,122 @@
       <pre class="quiz-preview">${escapeHtml(quizMessage(d))}</pre>`;
   }
 
-  function resultsTabHtml(d) {
-    if (!runs.length) return `<div class="quiz-run-row">${quizPickerHtml("Quiz")}</div><p class="muted">This quiz hasn't been sent yet. Send it from <button type="button" class="linkish" data-section="send">Send Quiz</button>; results show up here.</p>${ui.note ? `<p class="quiz-note" role="status">${ui.note}</p>` : ""}`;
-    const run = runs.find((r) => r.id === ui.runId) || runs[0];
+  // ---- Check Quiz: cohorts first, then a cohort's quizzes and sends ----
+  // Quizzes sent to a cohort, newest send first: [{ quizId, title, lastAt, sends }].
+  function quizzesSentTo(cohortId) {
+    const byId = new Map(allQuizzes().map((q) => [q.id, q]));
+    return Object.entries(allRuns || {})
+      .map(([quizId, list]) => {
+        const mine = list.filter((r) => r.cohort_id === cohortId);
+        if (!mine.length || !byId.has(quizId)) return null;
+        const lastAt = mine.reduce((m, r) => (r.sent_at > m ? r.sent_at : m), "");
+        return { quizId, title: byId.get(quizId).title || mine[0].quiz?.title || "Untitled quiz", lastAt, sends: mine.length };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  }
+  function cohortCheckStats(cohortId) {
+    let sent = 0, answered = 0, sum = 0, lastAt = "";
+    Object.values(allRuns || {}).forEach((list) =>
+      list.forEach((r) => {
+        if (r.cohort_id !== cohortId) return;
+        if (r.sent_at > lastAt) lastAt = r.sent_at;
+        Object.entries(r.recipients || {}).forEach(([tid, rec]) => {
+          const x = r.responses?.[tid];
+          if (rec.sent || x?.text) sent++;
+          if (x?.text && x.total) (answered++, (sum += x.pct));
+        });
+      })
+    );
+    return { sent, answered, avg: answered ? Math.round(sum / answered) : null, lastAt };
+  }
+  const STATUS_LABEL = { active: "Current batch", upcoming: "Upcoming", completed: "Completed", unscheduled: "No start date" };
+
+  function enterCohort(id) {
+    ui.checkCohort = id;
+    ui.checkView = "";
+    ui.note = "";
+    ui.anLevel = "cohort";
+    ui.anTrainee = "";
+    const sent = quizzesSentTo(id);
+    if (sent.length && !sent.some((x) => x.quizId === ui.selected)) return select(sent[0].quizId);
+    ui.runId = null;
+    draw();
+  }
+
+  function checkHtml() {
+    if (!allQuizzes().length) return noQuizzes();
+    if (!allRuns) {
+      loadAllRuns().then(() => ui.el && ui.section === "check" && draw());
+      return `<p class="muted">Loading sends…</p>`;
+    }
+    const cohort = ui.checkCohort && cc().data().cohorts.find((c) => c.id === ui.checkCohort);
+    if (!cohort) {
+      ui.checkCohort = "";
+      return checkLandingHtml();
+    }
+    return cohortCheckHtml(cohort);
+  }
+
+  // The cohort level: every cohort (current batch first) and a trainee finder across all of them.
+  function checkLandingHtml() {
+    const opts = cohortOptions();
+    if (!opts.length) return `<p class="muted">No cohorts yet. Add one in Cohorts, then send it a quiz.</p>`;
+    const { trainees } = cc().data();
+    const ownerOf = new Map();
+    opts.forEach(({ c }) => (c.trainee_ids || []).forEach((id) => ownerOf.set(id, c)));
+    const card = ({ c, st }) => {
+      const s = cohortCheckStats(c.id);
+      const n = (c.trainee_ids || []).length;
+      const qn = quizzesSentTo(c.id).length;
+      return `<button type="button" class="cohort-card${st === "active" ? " is-current" : ""}" data-check-cohort="${escapeHtml(c.id)}">
+        <span class="cc-top"><b>${escapeHtml(c.name)}</b><span class="chip${st === "active" ? " ok" : ""}">${STATUS_LABEL[st] || st}</span></span>
+        <span class="muted">${plural(n, "trainee")} · ${qn ? `${plural(qn, "quiz")} sent` : "No quizzes sent yet"}</span>
+        <span class="cc-nums"><span><b>${s.avg === null ? "—" : `${s.avg}%`}</b><small>Average score</small></span><span><b>${s.sent ? pctText(s.answered, s.sent) : "—"}</b><small>Answered</small></span><span><b>${s.lastAt ? escapeHtml(fmtDate(s.lastAt.slice(0, 10))) : "—"}</b><small>Last sent</small></span></span>
+      </button>`;
+    };
+    const people = trainees
+      .filter((t) => ownerOf.has(t.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((t) => `<li data-name="${escapeHtml(`${t.name} ${t.email || ""} ${t.crm_name || ""}`.toLowerCase())}" hidden><button type="button" class="trainee-link" data-check-cohort="${escapeHtml(ownerOf.get(t.id).id)}" data-find-tid="${escapeHtml(t.id)}">${escapeHtml(t.name)}</button> <small class="muted">${escapeHtml(ownerOf.get(t.id).name)}</small></li>`)
+      .join("");
+    return `
+      <p class="muted quiz-send-help">Pick a cohort to see its quizzes, replies and scores. Your current batch is first.</p>
+      <label class="find-box">Find a trainee <input type="search" data-find-any placeholder="Type a name or email" autocomplete="off" /></label>
+      <ul class="find-list" data-find-list>${people}</ul>
+      <p class="muted find-none" data-find-none hidden>No trainee in any cohort matches that.</p>
+      <div class="cohort-cards">${opts.map(card).join("")}</div>`;
+  }
+
+  function cohortCheckHtml(cohort) {
+    const sentQs = quizzesSentTo(cohort.id);
+    const cohortSelect = `<label>Cohort
+      <select data-check-cohort-select>${cohortOptions()
+        .map(({ c, st }) => `<option value="${escapeHtml(c.id)}"${c.id === cohort.id ? " selected" : ""}>${escapeHtml(c.name)} · ${escapeHtml(STATUS_LABEL[st] || st)}</option>`)
+        .join("")}</select></label>`;
+    const back = `<button type="button" class="btn btn-small" data-check-home>‹ All cohorts</button>`;
+    const note = ui.note ? `<p class="quiz-note" role="status">${ui.note}</p>` : "";
+    if (!sentQs.length)
+      return `<div class="quiz-run-row">${back}${cohortSelect}</div>${note}<p class="muted">No quizzes sent to ${escapeHtml(cohort.name)} yet. Send one from <button type="button" class="linkish" data-section="send">Send Quiz</button>; results show up here.</p>`;
+    const inList = sentQs.some((x) => x.quizId === ui.selected);
+    const quizSelect = `<label>Quiz
+      <select data-pick-quiz>${sentQs
+        .map((x) => `<option value="${escapeHtml(x.quizId)}"${x.quizId === ui.selected ? " selected" : ""}>${escapeHtml(x.title)}</option>`)
+        .join("")}${inList ? "" : `<option value="${escapeHtml(ui.selected || "")}" selected>${escapeHtml(ui.draft?.title || "Quiz")} (not sent here)</option>`}</select></label>`;
+    const cruns = runsFor === ui.selected ? runs.filter((r) => r.cohort_id === cohort.id) : [];
+    if (!cruns.length)
+      return `<div class="quiz-run-row">${back}${cohortSelect}${quizSelect}</div>${note}<p class="muted">${inList ? "Loading…" : `This quiz hasn't been sent to ${escapeHtml(cohort.name)}.`}</p>`;
+    const run = cruns.find((r) => r.id === ui.runId) || cruns[0];
     ui.runId = run.id;
-    if (ui.checkView === "all") return allAnswersHtml(run);
+    const controls = `<div class="quiz-run-row">${back}${cohortSelect}${quizSelect}
+        <label>Sent
+          <select data-run>${cruns.map((r) => `<option value="${escapeHtml(r.id)}"${r.id === run.id ? " selected" : ""}>${escapeHtml(stamp(r.sent_at))}</option>`).join("")}</select></label>
+        <button type="button" class="btn-primary" data-check${ui.busy ? " disabled" : ""}>${ui.busy === "check" ? "Checking replies…" : "↻ Check replies"}</button>
+      </div>${note}`;
+    return controls + (ui.checkView === "all" ? allAnswersHtml(run, cohort) : resultsHtml(run, cohort));
+  }
+
+  function resultsHtml(run, cohort) {
     const quiz = run.quiz;
     const recs = Object.entries(run.recipients || {});
     const resp = run.responses || {};
@@ -617,23 +733,14 @@
       .map(([tid, r]) => ({ tid, r, x: resp[tid] }))
       .sort((a, b) => (b.x?.pct ?? -1) - (a.x?.pct ?? -1) || a.r.name.localeCompare(b.r.name));
     return `
-      <div class="quiz-run-row">
-        ${quizPickerHtml("Quiz")}
-        <label>Sent
-          <select data-run>${runs
-            .map((r) => `<option value="${escapeHtml(r.id)}"${r.id === run.id ? " selected" : ""}>${escapeHtml(stamp(r.sent_at))} · ${escapeHtml(r.cohort_name || "Cohort")}</option>`)
-            .join("")}</select></label>
-        <button type="button" class="btn-primary" data-check${ui.busy ? " disabled" : ""}>${ui.busy === "check" ? "Checking replies…" : "↻ Check replies"}</button>
-      </div>
-      ${ui.note ? `<p class="quiz-note" role="status">${ui.note}</p>` : ""}
       <div class="stats quiz-stats">
         <div class="stat"><div class="value">${answered.length}<span class="of"> / ${reachable.length}</span></div><div class="label">Replied</div>${sent.length < recs.length ? `<div class="hint">${plural(recs.length - sent.length, "trainee")} not reached on Slack</div>` : ""}</div>
         <div class="stat"><div class="value">${avg === null ? "—" : `${avg}%`}</div><div class="label">Average score</div></div>
         <div class="stat"><div class="value">${scored.length ? `${passed}<span class="of"> / ${scored.length}</span>` : "—"}</div><div class="label">Passed (${pass}% or more)</div></div>
         <div class="stat"><div class="value">${pending}</div><div class="label">Answers to review</div><div class="hint">${pending ? "Open a trainee to mark them" : "Nothing waiting"}</div></div>
       </div>
-      ${reviewToolsHtml(run, scored.length)}
-      ${analysisHtml(run)}
+      <div class="review-tools"><button type="button" class="btn" data-all-answers${scored.length ? "" : " disabled"}>View all answers</button><small class="muted">Every trainee's answer to each question on one page.</small></div>
+      ${analysisPanelHtml(cohort)}
       <h4 class="quiz-h">By question</h4>
       <ul class="quiz-byq">${perQ
         .map(
@@ -641,8 +748,8 @@
             <span class="byq-bar" aria-hidden="true"><span style="width:${of ? Math.round((got / of) * 100) : 0}%"></span></span><span class="byq-pct">${of ? `${pctText(got, of)} <small>${got}/${of}</small>` : "—"}</span></li>`
         )
         .join("")}</ul>
-      <h4 class="quiz-h">By trainee</h4>
-      <table class="quiz-table"><thead><tr><th>Trainee</th><th>Status</th><th>Score</th><th></th></tr></thead><tbody>${rows
+      <div class="by-trainee-head"><h4 class="quiz-h">By trainee</h4><input type="search" data-find-row placeholder="Find a trainee" aria-label="Find a trainee" autocomplete="off" /></div>
+      <table class="quiz-table" data-find-table><thead><tr><th>Trainee</th><th>Status</th><th>Score</th><th></th></tr></thead><tbody>${rows
         .map(({ tid, r, x }) => {
           const status = x?.text
             ? (x.pending ? `<span class="chip warn">${plural(x.pending, "answer")} to review</span>` : x.pct >= pass ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${pass}%</span>`) +
@@ -651,60 +758,123 @@
             : !r.sent
               ? `<span class="chip bad">Not sent</span> <small class="muted">${escapeHtml(r.error || "")}</small>`
               : `<span class="chip">No reply yet</span>`;
-          return `<tr><td>${escapeHtml(r.name)}</td><td>${status}</td><td>${x?.text ? `<b>${x.pct}%</b> <small class="muted">${x.earned}/${x.total} pts</small>` : "—"}</td>
+          return `<tr data-name="${escapeHtml(r.name.toLowerCase())}"><td>${escapeHtml(r.name)}</td><td>${status}</td><td>${x?.text ? `<b>${x.pct}%</b> <small class="muted">${x.earned}/${x.total} pts</small>` : "—"}</td>
             <td><button type="button" class="btn btn-small" data-view="${escapeHtml(tid)}">${x?.text ? "View answers" : "Enter answers"}</button></td></tr>`;
         })
         .join("")}</tbody></table>
       <p class="muted quiz-send-help">Scores use the quiz as it was sent on ${escapeHtml(stamp(run.sent_at))}, so later edits to the questions don't change them.</p>`;
   }
 
-  // ---- Reviewing a send: every answer on one page, and Claude's read on common mistakes ----
+  // ---- Reviewing answers: every answer on one page, and Claude's read on common mistakes ----
   const answeredOf = (run) => Object.entries(run.responses || {}).filter(([, x]) => x?.text);
-  // Changes whenever an answer is added, re-checked or re-marked, so an old analysis can say it's out of date.
-  const answersSig = (run) => answeredOf(run).map(([tid, x]) => `${tid}:${x.checked_at || ""}`).sort().join("|");
   const keyText = (q) => (q.type === "mc" ? `${LETTERS[q.answer]}) ${q.choices[q.answer]}` : q.type === "tf" ? (q.answer ? "True" : "False") : String(q.answer || ""));
   const resultChip = (r) =>
     r?.correct === true ? `<span class="chip ok">Correct</span>` : r?.correct === false ? `<span class="chip bad">Wrong</span>` : `<span class="chip warn">To review</span>`;
 
-  function reviewToolsHtml(run, answered, withAll = true) {
-    const busy = ui.busy === "analyze";
-    return `<div class="review-tools">
-      ${withAll ? `<button type="button" class="btn" data-all-answers${answered ? "" : " disabled"}>View all answers</button>` : ""}
-      <button type="button" class="btn" data-analyze${answered && !ui.busy ? "" : " disabled"}>${busy ? "Claude is reading the answers…" : run.analysis ? "✨ Analyze again" : "✨ Analyze answers with Claude"}</button>
-      <small class="muted">${answered ? "Finds the common mistakes and the topics worth going over again." : "Available once someone has answered."}</small>
-    </div>`;
+  // Saved analyses, one per quiz and level: quiz_analyses/{quizId}__{pool|cohort|trainee}__{all|cohortId|traineeId}.
+  const analyses = {};
+  dbReady.then((d) => {
+    if (!d) return;
+    d.collection("quiz_analyses").onSnapshot(
+      (snap) => {
+        snap.docs.forEach((doc) => (analyses[doc.id] = JSON.parse(JSON.stringify(doc.data() || {}))));
+        notify();
+      },
+      () => {}
+    );
+  });
+  const analysisId = (quizId, level, key) => `${quizId}__${level}__${key}`;
+  function saveAnalysis(id, rec) {
+    analyses[id] = rec;
+    if (!db) return notify(), Promise.resolve();
+    return db.doc(`quiz_analyses/${id}`).set(rec);
+  }
+  const LEVELS = { pool: "Entire pool", cohort: "Cohort", trainee: "One trainee" };
+
+  // The answers one level covers, for the selected quiz: every cohort, one cohort, or one trainee.
+  function scopeAnswers(level, key) {
+    const list = runsFor === ui.selected ? runs : allRuns?.[ui.selected] || [];
+    const picked = level === "cohort" ? list.filter((r) => r.cohort_id === key) : list;
+    const entries = [];
+    picked.forEach((run) => answeredOf(run).forEach(([tid, x]) => (level !== "trainee" || tid === key) && entries.push({ tid, run, x })));
+    const quiz = picked.find((r) => entries.some((e) => e.run === r))?.quiz || picked[0]?.quiz;
+    return { entries, quiz, cohorts: new Set(entries.map((e) => e.run.cohort_id)).size };
+  }
+  const scopeSig = (entries) => entries.map((e) => `${e.run.id}:${e.tid}:${e.x.checked_at || ""}`).sort().join("|");
+  function levelKey(level, cohort) {
+    return level === "pool" ? "all" : level === "cohort" ? cohort.id : ui.anTrainee;
   }
 
-  function analysisHtml(run) {
-    const a = run.analysis;
-    if (!a?.result) return "";
-    const r = a.result;
-    const stale = a.sig !== answersSig(run);
+  function analysisPanelHtml(cohort) {
+    const level = LEVELS[ui.anLevel] ? ui.anLevel : "cohort";
+    // Trainees who answered this quiz in this cohort, for the one-trainee level.
+    const { entries: inCohort } = scopeAnswers("cohort", cohort.id);
+    const names = new Map(inCohort.map((e) => [e.tid, e.run.recipients?.[e.tid]?.name || "Trainee"]));
+    if (level === "trainee" && !names.has(ui.anTrainee)) ui.anTrainee = [...names.keys()][0] || "";
+    const key = levelKey(level, cohort);
+    const saved = key ? analyses[analysisId(ui.selected, level, key)] : null;
+    // Before levels existed, an analysis was saved on the send itself; show it for the cohort.
+    const legacy = !saved && level === "cohort" ? runs.find((r) => r.cohort_id === cohort.id && r.analysis?.result)?.analysis : null;
+    const { entries } = key ? scopeAnswers(level, key) : { entries: [] };
+    const has = (lv, k) => !!(k && analyses[analysisId(ui.selected, lv, k)]);
+    const tabs = [
+      ["pool", "Entire pool", has("pool", "all")],
+      ["cohort", cohort.name, has("cohort", cohort.id)],
+      ["trainee", "One trainee", [...names.keys()].some((t) => has("trainee", t))],
+    ];
+    const label = level === "pool" ? "entire pool" : level === "cohort" ? cohort.name : names.get(key) || "trainee";
+    const scope =
+      level === "pool"
+        ? (() => {
+            const s = scopeAnswers("pool", "all");
+            return `Everyone who answered this quiz: ${plural(s.entries.length, "answer set")} from ${plural(s.cohorts, "cohort")}.`;
+          })()
+        : level === "cohort"
+          ? `${plural(entries.length, "trainee")} in ${escapeHtml(cohort.name)} answered this quiz.`
+          : names.size
+            ? `<label class="an-pick">Trainee <select data-an-trainee>${[...names].map(([tid, n]) => `<option value="${escapeHtml(tid)}"${tid === key ? " selected" : ""}>${escapeHtml(n)}${has("trainee", tid) ? " ✓" : ""}</option>`).join("")}</select></label>`
+            : "No one in this cohort has answered yet.";
+    const busy = ui.busy === `analyze:${level}:${key}`;
+    return `<section class="analysis-panel" aria-label="Analyze answers">
+      <div class="quiz-tabs an-tabs" role="tablist" aria-label="Analyze at">${tabs
+        .map(([lv, name, done]) => `<button type="button" role="tab" data-an-level="${lv}" aria-selected="${lv === level}">${escapeHtml(name)}${done ? ' <span class="an-dot" title="Analyzed">●</span>' : ""}</button>`)
+        .join("")}</div>
+      <div class="an-body">
+        <div class="an-row"><span class="muted">${scope}</span>
+          <button type="button" class="btn" data-analyze="${level}"${entries.length && !ui.busy ? "" : " disabled"}>${busy ? "Claude is reading the answers…" : saved || legacy ? `✨ Analyze ${escapeHtml(label)} again` : `✨ Analyze ${escapeHtml(label)}`}</button></div>
+        ${saved || legacy ? analysisHtml(saved || legacy, level, saved ? saved.sig !== scopeSig(entries) : false) : `<p class="muted an-empty">Not analyzed yet. Each level is analyzed on its own, so you can compare what Claude finds for the pool, the cohort and one trainee.</p>`}
+      </div>
+    </section>`;
+  }
+
+  function analysisHtml(a, level, stale) {
+    const r = a.result || {};
     const qs = (list) => (list?.length ? `<small class="muted">Q${list.join(", Q")}</small>` : "");
-    return `<section class="analysis-card" aria-label="Claude's analysis">
-      <div class="analysis-head"><h4>✨ What Claude noticed</h4><small class="muted">${plural(a.answered, "trainee")}' answers · ${escapeHtml(stamp(a.at))}</small></div>
-      ${stale ? `<p class="quiz-note">Answers have changed since this analysis. Click “Analyze again” to include them.</p>` : ""}
+    const one = level === "trainee";
+    return `<div class="analysis-card">
+      <div class="analysis-head"><h4>✨ What Claude noticed</h4><small class="muted">${one ? "their answers" : plural(a.answered || 0, "answer set")} · ${escapeHtml(stamp(a.at))}</small></div>
+      ${stale ? `<p class="quiz-note">Answers have changed since this analysis. Analyze again to include them.</p>` : ""}
       ${r.summary ? `<p class="analysis-summary">${escapeHtml(r.summary)}</p>` : ""}
       ${
         r.rediscuss?.length
-          ? `<h5>Topics to re-discuss</h5><ol class="analysis-list">${r.rediscuss
+          ? `<h5>${one ? "Topics to coach them on" : "Topics to re-discuss"}</h5><ol class="analysis-list">${r.rediscuss
               .map((t) => `<li><span class="chip ${t.priority === "high" ? "bad" : t.priority === "medium" ? "warn" : ""}">${escapeHtml(t.priority || "medium")}</span> <b>${escapeHtml(t.topic)}</b> ${qs(t.questions)}<div class="muted">${escapeHtml(t.why || "")}</div></li>`)
               .join("")}</ol>`
           : ""
       }
       ${
         r.common_mistakes?.length
-          ? `<h5>Common mistakes</h5><ul class="analysis-list">${r.common_mistakes
-              .map((m) => `<li><b>${escapeHtml(m.mistake)}</b> ${qs(m.questions)}${m.count ? ` <small class="muted">· ${m.count}${m.of ? ` of ${m.of}` : ""} trainees</small>` : ""}${m.example ? `<div class="muted">e.g. “${escapeHtml(m.example)}”</div>` : ""}</li>`)
+          ? `<h5>${one ? "Their mistakes" : "Common mistakes"}</h5><ul class="analysis-list">${r.common_mistakes
+              .map((m) => `<li><b>${escapeHtml(m.mistake)}</b> ${qs(m.questions)}${!one && m.count ? ` <small class="muted">· ${m.count}${m.of ? ` of ${m.of}` : ""}</small>` : ""}${m.where ? ` <small class="muted">· ${escapeHtml(m.where)}</small>` : ""}${m.example ? `<div class="muted">e.g. “${escapeHtml(m.example)}”</div>` : ""}</li>`)
               .join("")}</ul>`
-          : `<p class="muted">No mistake came up more than once.</p>`
+          : `<p class="muted">${one ? "No mistakes." : "No mistake came up more than once."}</p>`
       }
       ${r.strengths?.length ? `<h5>What went well</h5><ul class="analysis-list">${r.strengths.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}
-    </section>`;
+    </div>`;
   }
 
-  // Every trainee's answer to every question, grouped by question, hardest first in the tiles above.
-  function allAnswersHtml(run) {
+  // Every trainee's answer to every question in this send, grouped by question.
+  function allAnswersHtml(run, cohort) {
     const quiz = run.quiz;
     const answered = answeredOf(run);
     const names = (tid) => run.recipients?.[tid]?.name || "Trainee";
@@ -739,45 +909,59 @@
         <span class="muted">${escapeHtml(quiz.title)} · sent ${escapeHtml(stamp(run.sent_at))} · ${plural(answered.length, "trainee")} answered</span>
         <label class="aa-filter"><input type="checkbox" data-only-wrong${ui.onlyWrong ? " checked" : ""} /> Only wrong or to review</label>
       </div>
-      ${ui.note ? `<p class="quiz-note" role="status">${ui.note}</p>` : ""}
-      ${reviewToolsHtml(run, answered.length, false)}
-      ${analysisHtml(run)}
-      ${answered.length ? cards : `<p class="muted">No one has answered yet. Click “Check replies” on the results page first.</p>`}`;
+      ${analysisPanelHtml(cohort)}
+      ${answered.length ? cards : `<p class="muted">No one has answered yet. Click “Check replies” first.</p>`}`;
   }
 
-  async function analyzeAnswers() {
-    const run = runs.find((r) => r.id === ui.runId);
-    if (!run) return;
-    const answered = answeredOf(run);
-    if (!answered.length) return;
+  async function analyzeAnswers(level) {
+    const cohort = cc().data().cohorts.find((c) => c.id === ui.checkCohort);
+    if (!cohort || !LEVELS[level]) return;
+    const key = levelKey(level, cohort);
+    const { entries, quiz } = key ? scopeAnswers(level, key) : { entries: [] };
+    if (!entries.length || !quiz) return;
     const sample = await sampleReady;
     if (!sample) {
       ui.note = "Claude isn't available on this page right now.";
       return draw();
     }
-    ui.busy = "analyze";
+    ui.busy = `analyze:${level}:${key}`;
     ui.note = "";
     draw();
-    const quiz = run.quiz;
+    const cohortName = (id) => cc().data().cohorts.find((c) => c.id === id)?.name || "Unknown cohort";
     // Trainees are numbered, not named: Claude only needs the answers to find patterns.
+    const num = new Map();
+    entries.forEach((e) => num.has(e.tid) || num.set(e.tid, num.size + 1));
     const data = quiz.questions.map((q, i) => ({
       n: i + 1,
       type: TYPES[q.type],
       question: q.prompt,
       choices: q.type === "mc" ? q.choices.map((c, j) => `${LETTERS[j]}) ${c}`) : undefined,
       correct_answer: keyText(q),
-      answers: answered.map(([, x], k) => {
-        const r = x.results?.[q.id] || {};
-        return { trainee: k + 1, answer: r.answer || "(no answer)", result: r.correct === true ? "correct" : r.correct === false ? "wrong" : "not reviewed yet" };
-      }),
+      answers: entries
+        .filter((e) => e.x.results?.[q.id])
+        .map((e) => {
+          const r = e.x.results[q.id];
+          return {
+            trainee: num.get(e.tid),
+            ...(level === "pool" ? { cohort: cohortName(e.run.cohort_id) } : {}),
+            answer: r.answer || "(no answer)",
+            result: r.correct === true ? "correct" : r.correct === false ? "wrong" : "not reviewed yet",
+          };
+        }),
     }));
+    const who =
+      level === "trainee"
+        ? "These are ONE trainee's answers. Explain what they got wrong and the misunderstanding behind it, and the topics to coach this trainee on. For each mistake, \"count\" is 1 and \"of\" is 1."
+        : level === "pool"
+          ? "These are answers from every cohort that took the quiz (each answer names its cohort). Find the common mistakes across the whole pool, and in \"where\" say whether each is spread across cohorts or mostly in one (name it)."
+          : "These are one cohort's answers. Find the common mistakes in this class.";
     const prompt = [
-      "You help a trainer of new customer-support trainees review a quiz they took.",
-      "Find the common mistakes and the topics the trainer should go over again with the class.",
-      "Rules: use only the answers below. A common mistake is one that 2 or more trainees made (with 3 or fewer answers, a single mistake can count; say so). For multiple choice, name the wrong choice people picked and the misunderstanding it shows. For short answers, describe what was missing or misunderstood. Name topics by the concept (e.g. \"refund window for cancelled jobs\"), not by question number. Priority: high = most of the class got it wrong or it is a serious misunderstanding; medium = several did; low = minor. Order topics by priority. Keep every sentence short and plain.",
-      'Reply with JSON only: {"summary":"2-3 sentences on how the class did overall","common_mistakes":[{"questions":[2],"mistake":"…","count":3,"of":5,"example":"a short wrong answer, quoted, or empty"}],"rediscuss":[{"topic":"…","why":"…","questions":[2,5],"priority":"high|medium|low"}],"strengths":["what most got right"]}',
+      "You help a trainer of new customer-support trainees review a quiz.",
+      who,
+      "Rules: use only the answers below. A common mistake is one that 2 or more trainees made (with 3 or fewer answers, a single mistake can count). For multiple choice, name the wrong choice picked and the misunderstanding it shows. For short answers, describe what was missing or misunderstood. Name topics by the concept (e.g. \"refund window for cancelled jobs\"), not by question number. Priority: high = most got it wrong or it is a serious misunderstanding; medium = several did; low = minor. Order topics by priority. Keep every sentence short and plain.",
+      'Reply with JSON only: {"summary":"2-3 sentences","common_mistakes":[{"questions":[2],"mistake":"…","count":3,"of":5,"where":"spread across cohorts | mostly <cohort> | empty","example":"a short wrong answer, quoted, or empty"}],"rediscuss":[{"topic":"…","why":"…","questions":[2,5],"priority":"high|medium|low"}],"strengths":["what went well"]}',
       "",
-      `Quiz: ${quiz.title} (${answered.length} trainees answered)`,
+      `Quiz: ${quiz.title} (${plural(num.size, "trainee")})`,
       JSON.stringify(data),
     ].join("\n");
     try {
@@ -788,15 +972,14 @@
         summary: String(out?.summary || ""),
         common_mistakes: list(out?.common_mistakes)
           .filter((m) => m?.mistake)
-          .map((m) => ({ questions: nums(m.questions), mistake: String(m.mistake), count: Number(m.count) || 0, of: Number(m.of) || answered.length, example: String(m.example || "") })),
+          .map((m) => ({ questions: nums(m.questions), mistake: String(m.mistake), count: Number(m.count) || 0, of: Number(m.of) || num.size, where: level === "pool" ? String(m.where || "") : "", example: String(m.example || "") })),
         rediscuss: list(out?.rediscuss)
           .filter((t) => t?.topic)
           .map((t) => ({ topic: String(t.topic), why: String(t.why || ""), questions: nums(t.questions), priority: ["high", "medium", "low"].includes(t.priority) ? t.priority : "medium" })),
         strengths: list(out?.strengths).map(String).filter(Boolean),
       };
       if (!result.summary && !result.common_mistakes.length && !result.rediscuss.length) throw new Error("empty");
-      const latest = runs.find((r) => r.id === run.id) || run;
-      await saveRun(ui.selected, { ...latest, analysis: { at: new Date().toISOString(), answered: answered.length, sig: answersSig(run), result } });
+      await saveAnalysis(analysisId(ui.selected, level, key), { quiz_id: ui.selected, level, key, at: new Date().toISOString(), answered: entries.length, sig: scopeSig(entries), result });
     } catch (e) {
       ui.note = e?.code === "rate_limited" ? "Claude is busy right now. Try again in a minute." : e?.code === "not_granted" ? "Claude isn't allowed for this page. Allow it when asked, then try again." : "Couldn't analyze the answers. Try again.";
     }
@@ -804,19 +987,23 @@
     draw();
   }
 
-  // The result message a trainee gets on Slack: score, then each question they missed with the right answer.
+  // The result message a trainee gets on Slack: score, then every question with their answer and the result.
   function feedbackMessage(quiz, resp, name) {
     const pass = quiz.passing ?? 80;
     const sc = score(quiz, resp.results);
-    const missed = quiz.questions.map((q, i) => ({ q, i, r: resp.results?.[q.id] || {} })).filter((x) => x.r.correct === false);
     const lines = [`**📝 Your result: ${quiz.title || "Quiz"}**`, `Hi ${String(name || "").split(" ")[0] || "there"}! You scored **${sc.pct}%** (${sc.earned}/${sc.total} points). ${sc.pct >= pass ? "Passed ✅" : `The passing score is ${pass}%.`}`];
     if (sc.pending) lines.push(`_${plural(sc.pending, "answer")} still being reviewed._`);
-    if (missed.length) {
-      lines.push("", "**To review:**");
-      missed.forEach(({ q, i, r }) => {
-        lines.push("", `**${i + 1}.** ${q.prompt}`, `Your answer: ${r.answer || "(no answer)"}`, `Correct answer: ${keyText(q)}`);
-      });
-    } else if (!sc.pending) lines.push("", "Every answer correct. Great work! 🎉");
+    lines.push("", "**Your answers:**");
+    quiz.questions.forEach((q, i) => {
+      const r = resp.results?.[q.id] || {};
+      lines.push("", `**${i + 1}.** ${q.prompt}`, `Your answer: ${r.answer || "(no answer)"}`);
+      if (r.correct === true) lines.push("Result: ✅ Correct");
+      else if (r.correct === false) lines.push("Result: ❌ Wrong", `Correct answer: ${keyText(q)}`);
+      else lines.push("Result: ⏳ Still being reviewed");
+      // Claude's reason on a short answer says what was right or missing; manual and auto reasons are for you.
+      if (r.by === "claude" && r.reason) lines.push(`Feedback: ${r.reason}`);
+    });
+    if (!sc.pending && sc.earned === sc.total) lines.push("", "Every answer correct. Great work! 🎉");
     return lines.join("\n");
   }
 
@@ -831,7 +1018,7 @@
     } catch {}
     // Send and Check work on a quiz; start with the newest one.
     if ((key === "send" || key === "check") && !ui.selected && allQuizzes().length) return select(allQuizzes()[0].id);
-    if (key === "roster") loadAllRuns().then(() => ui.el && ui.section === "roster" && draw());
+    if (key === "roster" || key === "check") loadAllRuns().then(() => ui.el && ui.section === key && draw());
     draw();
   }
 
@@ -1326,7 +1513,7 @@
       case "send":
         return head("Send Quiz") + (d ? sendTabHtml(d) : noQuizzes());
       case "check":
-        return head("Check Quiz") + (d ? resultsTabHtml(d) : noQuizzes());
+        return head("Check Quiz") + checkHtml();
       case "buckets":
         return `<div class="bucket-layout">${bucketListHtml()}<div class="bucket-editor">${
           d
@@ -1367,22 +1554,38 @@
     const t = ui.section === "roster" && ui.traineeId && cc()?.data().trainees.find((x) => x.id === ui.traineeId);
     const d = ui.draft;
     if (t) items.push({ label: t.name });
-    else if (d && ["buckets", "send", "check"].includes(ui.section)) {
-      items.push({ label: d.title || "Untitled quiz" });
-      if (ui.section === "check" && ui.checkView === "all") {
-        items[1].go = () => ((ui.checkView = ""), draw());
-        items.push({ label: "All answers" });
+    else if (ui.section === "check") {
+      const cohort = ui.checkCohort && cc()?.data().cohorts.find((c) => c.id === ui.checkCohort);
+      if (cohort) {
+        items.push({ label: cohort.name });
+        if (d) items.push({ label: d.title || "Untitled quiz", go: ui.checkView === "all" ? () => ((ui.checkView = ""), draw()) : null });
+        if (ui.checkView === "all") items.push({ label: "All answers" });
+        items[0].go = () => ((ui.checkCohort = ""), (ui.checkView = ""), draw());
       }
-    }
-    if (items.length > 1) items[0].go = () => showSection(ui.section);
+    } else if (d && ["buckets", "send"].includes(ui.section)) items.push({ label: d.title || "Untitled quiz" });
+    if (items.length > 1 && !items[0].go) items[0].go = () => showSection(ui.section);
     window.TrainerDesk?.setCrumbs("quiz", items, () => showSection("roster"));
   }
 
   // ---- Editing (inputs update the draft without redrawing, so typing is never interrupted) ----
   const findQ = (id) => ui.draft?.questions.find((q) => q.id === id);
+  // Trainee finders filter what's on screen without a redraw, so typing is never interrupted.
+  function findFilter(input) {
+    const q = input.value.trim().toLowerCase();
+    if ("findAny" in input.dataset) {
+      let shown = 0;
+      ui.el.querySelectorAll("[data-find-list] li").forEach((li) => {
+        li.hidden = !q || !li.dataset.name.includes(q);
+        if (!li.hidden) shown++;
+      });
+      const none = ui.el.querySelector("[data-find-none]");
+      if (none) none.hidden = !q || shown > 0;
+    } else ui.el.querySelectorAll("[data-find-table] tbody tr").forEach((tr) => (tr.hidden = !!q && !tr.dataset.name.includes(q)));
+  }
   function onInput(e) {
     const t = e.target, d = ui.draft;
     const ds = t.dataset;
+    if ("findAny" in ds || "findRow" in ds) return findFilter(t);
     if ("aiRequest" in ds) return void (ai.request = t.value);
     if ("aiPaste" in ds) return void (ai.paste = t.value);
     if ("aiCount" in ds) return void (ai.count = Math.min(25, Math.max(1, Math.round(Number(t.value) || 5))));
@@ -1438,6 +1641,11 @@
     if ("sendCohort" in ds || "rosterCohort" in ds) {
       ui.cohortId = t.value;
       ui.note = "";
+      return draw();
+    }
+    if ("checkCohortSelect" in ds) return enterCohort(t.value);
+    if ("anTrainee" in ds) {
+      ui.anTrainee = t.value;
       return draw();
     }
     if ("onlyWrong" in ds) {
@@ -1552,7 +1760,18 @@
       if (main) main.scrollTop = 0;
       return;
     }
-    if ("analyze" in ds) return analyzeAnswers();
+    if (ds.analyze) return analyzeAnswers(ds.analyze);
+    if (ds.anLevel) {
+      ui.anLevel = ds.anLevel;
+      return draw();
+    }
+    if (ds.checkCohort) return enterCohort(ds.checkCohort);
+    if ("checkHome" in ds) {
+      ui.checkCohort = "";
+      ui.checkView = "";
+      ui.note = "";
+      return draw();
+    }
     if (ds.view) return openTrainee(ds.view);
   }
 
@@ -1736,8 +1955,11 @@
     }
     await saveRun(ui.selected, run).catch(() => {});
     ui.busy = "";
+    if (allRuns) patchAllRuns(ui.selected, run);
     ui.runId = run.id;
     ui.section = "check";
+    ui.checkCohort = cohort.id;
+    ui.checkView = "";
     ui.note = escapeHtml(ok === members.length ? `Sent to ${plural(ok, "trainee")} ✓ Click “Check replies” once they've answered.` : `Sent to ${ok} of ${members.length}. See “Not sent” below for why.`);
     draw();
   }
@@ -1862,6 +2084,7 @@
           } catch {}
         }
         ui.traineeId = null;
+        ui.checkCohort = run.cohort_id || "";
         if (ui.selected !== quizId) select(quizId);
         ui.runId = runId;
         ui.checkView = "all";

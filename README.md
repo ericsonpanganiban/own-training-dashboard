@@ -33,11 +33,15 @@ Each quiz has a type (default Short quiz 30%, Weekly quiz 70%; edit in `quiz_set
 trainee's average per type and the weighted average; types with no scores yet are left out and the rest scaled to 100%.
 Click a trainee's name for their page: every quiz sent to them (newest first) with its type, whether they answered,
 score, pass/below, and View answers.
-In Check Quiz: **View all answers** (every trainee's answer per question, with an "only wrong" filter),
-**✨ Analyze answers with Claude** (common mistakes, topics to re-discuss by priority, what went well; trainees are
-numbered, not named, in the request; saved on the send as `analysis` and flagged when answers change since), and in a
-trainee's answers **Send result to trainee** (an editable Slack DM, by default a reply in the quiz thread, with their
-score and each missed question with the right answer; saved as `feedback_sent_at`).
+Check Quiz starts at the cohort level: a card per cohort (current batch first; average, answered, last sent) and a
+trainee finder across cohorts. A cohort shows its quizzes and sends, with a trainee finder on the results.
+**View all answers** shows every trainee's answer per question (with an "only wrong" filter). **✨ Analyze** runs
+separately at three levels for the selected quiz: the entire pool (every cohort; says where a mistake is concentrated),
+the cohort, or one trainee. Each is saved in `quiz_analyses/{quizId}__{level}__{key}` and flagged when answers change;
+trainees are numbered, not named, in the request. In a trainee's answers, **Send result to trainee** writes an
+editable Slack DM (by default a reply in the quiz thread): score, then every question with their answer, the result
+(correct / wrong / being reviewed), the right answer when wrong, and Claude's feedback on short answers. Saved as
+`feedback_sent_at`.
 
 `quiz/quiz.js`. Write a quiz by hand (multiple choice, true/false, short answer; points per question, a passing
 score), send it to a cohort's active trainees as Slack DMs, then **Check replies**. Trainees answer by replying to the

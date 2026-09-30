@@ -290,10 +290,28 @@
   }
 
   // ---- Window UI ----
+  // Side panel sections. The roster is each cohort's trainees from Cohorts; a quiz goes to a cohort.
+  const SECTIONS = [
+    { key: "roster", label: "Roster", icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M21.5 20a6.5 6.5 0 0 0-4-6"/>' },
+    { key: "send", label: "Send Quiz", icon: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>' },
+    { key: "check", label: "Check Quiz", icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>' },
+    { key: "buckets", label: "Quiz Buckets", icon: '<path d="M3 7h18l-2 13H5z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/>' },
+    { key: "links", label: "Quiz Links", icon: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>' },
+    { key: "resources", label: "Resources", icon: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>' },
+  ];
+  const SECTION_KEY = "trainer.quizSection";
+  const savedSection = (() => {
+    try {
+      return localStorage.getItem(SECTION_KEY);
+    } catch {
+      return null;
+    }
+  })();
+
   const ui = {
     el: null,
+    section: SECTIONS.some((x) => x.key === savedSection) ? savedSection : "roster",
     selected: null,
-    tab: "questions",
     draft: null, // working copy of the selected quiz
     saveTimer: null,
     saveState: "",
@@ -360,10 +378,22 @@
     return done.length ? ` · last avg ${Math.round(done.reduce((a, x) => a + x.pct, 0) / done.length)}%` : "";
   }
 
-  function sidebarHtml() {
+  function navHtml() {
+    return `
+      <nav class="quiz-side" aria-label="Quiz sections">
+        ${SECTIONS.map(
+          (x) => `<button type="button" class="quiz-nav" data-section="${x.key}"${x.key === ui.section ? ' aria-current="page"' : ""}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${x.icon}</svg>
+            <span>${x.label}</span></button>`
+        ).join("")}
+      </nav>`;
+  }
+
+  // The quiz list inside Quiz Buckets.
+  function bucketListHtml() {
     const list = allQuizzes();
     return `
-      <aside class="quiz-side">
+      <aside class="bucket-list">
         <button type="button" class="btn-primary quiz-new" data-new>+ New quiz</button>
         ${
           !quizzesLoaded
@@ -380,6 +410,15 @@
         }
       </aside>`;
   }
+
+  // Pick which quiz Send Quiz / Check Quiz work on.
+  function quizPickerHtml(label) {
+    const list = allQuizzes();
+    return `<label>${label}
+      <select data-pick-quiz>${list.map((q) => `<option value="${escapeHtml(q.id)}"${q.id === ui.selected ? " selected" : ""}>${escapeHtml(q.title || "Untitled quiz")}</option>`).join("")}</select></label>`;
+  }
+  const noQuizzes = () =>
+    `<p class="muted">No quizzes yet. Write one in <button type="button" class="linkish" data-section="buckets">Quiz Buckets</button> first.</p>`;
 
   function questionHtml(q, i, count) {
     const id = escapeHtml(q.id);
@@ -463,6 +502,7 @@
     return `
       ${problems.length ? `<div class="quiz-warn"><b>Fix these before sending:</b><ul>${problems.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul></div>` : ""}
       <div class="quiz-send-row">
+        ${quizPickerHtml("Quiz")}
         <label>Send to cohort
           <select data-send-cohort>${
             opts.length
@@ -480,7 +520,7 @@
   }
 
   function resultsTabHtml(d) {
-    if (!runs.length) return `<p class="muted">Not sent yet. Send it from the Send tab; results show up here.</p>${ui.note ? `<p class="quiz-note" role="status">${ui.note}</p>` : ""}`;
+    if (!runs.length) return `<div class="quiz-run-row">${quizPickerHtml("Quiz")}</div><p class="muted">This quiz hasn't been sent yet. Send it from <button type="button" class="linkish" data-section="send">Send Quiz</button>; results show up here.</p>${ui.note ? `<p class="quiz-note" role="status">${ui.note}</p>` : ""}`;
     const run = runs.find((r) => r.id === ui.runId) || runs[0];
     ui.runId = run.id;
     const quiz = run.quiz;
@@ -504,7 +544,8 @@
       .sort((a, b) => (b.x?.pct ?? -1) - (a.x?.pct ?? -1) || a.r.name.localeCompare(b.r.name));
     return `
       <div class="quiz-run-row">
-        <label>Send
+        ${quizPickerHtml("Quiz")}
+        <label>Sent
           <select data-run>${runs
             .map((r) => `<option value="${escapeHtml(r.id)}"${r.id === run.id ? " selected" : ""}>${escapeHtml(stamp(r.sent_at))} · ${escapeHtml(r.cohort_name || "Cohort")}</option>`)
             .join("")}</select></label>
@@ -540,34 +581,249 @@
       <p class="muted quiz-send-help">Scores use the quiz as it was sent on ${escapeHtml(stamp(run.sent_at))}, so later edits to the questions don't change them.</p>`;
   }
 
+  function showSection(key) {
+    flushSave();
+    ui.section = key;
+    ui.note = "";
+    try {
+      localStorage.setItem(SECTION_KEY, key);
+    } catch {}
+    // Send and Check work on a quiz; start with the newest one.
+    if ((key === "send" || key === "check") && !ui.selected && allQuizzes().length) return select(allQuizzes()[0].id);
+    if (key === "roster") loadAllRuns().then(() => ui.el && ui.section === "roster" && draw());
+    draw();
+  }
+
+  // ---- Roster: the chosen cohort's trainees, whether Slack can reach them, and their quiz scores ----
+  let allRuns = null; // { quizId: runs[] } across every quiz, for the roster's scores
+  function loadAllRuns() {
+    const list = allQuizzes();
+    if (!db) {
+      allRuns = Object.fromEntries(list.map((q) => [q.id, mem.runs[q.id] || []]));
+      return Promise.resolve();
+    }
+    return Promise.all(
+      list.map((q) =>
+        db
+          .doc(`quizzes/${q.id}`)
+          .collection("runs")
+          .orderBy("sent_at", "desc")
+          .get()
+          .then((snap) => [q.id, snap.docs.map((doc) => ({ id: doc.id, ...JSON.parse(JSON.stringify(doc.data() || {})) }))])
+          .catch(() => [q.id, []])
+      )
+    ).then((pairs) => (allRuns = Object.fromEntries(pairs)));
+  }
+  function traineeQuizStats(tid) {
+    const out = { sent: 0, taken: 0, sum: 0, latest: null };
+    Object.values(allRuns || {}).forEach((list) =>
+      list.forEach((r) => {
+        if (!r.recipients?.[tid]) return;
+        out.sent++;
+        const x = r.responses?.[tid];
+        if (x?.text && x.total) {
+          out.taken++;
+          out.sum += x.pct;
+          if (!out.latest || r.sent_at > out.latest.at) out.latest = { at: r.sent_at, title: r.quiz?.title || "Quiz", pct: x.pct, pass: x.pct >= (r.quiz?.passing ?? 80) };
+        }
+      })
+    );
+    return out;
+  }
+  function rosterHtml() {
+    const opts = cohortOptions();
+    if (!opts.length) return `<p class="muted">No cohorts yet. Add one in Cohorts with + Add Class, then add trainees to it.</p>`;
+    if (!ui.cohortId || !opts.some((o) => o.c.id === ui.cohortId)) ui.cohortId = (opts.find((o) => o.st === "active") || opts[0]).c.id;
+    const members = cohortMembers(ui.cohortId);
+    const slackCell = (t) =>
+      t.slack_user_id ? `<span class="chip ok">Matched</span>` : t.email ? `<span class="chip">Matched on first send</span>` : `<span class="chip bad">No work email</span>`;
+    const row = (t) => {
+      const st = traineeQuizStats(t.id);
+      const inactive = isInactive(t);
+      return `<tr class="${inactive ? "is-inactive" : ""}">
+        <td><b>${escapeHtml(t.name)}</b><small class="muted roster-crm">${escapeHtml(t.crm_name || "")}</small></td>
+        <td>${inactive ? `<span class="chip">Inactive</span>` : `<span class="chip ok">Active</span>`}</td>
+        <td>${t.email ? escapeHtml(t.email) : '<span class="muted">—</span>'}</td>
+        <td>${slackCell(t)}</td>
+        <td>${allRuns ? (st.sent ? `${st.taken} of ${st.sent}` : '<span class="muted">None yet</span>') : "…"}</td>
+        <td>${st.taken ? `<b>${Math.round(st.sum / st.taken)}%</b>` : '<span class="muted">—</span>'}</td>
+        <td>${st.latest ? `${escapeHtml(st.latest.title)} · <b class="${st.latest.pass ? "ok-text" : "bad-text"}">${st.latest.pct}%</b>` : '<span class="muted">—</span>'}</td>
+      </tr>`;
+    };
+    const active = members.filter((t) => !isInactive(t)), inactive = members.filter(isInactive);
+    const cannot = active.filter((t) => !t.slack_user_id && !t.email).length;
+    return `
+      <div class="quiz-send-row">
+        <label>Cohort
+          <select data-roster-cohort>${opts.map(({ c, st }) => `<option value="${escapeHtml(c.id)}"${c.id === ui.cohortId ? " selected" : ""}>${escapeHtml(c.name)} · ${st === "unscheduled" ? "no start date" : st}</option>`).join("")}</select></label>
+        <button type="button" class="btn" data-roster-refresh>↻ Refresh scores</button>
+      </div>
+      <p class="muted quiz-send-help">${plural(active.length, "active trainee")} will get this cohort's quizzes${inactive.length ? ` · ${inactive.length} inactive, left out` : ""}${cannot ? ` · <b class="warn-text">${cannot} can't be reached on Slack (no work email)</b>` : ""}. Change who's in the cohort, or Active / Inactive, in Cohorts.</p>
+      ${
+        members.length
+          ? `<table class="quiz-table roster-table"><thead><tr><th>Trainee</th><th>Status</th><th>Work email</th><th>Slack</th><th>Quizzes taken</th><th>Average</th><th>Latest</th></tr></thead>
+              <tbody>${[...active, ...inactive].map(row).join("")}</tbody></table>`
+          : `<p class="muted">No trainees in this cohort yet. Add them from Cohorts with + Add Trainee.</p>`
+      }`;
+  }
+
+  // ---- Quiz Links and Resources: saved links (title, URL, note) ----
+  const LINK_KIND = {
+    links: { coll: "quiz_links", noun: "link", empty: "No quiz links yet. Save links to quizzes kept elsewhere, like a Google Form, so they're in one place.", placeholder: "e.g. Week 2 Google Form" },
+    resources: { coll: "quiz_resources", noun: "resource", empty: "No resources yet. Save study material and references trainees need for quizzes.", placeholder: "e.g. Refund policy SOP" },
+  };
+  const linkStore = { links: [], resources: [] };
+  const linkLoaded = { links: false, resources: false };
+  dbReady.then((d) => {
+    Object.entries(LINK_KIND).forEach(([kind, k]) => {
+      if (!d) return (linkLoaded[kind] = true);
+      d.collection(k.coll).orderBy("created_at", "desc").onSnapshot(
+        (snap) => {
+          linkStore[kind] = snap.docs.map((doc) => ({ id: doc.id, ...JSON.parse(JSON.stringify(doc.data() || {})) }));
+          linkLoaded[kind] = true;
+          notify();
+        },
+        () => ((linkLoaded[kind] = true), notify())
+      );
+    });
+  });
+  const cleanUrl = (u) => {
+    const v = String(u || "").trim();
+    if (!v) return "";
+    const withProto = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+    try {
+      const url = new URL(withProto);
+      return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
+    } catch {
+      return "";
+    }
+  };
+  function saveLink(kind, item) {
+    const { id, ...fields } = item;
+    // Shown right away (the saved copy follows), so the list is current even while typing the next one.
+    const had = linkStore[kind].some((x) => x.id === id);
+    linkStore[kind] = had ? linkStore[kind].map((x) => (x.id === id ? item : x)) : [item, ...linkStore[kind]];
+    if (!db) {
+      notify();
+      return Promise.resolve();
+    }
+    return db.doc(`${LINK_KIND[kind].coll}/${id}`).set(fields);
+  }
+  function linkListHtml(kind) {
+    const k = LINK_KIND[kind];
+    const list = linkStore[kind];
+    return `
+      <form class="link-form" data-link-form="${kind}" novalidate>
+        <input type="text" data-link-title placeholder="Title (${escapeHtml(k.placeholder)})" aria-label="Title" />
+        <input type="url" data-link-url placeholder="https://…" aria-label="Link" />
+        <input type="text" data-link-note placeholder="Note (optional)" aria-label="Note" />
+        <button type="button" class="btn-primary" data-link-add="${kind}">Add ${k.noun}</button>
+      </form>
+      <p class="sheet-status" data-link-status="${kind}" role="status"></p>
+      ${
+        !linkLoaded[kind]
+          ? `<p class="muted">Loading…</p>`
+          : !list.length
+            ? `<p class="muted">${escapeHtml(k.empty)}</p>`
+            : `<ul class="link-list">${list
+                .map(
+                  (x) => `<li>
+                    <div class="link-main"><a href="${escapeHtml(x.url)}" target="_blank" rel="noopener noreferrer"><b>${escapeHtml(x.title)}</b></a>
+                      <small class="muted">${escapeHtml(x.url)}</small>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div>
+                    <button type="button" class="btn btn-small" data-link-copy="${escapeHtml(x.url)}">Copy link</button>
+                    <button type="button" class="square-btn kebab" data-link-menu="${kind}|${escapeHtml(x.id)}" aria-label="Options for ${escapeHtml(x.title)}">⋮</button>
+                  </li>`
+                )
+                .join("")}</ul>`
+      }`;
+  }
+  function addLink(kind) {
+    const form = ui.el.querySelector(`[data-link-form="${kind}"]`);
+    const status = ui.el.querySelector(`[data-link-status="${kind}"]`);
+    const title = form.querySelector("[data-link-title]").value.trim();
+    const url = cleanUrl(form.querySelector("[data-link-url]").value);
+    const note = form.querySelector("[data-link-note]").value.trim();
+    if (!title) return void ((status.textContent = "Give it a title."), form.querySelector("[data-link-title]").focus());
+    if (!url) return void ((status.textContent = "Add a valid link (starting with https://)."), form.querySelector("[data-link-url]").focus());
+    status.textContent = "Saving…";
+    saveLink(kind, { id: `l${Date.now()}`, title, url, note, created_at: new Date().toISOString() }).then(
+      () => ((status.textContent = ""), draw(), ui.el.querySelector(`[data-link-form="${kind}"] [data-link-title]`)?.focus()),
+      () => (status.textContent = "Couldn't save. Try again.")
+    );
+  }
+  function editLink(kind, id) {
+    const x = linkStore[kind].find((l) => l.id === id);
+    if (!x) return;
+    const sh = sheet(`<h3>Edit ${LINK_KIND[kind].noun}</h3>
+      <label class="field"><span>Title</span><input type="text" data-e-title value="${escapeHtml(x.title)}" /></label>
+      <label class="field"><span>Link</span><input type="url" data-e-url value="${escapeHtml(x.url)}" /></label>
+      <label class="field"><span>Note</span><input type="text" data-e-note value="${escapeHtml(x.note || "")}" /></label>
+      <p class="sheet-status" data-e-status></p>
+      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-primary" data-yes>Save</button></div>`);
+    if (!sh) return;
+    const $ = (q) => sh.s.querySelector(q);
+    $("[data-yes]").addEventListener("click", () => {
+      const title = $("[data-e-title]").value.trim(), url = cleanUrl($("[data-e-url]").value);
+      if (!title || !url) return void ($("[data-e-status]").textContent = !title ? "Give it a title." : "Add a valid link.");
+      saveLink(kind, { ...x, title, url, note: $("[data-e-note]").value.trim() }).then(sh.close, () => ($("[data-e-status]").textContent = "Couldn't save. Try again."));
+    });
+    $("[data-e-title]").focus();
+  }
+  function removeLink(kind, id) {
+    const x = linkStore[kind].find((l) => l.id === id);
+    if (!x) return;
+    const sh = sheet(`<h3>Delete “${escapeHtml(x.title)}”?</h3><p class="muted">Only the saved link is removed here; the page it points to isn't touched.</p>
+      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-danger" data-yes>Delete</button></div>`);
+    if (!sh) return;
+    sh.s.querySelector("[data-yes]").addEventListener("click", () => {
+      const done = () => sh.close();
+      if (!db) {
+        linkStore[kind] = linkStore[kind].filter((l) => l.id !== id);
+        notify();
+        return done();
+      }
+      db.doc(`${LINK_KIND[kind].coll}/${id}`).delete().then(done, done);
+    });
+    sh.s.querySelector("[data-cancel]").focus();
+  }
+
+  function sectionHtml() {
+    const d = ui.draft;
+    const head = (title, sub) => `<div class="quiz-top"><h3>${title}</h3>${sub || ""}</div>`;
+    switch (ui.section) {
+      case "roster":
+        return head("Roster", `<span class="muted quiz-sub">From Cohorts; a quiz goes to a cohort's active trainees</span>`) + rosterHtml();
+      case "send":
+        return head("Send Quiz") + (d ? sendTabHtml(d) : noQuizzes());
+      case "check":
+        return head("Check Quiz") + (d ? resultsTabHtml(d) : noQuizzes());
+      case "buckets":
+        return `<div class="bucket-layout">${bucketListHtml()}<div class="bucket-editor">${
+          d
+            ? `<div class="quiz-top">
+                <h3>${escapeHtml(d.title || "Untitled quiz")}</h3>
+                <span class="muted quiz-save" data-save-state role="status">${escapeHtml(ui.saveState)}</span>
+                <button type="button" class="square-btn kebab" data-quiz-menu aria-label="Quiz options">⋮</button>
+              </div>${questionsTabHtml(d)}`
+            : `<div class="quiz-empty"><h3>Quiz Buckets</h3><p class="muted">Your quizzes live here. Write the questions (multiple choice, true/false or short answer), then send the quiz from Send Quiz and score it in Check Quiz.</p>
+                <button type="button" class="btn-primary" data-new>+ New quiz</button></div>`
+        }</div></div>`;
+      case "links":
+        return head("Quiz Links", `<span class="muted quiz-sub">Links to quizzes kept elsewhere, like Google Forms</span>`) + linkListHtml("links");
+      case "resources":
+        return head("Resources", `<span class="muted quiz-sub">Study material and references for quizzes</span>`) + linkListHtml("resources");
+    }
+    return "";
+  }
+
   function draw() {
     const el = ui.el;
     if (!el || !cc()) return;
-    const d = ui.draft;
     const top = el.querySelector(".quiz-main")?.scrollTop || 0;
     el.innerHTML = `
       <div class="quiz-layout">
-        ${sidebarHtml()}
-        <section class="quiz-main app-body">
-          ${
-            !d
-              ? `<div class="quiz-empty"><h3>Quiz</h3><p class="muted">Write a quiz, send it to a cohort over Slack, and check the replies. Multiple choice and true/false are checked automatically; short answers are checked by Claude against your answer key, and you can override any result.</p>
-                  <button type="button" class="btn-primary" data-new>+ New quiz</button></div>`
-              : `<div class="quiz-top">
-                  <h3>${escapeHtml(d.title || "Untitled quiz")}</h3>
-                  <span class="muted quiz-save" data-save-state role="status">${escapeHtml(ui.saveState)}</span>
-                  <button type="button" class="square-btn kebab" data-quiz-menu aria-label="Quiz options">⋮</button>
-                </div>
-                <div class="quiz-tabs" role="tablist">${[
-                  ["questions", "Questions"],
-                  ["send", "Send"],
-                  ["results", `Results${runs.length ? ` (${runs.length})` : ""}`],
-                ]
-                  .map(([k, v]) => `<button type="button" role="tab" data-tab="${k}" aria-selected="${ui.tab === k}">${v}</button>`)
-                  .join("")}</div>
-                <div class="quiz-body">${ui.tab === "questions" ? questionsTabHtml(d) : ui.tab === "send" ? sendTabHtml(d) : resultsTabHtml(d)}</div>`
-          }
-        </section>
+        ${navHtml()}
+        <section class="quiz-main app-body${ui.section === "buckets" ? " is-buckets" : ""}">${sectionHtml()}</section>
       </div>`;
     const main = el.querySelector(".quiz-main");
     if (main) main.scrollTop = top;
@@ -609,7 +865,8 @@
       queueSave();
       return draw();
     }
-    if ("sendCohort" in ds) {
+    if ("pickQuiz" in ds) return select(t.value);
+    if ("sendCohort" in ds || "rosterCohort" in ds) {
       ui.cohortId = t.value;
       ui.note = "";
       return draw();
@@ -628,12 +885,21 @@
     const ds = b.dataset, d = ui.draft;
     if ("new" in ds) return createQuiz();
     if (ds.pick) return select(ds.pick);
-    if (ds.tab) {
-      flushSave();
-      ui.tab = ds.tab;
-      ui.note = "";
-      return draw();
+    if (ds.section) return showSection(ds.section);
+    if (ds.linkAdd) return addLink(ds.linkAdd);
+    if (ds.linkMenu) {
+      e.stopPropagation();
+      const [kind, id] = ds.linkMenu.split("|");
+      return openMenu(b, [
+        { label: "Edit", run: () => editLink(kind, id) },
+        { label: "Delete", danger: true, run: () => removeLink(kind, id) },
+      ]);
     }
+    if (ds.linkCopy) {
+      navigator.clipboard?.writeText(ds.linkCopy).then(() => ((b.textContent = "Copied ✓"), setTimeout(() => b.isConnected && (b.textContent = "Copy link"), 1500)));
+      return;
+    }
+    if ("rosterRefresh" in ds) return loadAllRuns().then(draw);
     if ("quizMenu" in ds) {
       e.stopPropagation();
       return openMenu(b, [
@@ -689,7 +955,7 @@
       ? { ...JSON.parse(JSON.stringify(from)), id: `q${Date.now()}`, title: `${from.title || "Untitled quiz"} (copy)`, created_at: now }
       : { id: `q${Date.now()}`, title: "Untitled quiz", description: "", passing: 80, questions: [blankQuestion("mc")], created_at: now };
     saveQuiz(quiz).then(() => {
-      ui.tab = "questions";
+      ui.section = "buckets";
       select(quiz.id);
       if (!current()) {
         // The db snapshot hasn't arrived yet; show the new quiz straight away.
@@ -797,7 +1063,7 @@
     await saveRun(ui.selected, run).catch(() => {});
     ui.busy = "";
     ui.runId = run.id;
-    ui.tab = "results";
+    ui.section = "check";
     ui.note = escapeHtml(ok === members.length ? `Sent to ${plural(ok, "trainee")} ✓ Click “Check replies” once they've answered.` : `Sent to ${ok} of ${members.length}. See “Not sent” below for why.`);
     draw();
   }
@@ -931,6 +1197,15 @@
       el.addEventListener("input", onInput);
       el.addEventListener("change", onChange);
       el.addEventListener("click", onClick);
+      // Enter in a link form adds the link.
+      el.addEventListener("keydown", (e) => {
+        const f = e.target.closest?.("[data-link-form]");
+        if (f && e.key === "Enter") {
+          e.preventDefault();
+          addLink(f.dataset.linkForm);
+        }
+      });
+      el.addEventListener("submit", (e) => e.preventDefault());
       const redraw = () => {
         if (!ui.el) return;
         // Never redraw under the cursor; the next change will catch up.
@@ -942,7 +1217,8 @@
       };
       listeners.add(redraw);
       ui.offData = () => listeners.delete(redraw);
-      ui.offCc = cc()?.onChange(() => ui.tab === "send" && draw());
+      ui.offCc = cc()?.onChange(() => (ui.section === "send" || ui.section === "roster") && draw());
+      if (ui.section === "roster") loadAllRuns().then(() => ui.el && draw());
       if (!ui.selected && allQuizzes().length) select(allQuizzes()[0].id);
       else draw();
     },

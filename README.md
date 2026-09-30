@@ -25,6 +25,8 @@ Trainees are matched to Slack by their work email.
 
 Side panel: **Roster** (each cohort's trainees from Cohorts, who Slack can reach, and quiz scores), **Send Quiz** (pick the cohort, then tick who gets it: active trainees by default, inactive ones optional), **Check Quiz**, **Quiz Buckets** (the quizzes and question editor),
 **Quiz Links** and **Resources** (saved links: `quiz_links`, `quiz_resources`).
+Each quiz has a type (default Short quiz 30%, Weekly quiz 70%; edit in `quiz_settings/weights`). The Roster shows each
+trainee's average per type and the weighted average; types with no scores yet are left out and the rest scaled to 100%.
 
 `quiz/quiz.js`. Write a quiz by hand (multiple choice, true/false, short answer; points per question, a passing
 score), send it to a cohort's active trainees as Slack DMs, then **Check replies**. Trainees answer by replying to the

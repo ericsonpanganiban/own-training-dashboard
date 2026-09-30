@@ -300,6 +300,30 @@
     { key: "resources", label: "Resources", icon: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>' },
   ];
   const SECTION_KEY = "trainer.quizSection";
+
+  // Quiz types and their weight in a trainee's weighted average (quiz_settings/weights).
+  const DEFAULT_TYPES = [
+    { id: "short", name: "Short quiz", weight: 30 },
+    { id: "weekly", name: "Weekly quiz", weight: 70 },
+  ];
+  let quizTypes = DEFAULT_TYPES;
+  dbReady.then((d) => {
+    if (!d) return;
+    d.doc("quiz_settings/weights").onSnapshot(
+      (snap) => {
+        const got = snap?.exists ? JSON.parse(JSON.stringify(snap.data() || {})).types : null;
+        quizTypes = Array.isArray(got) && got.length ? got : DEFAULT_TYPES;
+        notify();
+      },
+      () => {}
+    );
+  });
+  function saveQuizTypes(types) {
+    quizTypes = types;
+    notify();
+    return db ? db.doc("quiz_settings/weights").set({ types, updated_at: new Date().toISOString() }) : Promise.resolve();
+  }
+  const typeOf = (quiz) => quizTypes.find((t) => t.id === quiz?.category) || null;
   const savedSection = (() => {
     try {
       return localStorage.getItem(SECTION_KEY);
@@ -404,7 +428,7 @@
                   .map(
                     (q) => `<li><button type="button" data-pick="${escapeHtml(q.id)}"${q.id === ui.selected ? ' aria-current="true"' : ""}>
                       <b>${escapeHtml(q.title || "Untitled quiz")}</b>
-                      <small>${plural((q.questions || []).length, "question")}${escapeHtml(lastRunAvg(q.id))}</small></button></li>`
+                      <small>${typeOf(q) ? `${escapeHtml(typeOf(q).name)} · ` : "No type · "}${plural((q.questions || []).length, "question")}${escapeHtml(lastRunAvg(q.id))}</small></button></li>`
                   )
                   .join("")}</ul>`
         }
@@ -467,7 +491,16 @@
       <div class="quiz-fields">
         <label>Quiz title<input type="text" data-f-title value="${escapeHtml(d.title)}" placeholder="e.g. Week 1 · Refund policy" /></label>
         <label><span>Instructions <span class="muted">(optional, shown above the questions)</span></span><textarea rows="2" data-f-desc placeholder="e.g. Answer within today's shift.">${escapeHtml(d.description || "")}</textarea></label>
-        <label class="quiz-pass">Passing score <span><input type="number" min="1" max="100" data-f-pass value="${escapeHtml(d.passing ?? 80)}" /> %</span></label>
+        <div class="quiz-row2">
+          <label class="quiz-pass">Passing score <span><input type="number" min="1" max="100" data-f-pass value="${escapeHtml(d.passing ?? 80)}" /> %</span></label>
+          <label class="quiz-type">Quiz type
+            <select data-f-type>
+              <option value=""${typeOf(d) ? "" : " selected"}>— Choose a type —</option>
+              ${quizTypes.map((t) => `<option value="${escapeHtml(t.id)}"${d.category === t.id ? " selected" : ""}>${escapeHtml(t.name)} · ${Number(t.weight) || 0}% of the weighted average</option>`).join("")}
+            </select></label>
+          <button type="button" class="linkish quiz-type-edit" data-edit-weights>Edit types & weights</button>
+        </div>
+        ${typeOf(d) ? "" : `<p class="warn-text quiz-type-warn">Pick a type so this quiz counts toward the weighted average.</p>`}
       </div>
       <p class="muted quiz-count">${plural(d.questions.length, "question")} · ${plural(pts, "point")} total</p>
       <ol class="q-list">${d.questions.map((q, i) => questionHtml(q, i, d.questions.length)).join("")}</ol>
@@ -649,9 +682,13 @@
       )
     ).then((pairs) => (allRuns = Object.fromEntries(pairs)));
   }
+  // Per trainee: quizzes sent/taken, the average within each quiz type, and the weighted average.
+  // A quiz counts under the type it has now, so re-typing a quiz updates past scores too. Types a
+  // trainee has no scores in are left out and the remaining weights are scaled up to 100%.
   function traineeQuizStats(tid) {
-    const out = { sent: 0, taken: 0, sum: 0, latest: null };
-    Object.values(allRuns || {}).forEach((list) =>
+    const out = { sent: 0, taken: 0, sum: 0, latest: null, byType: {}, untyped: 0, weighted: null };
+    const quizById = new Map(allQuizzes().map((q) => [q.id, q]));
+    Object.entries(allRuns || {}).forEach(([quizId, list]) =>
       list.forEach((r) => {
         if (!r.recipients?.[tid]) return;
         out.sent++;
@@ -659,12 +696,28 @@
         if (x?.text && x.total) {
           out.taken++;
           out.sum += x.pct;
+          const type = typeOf(quizById.get(quizId));
+          if (type) {
+            const b = (out.byType[type.id] = out.byType[type.id] || { sum: 0, n: 0 });
+            b.sum += x.pct;
+            b.n++;
+          } else out.untyped++;
           if (!out.latest || r.sent_at > out.latest.at) out.latest = { at: r.sent_at, title: r.quiz?.title || "Quiz", pct: x.pct, pass: x.pct >= (r.quiz?.passing ?? 80) };
         }
       })
     );
+    let wsum = 0, w = 0;
+    quizTypes.forEach((t) => {
+      const b = out.byType[t.id];
+      if (!b?.n || !(Number(t.weight) > 0)) return;
+      wsum += (b.sum / b.n) * Number(t.weight);
+      w += Number(t.weight);
+    });
+    out.weighted = w ? Math.round((wsum / w) * 10) / 10 : null;
+    out.weightsUsed = w;
     return out;
   }
+  const weightsLine = () => quizTypes.map((t) => `${escapeHtml(t.name)} ${Number(t.weight) || 0}%`).join(" · ");
   function rosterHtml() {
     const opts = cohortOptions();
     if (!opts.length) return `<p class="muted">No cohorts yet. Add one in Cohorts with + Add Class, then add trainees to it.</p>`;
@@ -675,13 +728,20 @@
     const row = (t) => {
       const st = traineeQuizStats(t.id);
       const inactive = isInactive(t);
+      const typeCells = quizTypes
+        .map((ty) => {
+          const b = st.byType[ty.id];
+          return `<td>${b?.n ? `${Math.round(b.sum / b.n)}% <small class="muted">(${b.n})</small>` : '<span class="muted">—</span>'}</td>`;
+        })
+        .join("");
+      const scaled = st.weighted !== null && st.weightsUsed < 100;
       return `<tr class="${inactive ? "is-inactive" : ""}">
-        <td><b>${escapeHtml(t.name)}</b><small class="muted roster-crm">${escapeHtml(t.crm_name || "")}</small></td>
+        <td><b>${escapeHtml(t.name)}</b><small class="muted roster-crm">${escapeHtml(t.email || t.crm_name || "")}</small></td>
         <td>${inactive ? `<span class="chip">Inactive</span>` : `<span class="chip ok">Active</span>`}</td>
-        <td>${t.email ? escapeHtml(t.email) : '<span class="muted">—</span>'}</td>
         <td>${slackCell(t)}</td>
         <td>${allRuns ? (st.sent ? `${st.taken} of ${st.sent}` : '<span class="muted">None yet</span>') : "…"}</td>
-        <td>${st.taken ? `<b>${Math.round(st.sum / st.taken)}%</b>` : '<span class="muted">—</span>'}</td>
+        ${typeCells}
+        <td class="weighted">${st.weighted !== null ? `<b>${st.weighted}%</b>${scaled ? ` <small class="muted" title="Only some quiz types have scores yet, so their weights are scaled to 100%">partial</small>` : ""}` : st.untyped ? '<small class="muted">Set quiz types</small>' : '<span class="muted">—</span>'}</td>
         <td>${st.latest ? `${escapeHtml(st.latest.title)} · <b class="${st.latest.pass ? "ok-text" : "bad-text"}">${st.latest.pct}%</b>` : '<span class="muted">—</span>'}</td>
       </tr>`;
     };
@@ -693,10 +753,11 @@
           <select data-roster-cohort>${opts.map(({ c, st }) => `<option value="${escapeHtml(c.id)}"${c.id === ui.cohortId ? " selected" : ""}>${escapeHtml(c.name)} · ${st === "unscheduled" ? "no start date" : st}</option>`).join("")}</select></label>
         <button type="button" class="btn" data-roster-refresh>↻ Refresh scores</button>
       </div>
+      <div class="weights-line"><b>Weighted average</b> = ${weightsLine()} <button type="button" class="linkish" data-edit-weights>Edit weights</button></div>
       <p class="muted quiz-send-help">${plural(active.length, "active trainee")}, ticked by default in Send Quiz${inactive.length ? ` · ${inactive.length} inactive, unticked by default` : ""}${cannot ? ` · <b class="warn-text">${cannot} can't be reached on Slack (no work email)</b>` : ""}. Change who's in the cohort, or Active / Inactive, in Cohorts.</p>
       ${
         members.length
-          ? `<table class="quiz-table roster-table"><thead><tr><th>Trainee</th><th>Status</th><th>Work email</th><th>Slack</th><th>Quizzes taken</th><th>Average</th><th>Latest</th></tr></thead>
+          ? `<table class="quiz-table roster-table"><thead><tr><th>Trainee</th><th>Status</th><th>Slack</th><th>Quizzes taken</th>${quizTypes.map((ty) => `<th>${escapeHtml(ty.name)} <small class="muted">${Number(ty.weight) || 0}%</small></th>`).join("")}<th>Weighted average</th><th>Latest</th></tr></thead>
               <tbody>${[...active, ...inactive].map(row).join("")}</tbody></table>`
           : `<p class="muted">No trainees in this cohort yet. Add them from Cohorts with + Add Trainee.</p>`
       }`;
@@ -1088,6 +1149,11 @@
       return draw();
     }
     if ("pickQuiz" in ds) return select(t.value);
+    if ("fType" in ds && d) {
+      d.category = t.value || null;
+      queueSave();
+      return draw();
+    }
     if (ds.pickTrainee) {
       const ids = pickedIds();
       t.checked ? ids.add(ds.pickTrainee) : ids.delete(ds.pickTrainee);
@@ -1134,6 +1200,7 @@
       return;
     }
     if ("rosterRefresh" in ds) return loadAllRuns().then(draw);
+    if ("editWeights" in ds) return openWeights();
     if (ds.pickAll) {
       const ids = pickedIds();
       ids.clear();
@@ -1212,6 +1279,72 @@
       }
       ui.el?.querySelector("[data-f-title]")?.select();
     });
+  }
+
+  // Quiz types and weights. Weights must add up to 100%.
+  function openWeights() {
+    let rows = quizTypes.map((t) => ({ ...t }));
+    const x = sheet("", "weights-card");
+    if (!x) return;
+    const card = x.s.querySelector(".sheet-card");
+    const total = () => rows.reduce((a, r) => a + (Number(r.weight) || 0), 0);
+    const render = () => {
+      const used = new Set(allQuizzes().map((q) => q.category).filter(Boolean));
+      card.innerHTML = `
+        <h3>Quiz types & weights</h3>
+        <p class="muted">Each quiz gets a type. A trainee's weighted average is their average in each type times that type's weight. Weights must add up to 100%.</p>
+        <div class="weights-rows">${rows
+          .map(
+            (r, i) => `<div class="weights-row">
+              <input type="text" data-w-name="${i}" value="${escapeHtml(r.name)}" placeholder="Type name" aria-label="Type name" />
+              <span class="weights-pct"><input type="number" min="0" max="100" data-w-weight="${i}" value="${escapeHtml(r.weight)}" aria-label="Weight for ${escapeHtml(r.name)}" /> %</span>
+              <button type="button" class="q-x" data-w-remove="${i}" aria-label="Remove ${escapeHtml(r.name)}"${rows.length === 1 || used.has(r.id) ? ` disabled title="${used.has(r.id) ? "Quizzes use this type" : ""}"` : ""}>×</button>
+            </div>`
+          )
+          .join("")}</div>
+        <button type="button" class="btn btn-small" data-w-add>+ Add a type</button>
+        <p class="weights-total ${total() === 100 ? "ok-text" : "bad-text"}" data-w-total>Total: ${total()}%${total() === 100 ? " ✓" : " (must be 100%)"}</p>
+        <p class="sheet-status" data-w-status></p>
+        <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-primary" data-w-save>Save</button></div>`;
+    };
+    render();
+    card.addEventListener("input", (e) => {
+      const t = e.target;
+      if (t.dataset.wName !== undefined) rows[+t.dataset.wName].name = t.value;
+      if (t.dataset.wWeight !== undefined) {
+        rows[+t.dataset.wWeight].weight = Math.max(0, Math.min(100, Math.round(Number(t.value) || 0)));
+        const el = card.querySelector("[data-w-total]"), sum = total();
+        el.textContent = `Total: ${sum}%${sum === 100 ? " ✓" : " (must be 100%)"}`;
+        el.className = `weights-total ${sum === 100 ? "ok-text" : "bad-text"}`;
+      }
+    });
+    card.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b || b.disabled) return;
+      if ("wAdd" in b.dataset) {
+        rows.push({ id: uid(), name: "", weight: 0 });
+        render();
+        return card.querySelectorAll("[data-w-name]")[rows.length - 1]?.focus();
+      }
+      if (b.dataset.wRemove !== undefined) {
+        rows.splice(+b.dataset.wRemove, 1);
+        return render();
+      }
+      if ("wSave" in b.dataset) {
+        const status = card.querySelector("[data-w-status]");
+        rows = rows.map((r) => ({ ...r, name: r.name.trim() }));
+        if (rows.some((r) => !r.name)) return void (status.textContent = "Give every type a name.");
+        if (total() !== 100) return void (status.textContent = "Weights must add up to 100%.");
+        saveQuizTypes(rows).then(
+          () => {
+            x.close();
+            draw();
+          },
+          () => (status.textContent = "Couldn't save. Try again.")
+        );
+      }
+    });
+    card.querySelector("[data-w-name]")?.focus();
   }
 
   function sheet(html, cls = "") {

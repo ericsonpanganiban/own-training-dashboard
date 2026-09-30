@@ -1109,3 +1109,23 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .pick-row small { flex: 1 1 0; min-width: 60px; line-height: 1.25; }
 .pick-row .chip { flex: none; }
 .pick-sub { margin: 10px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Quiz: types and weights */
+.weights-line { margin: 10px 0 0; font-size: 13px; }
+.quiz-row2 { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.quiz-type select { min-width: 280px; font-weight: 400; color: var(--window-fg); }
+.quiz-type-edit { font-size: 12px; padding-bottom: 8px; }
+.quiz-type-warn { margin: 0; font-size: 12px; }
+.roster-table td.weighted b { font-size: 14px; }
+.roster-table th small { font-weight: 400; }
+.sheet-card.weights-card { width: min(460px, 100%); }
+.weights-rows { display: flex; flex-direction: column; gap: 8px; }
+.weights-row { display: flex; align-items: center; gap: 8px; }
+.weights-row input[type="text"] { flex: 1; }
+.weights-row input, .weights-pct input { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--window-bg); color: var(--window-fg); font: inherit; font-size: 13px; }
+.weights-pct { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.weights-pct input { width: 72px; }
+.weights-row .q-x:disabled { opacity: 0.3; cursor: default; }
+.weights-total { margin: 0; font-size: 13px; font-weight: 600; }
+.sheet-card.weights-card .btn-small { align-self: flex-start; }
+.sheet-card.weights-card p.muted { margin: 0; font-size: 13px; line-height: 1.45; }

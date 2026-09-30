@@ -463,6 +463,8 @@
     el.pageHead.hidden = onHome;
     el.sectionSub.hidden = onHome;
     ccRoot.classList.toggle("on-home", onHome);
+    // Trainer Desk shows these in the window's crumb bar: Trainer Desk › Coaching Compass › …
+    if (window.TrainerDesk) window.TrainerDesk.setCrumbs("coaching", onHome ? [] : crumbs.map(function(c){ return { label: c.label, go: c.action || null }; }), goHome);
     if (onHome){ el.breadcrumb.innerHTML = ""; return; }
     crumbs.unshift({ label: "Home", action: goHome });
 

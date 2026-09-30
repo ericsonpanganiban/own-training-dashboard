@@ -341,6 +341,7 @@
     saveState: "",
     cohortId: "",
     runId: null,
+    traineeId: null, // Roster: the trainee whose quiz page is open
     busy: "",
     note: "",
   };
@@ -652,6 +653,7 @@
   function showSection(key) {
     flushSave();
     ui.section = key;
+    ui.traineeId = null;
     ui.note = "";
     try {
       localStorage.setItem(SECTION_KEY, key);
@@ -736,7 +738,7 @@
         .join("");
       const scaled = st.weighted !== null && st.weightsUsed < 100;
       return `<tr class="${inactive ? "is-inactive" : ""}">
-        <td><b>${escapeHtml(t.name)}</b><small class="muted roster-crm">${escapeHtml(t.email || t.crm_name || "")}</small></td>
+        <td><button type="button" class="trainee-link" data-open-trainee="${escapeHtml(t.id)}" title="See ${escapeHtml(t.name)}'s quizzes and scores">${escapeHtml(t.name)}</button><small class="muted roster-crm">${escapeHtml(t.email || t.crm_name || "")}</small></td>
         <td>${inactive ? `<span class="chip">Inactive</span>` : `<span class="chip ok">Active</span>`}</td>
         <td>${slackCell(t)}</td>
         <td>${allRuns ? (st.sent ? `${st.taken} of ${st.sent}` : '<span class="muted">None yet</span>') : "…"}</td>
@@ -760,6 +762,79 @@
           ? `<table class="quiz-table roster-table"><thead><tr><th>Trainee</th><th>Status</th><th>Slack</th><th>Quizzes taken</th>${quizTypes.map((ty) => `<th>${escapeHtml(ty.name)} <small class="muted">${Number(ty.weight) || 0}%</small></th>`).join("")}<th>Weighted average</th><th>Latest</th></tr></thead>
               <tbody>${[...active, ...inactive].map(row).join("")}</tbody></table>`
           : `<p class="muted">No trainees in this cohort yet. Add them from Cohorts with + Add Trainee.</p>`
+      }`;
+  }
+
+  // One trainee's page (from the Roster): every quiz sent to them, whether they answered, and their scores.
+  function patchAllRuns(quizId, run) {
+    if (!allRuns) return;
+    allRuns[quizId] = [run, ...(allRuns[quizId] || []).filter((r) => r.id !== run.id)].sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""));
+  }
+  function traineePageHtml(t) {
+    const st = traineeQuizStats(t.id);
+    const quizById = new Map(allQuizzes().map((q) => [q.id, q]));
+    const cohort = cc().data().cohorts.find((c) => (c.trainee_ids || []).includes(t.id));
+    const rows = Object.entries(allRuns || {})
+      .flatMap(([quizId, list]) => list.filter((r) => r.recipients?.[t.id]).map((r) => ({ quizId, r, rec: r.recipients[t.id], x: r.responses?.[t.id] })))
+      .sort((a, b) => (b.r.sent_at || "").localeCompare(a.r.sent_at || ""));
+    const answered = rows.filter((row) => row.x?.text);
+    const passedN = answered.filter((row) => row.x.total && row.x.pct >= (row.r.quiz?.passing ?? 80)).length;
+    const scaled = st.weighted !== null && st.weightsUsed < 100;
+    const typeTiles = quizTypes
+      .map((ty) => {
+        const b = st.byType[ty.id];
+        return `<div class="stat"><div class="value">${b?.n ? `${Math.round(b.sum / b.n)}%` : "—"}</div><div class="label">${escapeHtml(ty.name)} average</div><div class="hint">${b?.n ? plural(b.n, "quiz") : "No scores yet"} · ${Number(ty.weight) || 0}% of the weighted average</div></div>`;
+      })
+      .join("");
+    const row = ({ quizId, r, rec, x }) => {
+      const quiz = r.quiz || {};
+      const pass = quiz.passing ?? 80;
+      const type = typeOf(quizById.get(quizId));
+      const status = x?.text
+        ? `<span class="chip ok">Answered</span>${x.source === "manual" ? ` <small class="muted">entered by hand</small>` : ""}`
+        : !rec.sent
+          ? `<span class="chip bad">Not sent</span> <small class="muted">${escapeHtml(rec.error || "")}</small>`
+          : `<span class="chip">No reply yet</span>`;
+      const result = x?.text
+        ? x.pending
+          ? `<span class="chip warn">${plural(x.pending, "answer")} to review</span>`
+          : x.pct >= pass
+            ? `<span class="chip ok">Passed</span>`
+            : `<span class="chip bad">Below ${pass}%</span>`
+        : '<span class="muted">—</span>';
+      return `<tr>
+        <td><b>${escapeHtml(quiz.title || quizById.get(quizId)?.title || "Quiz")}</b><small class="muted roster-crm">${plural((quiz.questions || []).length, "question")}${r.cohort_name ? ` · ${escapeHtml(r.cohort_name)}` : ""}</small></td>
+        <td>${type ? `<span class="chip">${escapeHtml(type.name)}</span>` : '<span class="muted">—</span>'}</td>
+        <td>${escapeHtml(stamp(r.sent_at))}</td>
+        <td>${status}</td>
+        <td>${x?.text ? `<b>${x.pct}%</b> <small class="muted">${x.earned}/${x.total} pts</small>` : "—"}</td>
+        <td>${result}</td>
+        <td><button type="button" class="btn btn-small" data-trainee-run="${escapeHtml(quizId)}|${escapeHtml(r.id)}">${x?.text ? "View answers" : "Enter answers"}</button></td>
+      </tr>`;
+    };
+    return `
+      <div class="quiz-top trainee-top">
+        <button type="button" class="btn btn-small" data-back-roster>‹ Roster</button>
+        <h3>${escapeHtml(t.name)}</h3>
+        <span class="muted quiz-sub">${[t.email || t.crm_name, cohort?.name, isInactive(t) ? "Inactive" : "Active"].filter(Boolean).map(escapeHtml).join(" · ")}</span>
+        <button type="button" class="btn" data-roster-refresh>↻ Refresh scores</button>
+      </div>
+      ${
+        !allRuns
+          ? `<p class="muted">Loading quizzes…</p>`
+          : `<div class="stats quiz-stats">
+              <div class="stat"><div class="value">${st.weighted !== null ? `${st.weighted}%` : "—"}</div><div class="label">Weighted average</div><div class="hint">${st.weighted === null ? "No scores yet" : scaled ? "Partial: only some quiz types have scores" : weightsLine()}</div></div>
+              <div class="stat"><div class="value">${answered.length}<span class="of"> / ${rows.length}</span></div><div class="label">Quizzes answered</div><div class="hint">${rows.length - answered.length ? `${plural(rows.length - answered.length, "quiz")} not answered yet` : rows.length ? "All answered" : "None sent yet"}</div></div>
+              <div class="stat"><div class="value">${answered.length ? `${passedN}<span class="of"> / ${answered.length}</span>` : "—"}</div><div class="label">Passed</div></div>
+              ${typeTiles}
+            </div>
+            <h4 class="quiz-h">Quizzes sent to ${escapeHtml(t.name.split(" ")[0])}</h4>
+            ${
+              rows.length
+                ? `<table class="quiz-table trainee-quiz-table"><thead><tr><th>Quiz</th><th>Type</th><th>Sent</th><th>Status</th><th>Score</th><th>Result</th><th></th></tr></thead><tbody>${rows.map(row).join("")}</tbody></table>
+                   <p class="muted quiz-send-help">Newest first. Scores use each quiz as it was sent, so later edits to the questions don't change them.</p>`
+                : `<p class="muted">No quizzes sent to ${escapeHtml(t.name)} yet. Send one from <button type="button" class="linkish" data-section="send">Send Quiz</button>.</p>`
+            }`
       }`;
   }
 
@@ -1071,8 +1146,12 @@
     const d = ui.draft;
     const head = (title, sub) => `<div class="quiz-top"><h3>${title}</h3>${sub || ""}</div>`;
     switch (ui.section) {
-      case "roster":
+      case "roster": {
+        const t = ui.traineeId && cc().data().trainees.find((x) => x.id === ui.traineeId);
+        if (t) return traineePageHtml(t);
+        ui.traineeId = null;
         return head("Roster", `<span class="muted quiz-sub">From Cohorts; pick who gets each quiz in Send Quiz</span>`) + rosterHtml();
+      }
       case "send":
         return head("Send Quiz") + (d ? sendTabHtml(d) : noQuizzes());
       case "check":
@@ -1107,6 +1186,19 @@
       </div>`;
     const main = el.querySelector(".quiz-main");
     if (main) main.scrollTop = top;
+    drawCrumbs();
+  }
+
+  // Breadcrumbs in the window bar: Quiz › section › trainee or quiz.
+  function drawCrumbs() {
+    const sec = SECTIONS.find((x) => x.key === ui.section);
+    const items = [{ label: sec?.label || "Quiz" }];
+    const t = ui.section === "roster" && ui.traineeId && cc()?.data().trainees.find((x) => x.id === ui.traineeId);
+    const d = ui.draft;
+    if (t) items.push({ label: t.name });
+    else if (d && ["buckets", "send", "check"].includes(ui.section)) items.push({ label: d.title || "Untitled quiz" });
+    if (items.length > 1) items[0].go = () => showSection(ui.section);
+    window.TrainerDesk?.setCrumbs("quiz", items, () => showSection("roster"));
   }
 
   // ---- Editing (inputs update the draft without redrawing, so typing is never interrupted) ----
@@ -1186,6 +1278,17 @@
     if ("new" in ds) return createQuiz();
     if (ds.pick) return select(ds.pick);
     if (ds.section) return showSection(ds.section);
+    if (ds.openTrainee || "backRoster" in ds) {
+      ui.traineeId = ds.openTrainee || null;
+      draw();
+      const main = ui.el.querySelector(".quiz-main");
+      if (main) main.scrollTop = 0;
+      return;
+    }
+    if (ds.traineeRun) {
+      const [quizId, runId] = ds.traineeRun.split("|");
+      return openTrainee(ui.traineeId, quizId, runId);
+    }
     if (ds.linkAdd) return addLink(ds.linkAdd);
     if (ds.linkMenu) {
       e.stopPropagation();
@@ -1487,9 +1590,11 @@
   }
 
   // One trainee: their answers, what was checked and why, with manual marks and hand entry.
-  function openTrainee(tid) {
-    const run = runs.find((r) => r.id === ui.runId);
-    if (!run) return;
+  // Opened from Check Quiz (the selected quiz and send) or from a trainee's page (any quiz and send).
+  function openTrainee(tid, quizId = ui.selected, runId = ui.runId) {
+    const pool = () => (quizId === runsFor ? runs : allRuns?.[quizId] || []);
+    const run = pool().find((r) => r.id === runId);
+    if (!run?.recipients?.[tid]) return;
     const quiz = run.quiz;
     const rec = run.recipients[tid];
     const x = sheet("", "quiz-detail");
@@ -1497,7 +1602,7 @@
     let editing = !run.responses?.[tid]?.text;
     let local = null; // this sheet's last save, used until the saved copy comes back
     const latest = () => {
-      const fromDb = runs.find((r) => r.id === run.id) || run;
+      const fromDb = pool().find((r) => r.id === run.id) || run;
       const mine = local?.responses?.[tid], theirs = fromDb.responses?.[tid];
       return mine && (!theirs || (mine.checked_at || "") > (theirs.checked_at || "")) ? local : fromDb;
     };
@@ -1548,7 +1653,8 @@
         status.textContent = "Checking…";
         const responses = await gradeReplies(live, { [tid]: text }, "manual");
         local = { ...live, responses };
-        await saveRun(ui.selected, local).catch(() => (status.textContent = "Couldn't save. Try again."));
+        patchAllRuns(quizId, local);
+        await saveRun(quizId, local).catch(() => (status.textContent = "Couldn't save. Try again."));
         editing = false;
         return render();
       }
@@ -1559,7 +1665,8 @@
         resp.results[qid] = { ...r, correct: v === "1", by: "manual", reason: "Marked by you" };
         Object.assign(resp, score(quiz, resp.results), { checked_at: new Date().toISOString() });
         local = { ...live, responses: { ...live.responses, [tid]: resp } };
-        await saveRun(ui.selected, local).catch(() => {});
+        patchAllRuns(quizId, local);
+        await saveRun(quizId, local).catch(() => {});
         return render();
       }
     });

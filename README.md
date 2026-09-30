@@ -10,6 +10,10 @@ To publish as a Claude artifact, run `python3 build.py` and publish `dist/traine
 
 To add an app, add an entry to `APPS` in `app.js`.
 
+Every window has a breadcrumb bar under its title (Trainer Desk › App › …). An app reports its deeper levels with
+`TrainerDesk.setCrumbs(appId, [{ label, go }], home)`; an open dialog adds its title as the last step, and clicking
+an earlier step closes the dialog first. "Trainer Desk" shows the desktop.
+
 ## Attendance
 
 `attendance/attendance.js`, ported from the Trainer Dashboard (Alpha) Attendance tab. It uses the cohorts and
@@ -27,6 +31,8 @@ Side panel: **Roster** (each cohort's trainees from Cohorts, who Slack can reach
 **Quiz Links** and **Resources** (saved links: `quiz_links`, `quiz_resources`).
 Each quiz has a type (default Short quiz 30%, Weekly quiz 70%; edit in `quiz_settings/weights`). The Roster shows each
 trainee's average per type and the weighted average; types with no scores yet are left out and the rest scaled to 100%.
+Click a trainee's name for their page: every quiz sent to them (newest first) with its type, whether they answered,
+score, pass/below, and View answers.
 
 `quiz/quiz.js`. Write a quiz by hand (multiple choice, true/false, short answer; points per question, a passing
 score), send it to a cohort's active trainees as Slack DMs, then **Check replies**. Trainees answer by replying to the

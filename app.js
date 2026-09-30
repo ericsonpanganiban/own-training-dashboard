@@ -71,6 +71,7 @@ const APPS = {
         });
         slot.replaceChildren();
         page.render(slot);
+        setCrumbs("settings", [{ label: page.title }], () => show(SETTINGS_PAGES[0].id));
       };
       el.querySelector(".settings-nav").addEventListener("click", (e) => {
         const btn = e.target.closest("[data-page]");
@@ -1566,9 +1567,79 @@ function openApp(appId) {
   wireWindow(win, appId);
   desktop.appendChild(win);
   openWindows.set(appId, win);
+  watchCrumbs(win, appId);
   focusWindow(win);
   setRunning(appId, true);
 }
+
+// ---------- Breadcrumbs ----------
+// Every window has a crumb bar under its title: Trainer Desk › App › … Apps report their deeper
+// levels with TrainerDesk.setCrumbs(appId, [{ label, go }], home), and an open dialog adds its
+// title as the last step. Any earlier step is a link; the last one is where you are.
+const crumbState = {}; // appId -> { items, home }
+function setCrumbs(appId, items, home) {
+  crumbState[appId] = { items: items || [], home: home || crumbState[appId]?.home };
+  drawCrumbs(appId);
+}
+function showDesktop() {
+  openWindows.forEach((w) => w.classList.add("minimized"));
+  refreshActiveLabel();
+}
+function closeSheet(sheet) {
+  const cancel = sheet.querySelector("[data-cancel]");
+  if (cancel) cancel.click();
+  if (sheet.isConnected) sheet.remove();
+}
+function drawCrumbs(appId) {
+  const win = openWindows.get(appId);
+  const bar = win?.querySelector(".crumbs");
+  if (!bar) return;
+  const st = crumbState[appId] || { items: [] };
+  const sheet = [...win.children].find((c) => c.classList.contains("sheet"));
+  const list = [
+    { label: "Trainer Desk", go: showDesktop, title: "Show the desktop" },
+    { label: APPS[appId].title, go: st.home },
+    ...st.items,
+  ];
+  if (sheet) {
+    // Steps behind a dialog close it first.
+    list.forEach((c) => {
+      const go = c.go;
+      if (c !== list[0]) c.go = () => (closeSheet(sheet), go?.());
+    });
+    const h = sheet.querySelector(".sheet-card h3");
+    list.push({ label: (h?.textContent || sheet.querySelector(".sheet-card")?.getAttribute("aria-label") || "Details").trim() });
+  }
+  const last = list.length - 1;
+  bar.innerHTML = list
+    .map((c, i) => {
+      const sep = i ? `<span class="crumb-sep" aria-hidden="true">›</span>` : "";
+      if (i === last) return `${sep}<span class="crumb crumb-current" aria-current="page">${escapeHtml(c.label)}</span>`;
+      if (!c.go) return `${sep}<span class="crumb">${escapeHtml(c.label)}</span>`;
+      return `${sep}<button type="button" class="crumb" data-crumb="${i}"${c.title ? ` title="${escapeHtml(c.title)}"` : ""}>${escapeHtml(c.label)}</button>`;
+    })
+    .join("");
+  bar._crumbs = list;
+}
+function watchCrumbs(win, appId) {
+  const bar = win.querySelector(".crumbs");
+  bar.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-crumb]");
+    const c = b && bar._crumbs?.[Number(b.dataset.crumb)];
+    if (!c) return;
+    c.go();
+    drawCrumbs(appId);
+  });
+  // Dialogs opening, closing or changing title redraw the crumbs.
+  let queued = false;
+  new MutationObserver((muts) => {
+    if (queued || muts.every((m) => bar.contains(m.target))) return;
+    queued = true;
+    requestAnimationFrame(() => ((queued = false), win.isConnected && drawCrumbs(appId)));
+  }).observe(win, { childList: true, subtree: true });
+  drawCrumbs(appId);
+}
+window.TrainerDesk = { setCrumbs };
 
 function closeApp(appId) {
   const win = openWindows.get(appId);

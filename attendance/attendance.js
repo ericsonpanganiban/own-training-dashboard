@@ -862,6 +862,10 @@
     sendDirect(userId, message) {
       return needMcp().then((mcp) => mcp.callTool(SLACK, "slack_send_message", { channel_id: userId, message }));
     },
+    // Any declared Slack tool (reads pass { cache: false } so replies are always fresh).
+    call(tool, args, opts) {
+      return needMcp().then((mcp) => mcp.callTool(SLACK, tool, args, opts));
+    },
     errorText: slackError,
   };
 

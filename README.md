@@ -20,3 +20,13 @@ set by hand and exported to a Google Sheet. It grades itself 10 minutes after a 
 
 Needs the Slack connector (`slack_send_message`, `slack_read_channel`, `slack_read_thread`, `slack_search_users`).
 Trainees are matched to Slack by their work email.
+
+## Quiz
+
+`quiz/quiz.js`. Write a quiz by hand (multiple choice, true/false, short answer; points per question, a passing
+score), send it to a cohort's active trainees as Slack DMs, then **Check replies**. Trainees answer by replying to the
+DM, one answer per line ("1. B", "2. True", …), in the thread or the DM itself. Multiple choice and true/false are
+checked automatically; short answers are checked by Claude against the answer key. Any answer can be marked correct or
+wrong by hand, and answers can be typed in for someone who replied another way. Results show replies, average score,
+how many passed, a by-question correct rate, and each trainee's score. Stored in `quizzes/{id}` and
+`quizzes/{id}/runs/{runId}` (each send keeps the quiz as sent, so later edits don't change old scores).

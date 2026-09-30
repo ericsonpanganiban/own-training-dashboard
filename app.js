@@ -332,6 +332,21 @@ APPS.attendance = {
   },
 };
 
+// Quiz lives in quiz/quiz.js: write quizzes, send them over Slack, check and score the replies.
+APPS.quiz = {
+  title: "Quiz",
+  icon: '<rect x="5" y="3.5" width="14" height="17.5" rx="2"/><path d="M9 3.5V2.5h6v1M9 3.5v1.5h6V3.5"/><path d="m8.5 11 1.6 1.6 3.2-3.2M8.5 16.5h7"/>',
+  color: "#ec4899",
+  custom: true,
+  render(el) {
+    if (window.TrainerQuiz) window.TrainerQuiz.render(el);
+    else el.innerHTML = `<p class="muted">Quiz isn't available right now.</p>`;
+  },
+  onClose() {
+    window.TrainerQuiz?.onClose();
+  },
+};
+
 // ---------- Settings pages ----------
 const SETTINGS_PAGES = [
   {

@@ -22,7 +22,8 @@
     { key: "data", label: "QA Data Request", icon: "table", countKey: "rows" },
     { key: "team", label: "Team coaching", icon: "users", countKey: "themes" },
     { key: "individual", label: "Individual coaching", icon: "user" },
-    { key: "cohorts", label: "Cohorts", icon: "roster", countKey: "cohorts" }
+    { key: "cohorts", label: "Cohorts", icon: "roster", countKey: "cohorts" },
+    { key: "speed", label: "Speed", icon: "trend" }
   ];
   var SOON = [
     { label: "Trends over time", icon: "trend" },
@@ -39,6 +40,7 @@
     team: { eyebrow: "Team coaching", title: "Team coaching", sub: "Recurring themes across every trainee, ranked by impact." },
     individual: { eyebrow: "Individual coaching", title: "Individual coaching", sub: "A coaching brief for each trainee, ready for your next 1:1." },
     cohorts: { eyebrow: "Cohorts", title: "Cohorts", sub: "Group trainees into a cohort so you can pull and analyze a whole batch's audits at once." },
+    speed: { eyebrow: "Speed", title: "Speed", sub: "Each trainee's weekly Speed number, read from the Speed Productivity Sheet." },
     settings: { eyebrow: "Settings", title: "Settings", sub: "Configure where Coaching reads its QA audits from." }
   };
   var RESOURCE_TABS = [
@@ -4081,6 +4083,8 @@
     renderSettings();
     renderRosterPanel();
     renderQaSheetPanel();
+    renderSpeedPanel();
+    renderSpeedSettings();
     updateReportActions();
     changeListeners.forEach(function(fn){ try { fn(); } catch (e){ /* one app's error shouldn't stop the rest */ } });
   }
@@ -4317,6 +4321,8 @@
           renderAll();
         }), function(){ /* leave the last-known list in place */ });
 
+        startSpeedDb();
+
         SIMPLE_LISTS.forEach(function(cfg){
           dbFn.collection(cfg.collection).orderBy("name", "asc").onSnapshot(onChangedSnapshot(function(snap){
             state[cfg.stateKey] = snap.docs.map(function(d){ return Object.assign({ id: d.id }, thawed(d.data())); });
@@ -4382,6 +4388,192 @@
     });
   }
 
+
+  // ---- Speed: weekly productivity, one number per trainee per week ----
+  // Source: the sheet in Settings → Speed Productivity Sheet (first tab, columns found by header name:
+  // Week, CRM Name, and one speed column). Pulled weeks are kept in settings/speed_data so
+  // Performance (Cohorts and My Class) and the Speed app show them without pulling again.
+  var speedHost = null, speedSettingsHost = null;
+  var speed = { url: "", tab_name: "", rows: [], pulled_at: "", busy: false, msg: "", err: false, cohort: "" };
+
+  function speedHeader(cells){
+    var lower = cells.map(function(c){ return String(c == null ? "" : c).trim().toLowerCase(); });
+    var weekIdx = lower.findIndex(function(c){ return /^week( ?(number|no\.?|#))?$/.test(c); });
+    if (weekIdx === -1) weekIdx = lower.findIndex(function(c){ return c.indexOf("week") === 0; });
+    var crmIdx = lower.findIndex(function(c){ return c.indexOf("crm name") !== -1; });
+    if (crmIdx === -1) crmIdx = lower.findIndex(function(c){ return /^(trainee|agent|name)\b/.test(c); });
+    if (weekIdx === -1 || crmIdx === -1 || weekIdx === crmIdx) return null;
+    var valueIdx = lower.findIndex(function(c, i){ return i !== weekIdx && i !== crmIdx && /speed|productiv|aht|handle|per hour|tickets|volume|count|value/.test(c); });
+    if (valueIdx === -1) valueIdx = lower.findIndex(function(c, i){ return i !== weekIdx && i !== crmIdx && c; });
+    if (valueIdx === -1) return null;
+    return { weekIdx: weekIdx, crmIdx: crmIdx, valueIdx: valueIdx, label: String(cells[valueIdx] || "").trim() };
+  }
+
+  // Find the header row (a few title rows above it are fine) and read every row under it.
+  function speedRowsFromCells(table){
+    for (var i = 0; i < Math.min(table.length, 12); i++){
+      var h = speedHeader(table[i]);
+      if (!h) continue;
+      var byKey = {}, order = [];
+      table.slice(i + 1).forEach(function(r){
+        var week = String(r[h.weekIdx] == null ? "" : r[h.weekIdx]).trim();
+        var crm = String(r[h.crmIdx] == null ? "" : r[h.crmIdx]).trim();
+        var raw = String(r[h.valueIdx] == null ? "" : r[h.valueIdx]).replace(/[,%\s]/g, "");
+        var v = raw === "" ? NaN : parseFloat(raw);
+        if (!week || !crm || isNaN(v)) return;
+        var k = week + "|" + crm.toLowerCase();
+        if (!(k in byKey)) order.push(k);
+        byKey[k] = { w: week, c: crm, v: v };
+      });
+      return { label: h.label, rows: order.map(function(k){ return byKey[k]; }) };
+    }
+    return null;
+  }
+
+  function speedWeekSort(a, b){
+    var x = parseFloat(a), y = parseFloat(b);
+    return !isNaN(x) && !isNaN(y) ? x - y : String(a).localeCompare(String(b), undefined, { numeric: true });
+  }
+  function speedFmt(v){ return v == null ? "—" : String(Math.round(v * 100) / 100); }
+
+  function speedWeeks(){
+    var seen = {};
+    speed.rows.forEach(function(r){ seen[r.w] = true; });
+    return Object.keys(seen).sort(speedWeekSort);
+  }
+
+  // One trainee's Speed weeks, newest first: [{ week, value }].
+  function traineeSpeed(traineeId){
+    var t = state.trainees.filter(function(x){ return x.id === traineeId; })[0];
+    var out = { name: t ? t.name : "", crm: t ? (t.crm_name || "") : "", label: speed.label || "Speed", weeks: [], configured: !!speed.url, pulled: !!speed.pulled_at };
+    if (!t) return out;
+    var keys = [(t.crm_name || "").trim().toLowerCase(), (t.name || "").trim().toLowerCase()].filter(Boolean);
+    out.weeks = speed.rows.filter(function(r){ return keys.indexOf(r.c.toLowerCase()) !== -1; })
+      .map(function(r){ return { week: r.w, value: r.v }; })
+      .sort(function(a, b){ return speedWeekSort(b.week, a.week); });
+    return out;
+  }
+
+  function pullSpeed(){
+    var fileId = extractDriveFileId(speed.url);
+    if (!fileId) return Promise.reject({ message: "Add the Google Sheet link in Settings → Speed Productivity Sheet first." });
+    if (!mcpFn) return Promise.reject({ message: "Google Drive isn't available in this view." });
+    return mcpFn.callTool("Google Drive", "download_file_content", { fileId: fileId, exportMimeType: "text/csv" })
+      .then(function(result){
+        var text = downloadedText(result);
+        return text ? speedRowsFromCells(parseCSV(text.replace(/^﻿/, ""))) : null;
+      }, function(){ return null; })
+      .then(function(got){
+        if (got) return got;
+        // Fallback: the readable text of the workbook (top rows of each tab).
+        return mcpFn.callTool("Google Drive", "read_file_content", { fileId: fileId }).then(function(result){
+          var t = parseMarkdownTable(extractTextFromToolResult(result));
+          return t ? speedRowsFromCells(t) : null;
+        });
+      })
+      .then(function(got){
+        if (!got) return Promise.reject({ message: "Couldn't find Week and CRM Name columns plus a speed column in the first tab of that sheet." });
+        var at = new Date().toISOString();
+        speed.rows = got.rows; speed.label = got.label; speed.pulled_at = at;
+        if (dbFn) dbFn.doc("settings/speed_data").set({ rows: got.rows, label: got.label, pulled_at: at }).catch(function(){});
+        renderAll();
+        return got;
+      }, function(e){
+        return Promise.reject(e && e.message ? e : { message: "Google Drive couldn't open that sheet (" + ((e && e.code) || "error") + ")." });
+      });
+  }
+
+  function runSpeedPull(){
+    if (speed.busy) return;
+    speed.busy = true; speed.msg = "Pulling…"; speed.err = false;
+    renderSpeedPanel(true); renderSpeedSettings(true);
+    pullSpeed().then(function(got){
+      speed.msg = "Pulled " + got.rows.length + " weekly value" + (got.rows.length === 1 ? "" : "s") + " (“" + got.label + "”).";
+    }, function(e){
+      speed.msg = e.message; speed.err = true;
+    }).then(function(){
+      speed.busy = false;
+      renderSpeedPanel(true); renderSpeedSettings(true);
+    });
+  }
+
+  function startSpeedDb(){
+    dbFn.doc("settings/speed_sheet").onSnapshot(onChangedSnapshot(function(snap){
+      var d = snap.exists ? (thawed(snap.data()) || {}) : {};
+      speed.url = d.url || ""; speed.tab_name = d.tab_name || "";
+      renderAll();
+    }), function(){});
+    dbFn.doc("settings/speed_data").onSnapshot(onChangedSnapshot(function(snap){
+      var d = snap.exists ? (thawed(snap.data()) || {}) : {};
+      speed.rows = Array.isArray(d.rows) ? d.rows : []; speed.label = d.label || ""; speed.pulled_at = d.pulled_at || "";
+      renderAll();
+    }), function(){});
+  }
+
+  function speedStatusLine(){
+    if (speed.msg) return "<span class=\"save-status " + (speed.err ? "err" : "ok") + "\">" + esc(speed.msg) + "</span>";
+    return speed.pulled_at ? "<span class=\"save-status\">Last pulled " + esc(new Date(speed.pulled_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })) + "</span>" : "";
+  }
+
+  function renderSpeedPanel(force){
+    var host = document.getElementById("speedBody");
+    if (!host) return;
+    if (!force && host.contains(document.activeElement) && document.activeElement.tagName === "SELECT") return;
+    var weeks = speedWeeks();
+    var cohortOpts = "<option value=\"\">All trainees</option>" + state.cohorts.map(function(c){ return "<option value=\"" + esc(c.id) + "\"" + (c.id === speed.cohort ? " selected" : "") + ">" + esc(c.name) + "</option>"; }).join("");
+    var cohort = state.cohorts.filter(function(c){ return c.id === speed.cohort; })[0];
+    var list = cohort ? (cohort.trainee_ids || []).map(function(id){ return state.trainees.filter(function(t){ return t.id === id; })[0]; }).filter(Boolean) : state.trainees;
+    var head = "<div class=\"speed-bar\"><div class=\"field\"><label for=\"speedCohort\">Cohort</label><select id=\"speedCohort\">" + cohortOpts + "</select></div>" +
+      "<button class=\"primary small\" id=\"speedPullBtn\" type=\"button\"" + (speed.busy || !speed.url ? " disabled" : "") + ">" + (speed.busy ? "Pulling…" : "Pull Speed") + "</button>" + speedStatusLine() + "</div>";
+    var body;
+    if (!speed.url) body = "<p class=\"hint\">No Speed sheet yet. Add its Google Sheet link in Settings → Speed Productivity Sheet.</p>";
+    else if (!weeks.length) body = "<p class=\"hint\">Nothing pulled yet. Use Pull Speed to read the sheet.</p>";
+    else if (!list.length) body = "<p class=\"hint\">No trainees here yet.</p>";
+    else {
+      body = "<div class=\"speed-wrap\"><table class=\"preview speed-table\"><thead><tr><th>Trainee</th>" + weeks.map(function(w){ return "<th>Wk " + esc(w) + "</th>"; }).join("") + "<th>Average</th></tr></thead><tbody>" +
+        list.map(function(t){
+          var mine = traineeSpeed(t.id).weeks, by = {};
+          mine.forEach(function(x){ by[x.week] = x.value; });
+          var avg = mine.length ? mine.reduce(function(a, x){ return a + x.value; }, 0) / mine.length : null;
+          return "<tr" + (t.cohort_status === "inactive" ? " class=\"is-inactive\"" : "") + "><td>" + esc(t.name) + "</td>" + weeks.map(function(w){ return "<td>" + speedFmt(by[w]) + "</td>"; }).join("") + "<td><b>" + speedFmt(avg) + "</b></td></tr>";
+        }).join("") + "</tbody></table></div><p class=\"hint\">" + esc(speed.label || "Speed") + ", one number per trainee per week. Trainees are matched to the sheet by CRM name.</p>";
+    }
+    host.innerHTML = head + body;
+  }
+
+  function renderSpeedSettings(force){
+    var host = speedSettingsHost;
+    if (!host || !host.isConnected) return;
+    if (!force && host.contains(document.activeElement) && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    host.innerHTML =
+      "<div class=\"card\"><h3 class=\"card-title\">Speed Productivity Sheet</h3>" +
+      "<p class=\"hint\">Where each trainee's weekly Speed number is read from. Coaching finds the columns by their header names in row 1: <b>Week</b> (or Week Number), <b>CRM Name</b>, and one speed column (e.g. Speed, Productivity, AHT). One number per trainee per week.</p>" +
+      "<div class=\"field\"><label for=\"speedUrl\">Google Sheet URL</label><input id=\"speedUrl\" type=\"url\" placeholder=\"https://docs.google.com/spreadsheets/d/…\" value=\"" + esc(speed.url) + "\" /></div>" +
+      "<div class=\"field\"><label for=\"speedTab\">Sheet tab name</label><input id=\"speedTab\" type=\"text\" placeholder=\"e.g. Weekly Speed\" value=\"" + esc(speed.tab_name) + "\" /></div>" +
+      "<p class=\"hint\">Google Drive can only export the sheet's first tab in full, so keep the Speed data on the first tab. The tab name is saved as a label.</p>" +
+      "<div class=\"card-actions\"><button class=\"primary small\" id=\"speedSaveBtn\" type=\"button\">Save</button> <button class=\"ghost small\" id=\"speedTestBtn\" type=\"button\"" + (speed.busy || !speed.url ? " disabled" : "") + ">" + (speed.busy ? "Pulling…" : "Pull now") + "</button> " + speedStatusLine() + "</div></div>";
+  }
+
+  function saveSpeedSettings(){
+    var url = (document.getElementById("speedUrl").value || "").trim();
+    var tab = (document.getElementById("speedTab").value || "").trim();
+    speed.url = url; speed.tab_name = tab;
+    speed.msg = "Saving…"; speed.err = false;
+    var done = function(msg, err){ speed.msg = msg; speed.err = !!err; renderSpeedSettings(true); renderSpeedPanel(true); };
+    if (!dbFn){ done("Saved to this browser tab only — settings storage isn't available in this view.", true); return; }
+    dbFn.doc("settings/speed_sheet").set({ url: url, tab_name: tab, updated_at: new Date().toISOString() })
+      .then(function(){ done("Saved."); }, function(e){ done(e && e.code === "invalid_argument" ? "You don't have permission to change these settings." : "Couldn't save — try again.", true); });
+  }
+
+  document.addEventListener("click", function(e){
+    var t = e.target.closest && e.target.closest("#speedPullBtn, #speedTestBtn, #speedSaveBtn");
+    if (!t) return;
+    if (t.id === "speedSaveBtn") saveSpeedSettings(); else runSpeedPull();
+  });
+  document.addEventListener("change", function(e){
+    if (e.target && e.target.id === "speedCohort"){ speed.cohort = e.target.value; renderSpeedPanel(true); }
+  });
+
   // ---- Shared data for other Trainer Desk apps (Settings → Roster is the one list) ----
   var changeListeners = [];
   var localNotes = {}, localNoteListeners = {}; // notes kept in memory when there is no db
@@ -4445,6 +4637,14 @@
         };
       });
       return out;
+    },
+    // Speed: weekly numbers pulled from the Speed Productivity Sheet.
+    traineeSpeed: traineeSpeed,
+    speedWeeks: speedWeeks,
+    mountSpeedSettings: function(host){
+      speedSettingsHost = host;
+      if (state.themeKey && state.themeKey !== "default") host.parentElement.setAttribute("data-cc-theme", state.themeKey);
+      renderSpeedSettings(true);
     },
     mountQaSheets: function(host){
       qaSheetHost = host;
@@ -4545,6 +4745,21 @@
           return Promise.reject({ message: msg || "", cancelled: msg === null });
         });
     },
+    // Create a Google Sheet from CSV text (Drive converts it). Resolves with { id, link }.
+    exportGoogleSheet: function(title, csv){
+      if (!mcpFn) return Promise.reject({ message: "Google Sheets export isn't available in this view." });
+      return mcpFn.callTool("Google Drive", "create_file", { title: title, textContent: csv, contentMimeType: "text/csv" })
+        .then(function(result){
+          var payload = (result && result.payload) || {};
+          var link = payload.webViewLink || payload.alternateLink;
+          if (!link && payload.id) link = "https://docs.google.com/spreadsheets/d/" + encodeURIComponent(payload.id) + "/edit";
+          return { id: payload.id || null, link: link || null };
+        }, function(e){
+          var msg = docErrorCopy(e && e.code);
+          return Promise.reject({ message: msg || "", cancelled: msg === null });
+        });
+    },
+    pullSpeed: pullSpeed,
     // The text of a Google Doc / Sheet / Drive file, from its link. Rejects with { message } when the
     // link isn't a Drive file or Drive can't read it.
     readDriveText: function(url){

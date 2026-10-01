@@ -1524,3 +1524,17 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .nt-fwd-card .cw-field { display: flex; flex-direction: column; gap: 4px; }
 .nt-fwd-card .sheet-actions { position: sticky; bottom: -20px; padding: 10px 0 0; background: var(--card); }
 .nt-cohorts { max-height: 150px; }
+
+/* Performance is a page in the window, not a dialog. */
+.sheet.page { padding: 0; place-items: stretch; background: var(--window-bg); }
+.sheet.page .sheet-card.perf-card { width: 100%; max-height: none; height: 100%; border-radius: 0; box-shadow: none; padding: 18px 22px; }
+.perf-card .perf-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; }
+.perf-card .perf-title h3 { margin: 0; font-size: 17px; }
+.perf-card .perf-modes { display: flex; gap: 6px; flex: none; }
+.perf-card .speed-weeks { width: 100%; border-collapse: collapse; font-size: 13px; }
+.perf-card .speed-weeks th, .perf-card .speed-weeks td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+.perf-card .speed-weeks td:last-child { width: 55%; }
+.perf-card .speed-bar-fill { display: block; height: 8px; border-radius: 4px; background: var(--accent); }
+.export-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 12px; }
+.export-bar .check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.export-bar .sheet-status { min-width: 0; }

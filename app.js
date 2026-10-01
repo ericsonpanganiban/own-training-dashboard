@@ -681,6 +681,19 @@ const SETTINGS_PAGES = [
     },
   },
   {
+    id: "speed-sheet",
+    title: "Speed Productivity Sheet",
+    color: "#ef4444",
+    icon: '<path d="M4 18a8 8 0 1 1 16 0"/><path d="m12 18 4-6"/>',
+    // Where each trainee's weekly Speed number is read from; used by Coaching's Speed app and Performance.
+    render(slot) {
+      slot.innerHTML = `<div class="settings-page cc-ui"><div class="cc-ui-scroll"></div></div>`;
+      const host = slot.querySelector(".cc-ui-scroll");
+      if (window.CoachingCompass) window.CoachingCompass.mountSpeedSettings(host);
+      else host.innerHTML = `<p class="muted">Speed settings aren't available right now.</p>`;
+    },
+  },
+  {
     id: "qa-sheets",
     title: "QA Sheets",
     color: "#f59e0b",
@@ -834,6 +847,135 @@ function traineeGroupsHtml(c, members) {
   );
 }
 
+// ---- Cohort export: Performance and Notes & Feedback as two Google Sheets, all trainees ----
+const cohortExport = {}; // cohortId -> { include, busy, msg } (kept across redraws)
+function exportLinksHtml(c) {
+  const x = c.export_sheets;
+  if (!x?.performance?.url && !x?.notes?.url) return "";
+  const link = (o, label) => (o?.url ? `<a href="${escapeHtml(o.url)}" target="_blank" rel="noopener noreferrer">${label}</a>` : "");
+  return `${[link(x.performance, "Performance sheet"), link(x.notes, "Notes &amp; Feedback sheet")].filter(Boolean).join(" · ")} · exported ${escapeHtml(fmtStamp(x.performance?.exported_at || x.notes?.exported_at))}`;
+}
+function exportBarHtml(c) {
+  const id = escapeHtml(c.id);
+  const ex = cohortExport[c.id] || {};
+  return `<div class="export-bar">
+    <button type="button" class="btn btn-small" data-export-cohort="${id}"${ex.busy ? " disabled" : ""}>${ex.busy ? "Exporting…" : c.export_sheets ? "Update Google Sheets" : "Export to Google Sheets"}</button>
+    <label class="check"><input type="checkbox" data-export-inactive="${id}"${ex.include ? " checked" : ""} /> Include inactive trainees</label>
+    <span class="sheet-status" data-export-status="${id}" role="status">${ex.msg || exportLinksHtml(c)}</span>
+  </div>`;
+}
+// Text a spreadsheet would read as a formula gets a leading apostrophe.
+const csvCell = (v) => {
+  let t = v == null ? "" : String(v);
+  if (typeof v === "string" && /^[=+@]|^-(?!\d)/.test(t)) t = `'${t}`;
+  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
+const toCsv = (rows) => rows.map((r) => r.map(csvCell).join(",")).join("\n");
+const weekSort = (a, b) => {
+  const x = parseFloat(a), y = parseFloat(b);
+  return !isNaN(x) && !isNaN(y) ? x - y : String(a).localeCompare(String(b), undefined, { numeric: true });
+};
+// One trainee's saved notes, once (null when they can't be read).
+const loadNotesOnce = (cc, traineeId) =>
+  new Promise((resolve) => {
+    let off = () => {};
+    let done = false;
+    const finish = (v) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      Promise.resolve().then(() => off());
+      resolve(v);
+    };
+    const timer = setTimeout(() => finish(null), 10000);
+    off = cc.notes.subscribe(traineeId, (list) => finish(list)) || off;
+  });
+
+async function exportCohort(el, cohortId) {
+  const cc = window.CoachingCompass;
+  const st = (cohortExport[cohortId] = cohortExport[cohortId] || {});
+  if (st.busy) return;
+  const { cohorts, trainees } = cc.data();
+  const c = cohorts.find((x) => x.id === cohortId);
+  if (!c) return;
+  const say = (msg, busy) => {
+    st.msg = msg;
+    st.busy = !!busy;
+    el.querySelectorAll(`[data-export-status="${CSS.escape(cohortId)}"]`).forEach((n) => (n.innerHTML = msg));
+    el.querySelectorAll(`[data-export-cohort="${CSS.escape(cohortId)}"]`).forEach((b) => {
+      b.disabled = !!busy;
+      if (busy) b.textContent = "Exporting…";
+    });
+  };
+  const byId = new Map(trainees.map((t) => [t.id, t]));
+  const members = (c.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean).filter((t) => st.include || !isInactive(t));
+  if (!members.length) return say("No trainees to export. Tick “Include inactive trainees” if they're all inactive.");
+  say("Collecting trainee data…", true);
+  try {
+    const status = (t) => (isInactive(t) ? "Inactive" : "Active");
+    const perf = members.map((t) => cc.traineePerformance(t.id));
+    const spd = members.map((t) => cc.traineeSpeed(t.id));
+    const weekSet = new Set();
+    perf.forEach((p) => p.weeks.forEach((w) => weekSet.add(String(w.week))));
+    spd.forEach((p) => p.weeks.forEach((w) => weekSet.add(String(w.week))));
+    const weeks = [...weekSet].sort(weekSort);
+    const speedLabel = spd.find((p) => p.weeks.length)?.label || "Speed";
+    const pctOf = (w) => (w.total ? `${Math.round((w.pass / w.total) * 100)}%` : "");
+    const head = ["Trainee", "CRM name", "Status", "Department", "Team lead", "Overall QA %", "QA audits", ...weeks.flatMap((w) => [`Week ${w} QA %`, `Week ${w} ${speedLabel}`]), `Average ${speedLabel}`];
+    const perfRows = [head];
+    members.forEach((t, i) => {
+      const qaBy = new Map(perf[i].weeks.map((w) => [String(w.week), w]));
+      const spBy = new Map(spd[i].weeks.map((w) => [String(w.week), w.value]));
+      const all = perf[i].weeks.reduce((a, w) => ({ pass: a.pass + w.pass, total: a.total + w.total }), { pass: 0, total: 0 });
+      const spVals = spd[i].weeks.map((w) => w.value);
+      perfRows.push([
+        t.name, t.crm_name || "", status(t), t.department || "", t.team_lead || "",
+        pctOf(all), perf[i].weeks.reduce((n, w) => n + w.audits, 0),
+        ...weeks.flatMap((w) => [qaBy.has(w) ? pctOf(qaBy.get(w)) : "", spBy.has(w) ? spBy.get(w) : ""]),
+        spVals.length ? Math.round((spVals.reduce((a, b) => a + b, 0) / spVals.length) * 100) / 100 : "",
+      ]);
+    });
+    say("Collecting notes…", true);
+    const noteLists = await Promise.all(members.map((t) => loadNotesOnce(cc, t.id)));
+    const noteRows = [["Trainee", "CRM name", "Status", "Type", "Date", "Edited", "Note"]];
+    let unreadable = 0;
+    members.forEach((t, i) => {
+      const list = noteLists[i];
+      if (!list) return void unreadable++;
+      NOTE_SPACES.forEach((sp) =>
+        list.filter((n) => n.category === sp.key).forEach((n) =>
+          noteRows.push([t.name, t.crm_name || "", status(t), sp.title.replace(" Notes", ""), fmtStamp(n.created_at), n.updated_at ? fmtStamp(n.updated_at) : "", n.text])
+        )
+      );
+    });
+    const stamp = new Date().toISOString();
+    say("Creating the Performance sheet…", true);
+    const perfDoc = await cc.exportGoogleSheet(`${c.name} — Performance`, toCsv(perfRows));
+    say("Creating the Notes & Feedback sheet…", true);
+    const notesDoc = await cc.exportGoogleSheet(`${c.name} — Notes & Feedback`, toCsv(noteRows));
+    const prev = c.export_sheets;
+    await cc
+      .updateCohort(c.id, {
+        export_sheets: {
+          performance: { id: perfDoc.id, url: perfDoc.link, exported_at: stamp },
+          notes: { id: notesDoc.id, url: notesDoc.link, exported_at: stamp },
+          include_inactive: !!st.include,
+        },
+      })
+      .catch(() => {});
+    let trashNote = "";
+    const old = [prev?.performance?.id, prev?.notes?.id].filter(Boolean);
+    if (old.length) {
+      const ok = await Promise.all(old.map((id) => cc.trashDriveFile(id).then(() => true, () => false)));
+      trashNote = ok.every(Boolean) ? " Previous copies are in Drive's Trash." : " Some previous copies couldn't be moved to the trash.";
+    }
+    const lk = (d, label) => (d.link ? `<a href="${escapeHtml(d.link)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label);
+    say(`Exported ${members.length} trainee${members.length === 1 ? "" : "s"} · ${lk(perfDoc, "Performance sheet")} · ${lk(notesDoc, "Notes &amp; Feedback sheet")}${unreadable ? ` · ${unreadable} trainee${unreadable === 1 ? "'s" : "s'"} notes couldn't be read` : ""}${escapeHtml(trashNote)}`);
+  } catch (e) {
+    say(e?.cancelled ? "" : escapeHtml(e?.message || "Couldn't export. Try again."));
+  }
+}
+
 // One cohort as a list row; open shows its schedule and roster. Cohorts and My Class both use it.
 function cohortRowHtml(c, byId, today, open) {
     const s = cohortSchedule(c.training_start_date);
@@ -863,6 +1005,7 @@ function cohortRowHtml(c, byId, today, open) {
           open
             ? `<div class="row-detail">
                 ${cohortDetailHtml(c, s, members)}
+                ${members.length ? exportBarHtml(c) : ""}
                 ${members.length ? traineeGroupsHtml(c, members) : ""}
               </div>`
             : ""
@@ -881,6 +1024,13 @@ function wireCohortRows(el, onToggle) {
       btn.disabled = true;
       const makeActive = btn.getAttribute("aria-pressed") !== "true";
       cc.updateTrainee(btn.dataset.toggleActive, { cohort_status: makeActive ? "active" : "inactive" }).catch(() => (btn.disabled = false));
+    })
+  );
+  el.querySelectorAll("[data-export-cohort]").forEach((b) => b.addEventListener("click", () => exportCohort(el, b.dataset.exportCohort)));
+  el.querySelectorAll("[data-export-inactive]").forEach((b) =>
+    b.addEventListener("change", () => {
+      const st = (cohortExport[b.dataset.exportInactive] = cohortExport[b.dataset.exportInactive] || {});
+      st.include = b.checked;
     })
   );
   el.querySelectorAll("[data-performance]").forEach((b) => b.addEventListener("click", () => openPerformance(el, b.dataset.performance)));
@@ -990,35 +1140,37 @@ function openAddTrainee(content, cohortId) {
   sheet.querySelector("input:not([disabled]), button")?.focus();
 }
 
-// Performance: a trainee's saved QA weeks from Coaching (the same weeks its Cohorts
-// page shows under the trainee's name): overall score, a score per week, and each week's
-// coaching talking points and markdowns.
+// Performance: a full page in the window (not a floating dialog), with the trainee's two views:
+// QA (saved QA weeks from Coaching: overall score, a score per week, coaching talking points and
+// markdowns) and Speed (the weekly Speed number from Settings → Speed Productivity Sheet).
+// Breadcrumbs: Trainer Desk › Cohorts › cohort › trainee › Performance › QA | Speed.
 function openPerformance(content, traineeId) {
   const win = content.closest(".window");
   if (win.querySelector(".sheet")) return;
   const cc = window.CoachingCompass;
-  const view = { week: null, tab: "talking" };
+  const appId = win.dataset.app;
+  const view = { week: null, tab: "talking", mode: "qa" };
   const sheet = document.createElement("div");
-  sheet.className = "sheet";
-  sheet.innerHTML = `<div class="sheet-card perf-card" role="dialog" aria-label="Performance"></div>`;
+  sheet.className = "sheet page";
+  sheet.innerHTML = `<div class="sheet-card perf-card" role="region" aria-label="Performance"></div>`;
   win.appendChild(sheet);
   const card = sheet.querySelector(".sheet-card");
   const pct = (w) => (w.total ? `${Math.round((w.pass / w.total) * 100)}%` : "—");
+  const num = (v) => String(Math.round(v * 100) / 100);
+  const cohortOf = () => cc.data().cohorts.find((c) => (c.trainee_ids || []).includes(traineeId));
+  const savedCrumbs = crumbState[appId]?.items || [];
+  const modeLabel = () => (view.mode === "speed" ? "Speed" : "QA");
 
-  const draw = () => {
-    const p = cc.traineePerformance(traineeId);
+  const qaBody = (p) => {
     const weeks = p.weeks;
     if (!weeks.some((w) => w.week === view.week)) view.week = weeks[0]?.week ?? null;
     const w = weeks.find((x) => x.week === view.week);
     const all = weeks.reduce((a, x) => ({ pass: a.pass + x.pass, total: a.total + x.total }), { pass: 0, total: 0 });
-    let body;
-    if (!p.name) body = `<p class="muted">This trainee is no longer on the roster.</p>`;
-    else if (!weeks.length && !p.loaded) body = `<p class="muted">Loading saved QA weeks…</p>`;
-    else if (!weeks.length)
-      body = `<p class="muted">No saved QA weeks for ${escapeHtml(p.name)} yet${p.crm ? ` (CRM name “${escapeHtml(p.crm)}”)` : ""}. In Coaching, request this trainee's cohort in QA Data Request and save the week.${p.crm ? "" : " Add their CRM name in Settings → Roster so their audits can be matched."}</p>`;
-    else
-      body = `
-        <div class="perf-head">
+    if (!weeks.length && !p.loaded) return `<p class="muted">Loading saved QA weeks…</p>`;
+    if (!weeks.length)
+      return `<p class="muted">No saved QA weeks for ${escapeHtml(p.name)} yet${p.crm ? ` (CRM name “${escapeHtml(p.crm)}”)` : ""}. In Coaching, request this trainee's cohort in QA Data Request and save the week.${p.crm ? "" : " Add their CRM name in Settings → Roster so their audits can be matched."}</p>`;
+    return `
+      <div class="perf-head">
         <div class="perf-summary">
           <div class="stat"><div class="value">${pct(all)}</div><div class="label">Overall QA score</div><div class="hint">${all.total ? `${Math.round(all.pass * 100) / 100} of ${all.total} audits passed` : "No Pass/Fail scores"}</div></div>
           <div class="stat"><div class="value">${weeks.length}</div><div class="label">Week${weeks.length === 1 ? "" : "s"} saved</div><div class="hint">Latest: Week ${escapeHtml(weeks[0].week)}</div></div>
@@ -1032,31 +1184,82 @@ function openPerformance(content, traineeId) {
           <button type="button" class="pill${view.tab === "talking" ? " on" : ""}" data-tab="talking">Coaching talking points</button>
           <button type="button" class="pill${view.tab === "markdowns" ? " on" : ""}" data-tab="markdowns">Markdowns</button>
         </div>
+      </div>
+      <div class="cc-ui perf-detail">${view.tab === "talking" ? w.talkingHtml : w.markdownsHtml}</div>`;
+  };
+
+  const speedBody = (sp) => {
+    if (!sp.configured)
+      return `<p class="muted">No Speed sheet is set up yet. Add its Google Sheet link in Settings → Speed Productivity Sheet.</p>`;
+    if (!sp.weeks.length)
+      return `<p class="muted">${sp.pulled ? `No Speed weeks for ${escapeHtml(sp.name)} in the sheet${sp.crm ? ` (CRM name “${escapeHtml(sp.crm)}”)` : ""}.${sp.crm ? "" : " Add their CRM name in Settings → Roster so their rows can be matched."}` : "Speed hasn't been pulled yet."}</p>
+        <div class="perf-tabs"><button type="button" class="btn-primary btn-small" data-speed-pull>${view.pulling ? "Pulling…" : "Pull Speed"}</button><span class="sheet-status" role="status">${escapeHtml(view.pullMsg || "")}</span></div>`;
+    const vals = sp.weeks.map((x) => x.value);
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const max = Math.max(...vals, 0) || 1;
+    return `
+      <div class="perf-head">
+        <div class="perf-summary">
+          <div class="stat"><div class="value">${num(sp.weeks[0].value)}</div><div class="label">Latest ${escapeHtml(sp.label)}</div><div class="hint">Week ${escapeHtml(sp.weeks[0].week)}</div></div>
+          <div class="stat"><div class="value">${num(avg)}</div><div class="label">Average</div><div class="hint">across ${sp.weeks.length} week${sp.weeks.length === 1 ? "" : "s"}</div></div>
+          <div class="stat"><div class="value">${num(Math.max(...vals))}</div><div class="label">Best week</div><div class="hint">Week ${escapeHtml(sp.weeks[vals.indexOf(Math.max(...vals))].week)}</div></div>
         </div>
-        <div class="cc-ui perf-detail">${view.tab === "talking" ? w.talkingHtml : w.markdownsHtml}</div>`;
-    // The name, scores, week and view pickers stay put; only the detail below them scrolls.
+        <div class="perf-tabs"><button type="button" class="btn btn-small" data-speed-pull>${view.pulling ? "Pulling…" : "Refresh from sheet"}</button><span class="sheet-status" role="status">${escapeHtml(view.pullMsg || "")}</span></div>
+      </div>
+      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Week</th><th>${escapeHtml(sp.label)}</th><th aria-hidden="true"></th></tr></thead><tbody>${sp.weeks
+        .map((x) => `<tr><td>Week ${escapeHtml(x.week)}</td><td><b>${num(x.value)}</b></td><td><span class="speed-bar-fill" style="width:${Math.max(2, Math.round((x.value / max) * 100))}%"></span></td></tr>`)
+        .join("")}</tbody></table></div>`;
+  };
+
+  const draw = () => {
+    const p = cc.traineePerformance(traineeId);
+    const body = !p.name
+      ? `<p class="muted">This trainee is no longer on the roster.</p>`
+      : view.mode === "speed" ? speedBody(cc.traineeSpeed(traineeId)) : qaBody(p);
     card.innerHTML = `
-      <h3>Performance${p.name ? ` · ${escapeHtml(p.name)}` : ""}</h3>
-      ${body}
-      <div class="sheet-actions"><button type="button" class="btn-primary" data-cancel>Close</button></div>`;
+      <div class="perf-title"><h3 data-crumb="${modeLabel()}">Performance${p.name ? ` · ${escapeHtml(p.name)}` : ""}</h3>
+        <button type="button" class="btn" data-cancel>← Back</button></div>
+      <div class="perf-modes" role="tablist" aria-label="Performance view">
+        <button type="button" role="tab" class="pill${view.mode === "qa" ? " on" : ""}" aria-selected="${view.mode === "qa"}" data-mode="qa">QA</button>
+        <button type="button" role="tab" class="pill${view.mode === "speed" ? " on" : ""}" aria-selected="${view.mode === "speed"}" data-mode="speed">Speed</button>
+      </div>
+      ${body}`;
+    // The cohort, the trainee and the page are crumbs ahead of the QA / Speed view.
+    const cohort = cohortOf();
+    setCrumbs(appId, [...(cohort ? [{ label: cohort.name }] : []), { label: p.name || "Trainee" }, { label: "Performance" }]);
   };
 
   const unsubscribe = cc.onChange(() => sheet.isConnected && draw());
   const close = () => {
     unsubscribe();
     sheet.remove();
+    setCrumbs(appId, savedCrumbs);
   };
   card.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
     if (b.dataset.week) view.week = b.dataset.week;
     else if (b.dataset.tab) view.tab = b.dataset.tab;
-    else if ("cancel" in b.dataset) return close();
+    else if (b.dataset.mode) view.mode = b.dataset.mode;
+    else if ("speedPull" in b.dataset) {
+      if (view.pulling) return;
+      view.pulling = true;
+      view.pullMsg = "";
+      draw();
+      cc.pullSpeed().then(
+        (got) => (view.pullMsg = `Pulled ${got.rows.length} weekly value${got.rows.length === 1 ? "" : "s"}.`),
+        (err) => (view.pullMsg = err?.message || "Couldn't pull Speed.")
+      ).finally(() => {
+        view.pulling = false;
+        if (sheet.isConnected) draw();
+      });
+      return;
+    } else if ("cancel" in b.dataset) return close();
     else return;
     draw();
-    card.querySelector(`[data-${b.dataset.week ? "week" : "tab"}="${CSS.escape(b.dataset.week || b.dataset.tab)}"]`)?.focus();
+    const key = b.dataset.week ? "week" : b.dataset.tab ? "tab" : "mode";
+    card.querySelector(`[data-${key}="${CSS.escape(b.dataset[key])}"]`)?.focus();
   });
-  sheet.addEventListener("click", (e) => e.target === sheet && close());
   sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
   draw();
   card.querySelector("[data-cancel]").focus();
@@ -1815,7 +2018,7 @@ function drawCrumbs(appId) {
       if (c !== list[0]) c.go = () => (closeSheet(sheet), go?.());
     });
     const h = sheet.querySelector(".sheet-card h3");
-    list.push({ label: (h?.textContent || sheet.querySelector(".sheet-card")?.getAttribute("aria-label") || "Details").trim() });
+    list.push({ label: (h?.dataset.crumb || h?.textContent || sheet.querySelector(".sheet-card")?.getAttribute("aria-label") || "Details").trim() });
   }
   const last = list.length - 1;
   bar.innerHTML = list

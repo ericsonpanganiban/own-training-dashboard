@@ -43,7 +43,7 @@
     --radius-card:14px;
     --card-shadow:0 1px 2px var(--shadow);
     --tile-data:#4f6d8f; --tile-team:#a8602b; --tile-individual:#5b7f3a;
-    --tile-cohorts:#7a5c8e; --tile-repository:#9a5a4a; --tile-settings:#6b6f68;
+    --tile-cohorts:#7a5c8e; --tile-speed:#d9822b; --tile-repository:#9a5a4a; --tile-settings:#6b6f68;
     color-scheme:light;
   }
   @media (prefers-color-scheme: dark){
@@ -87,7 +87,7 @@
     --radius-card:22px;
     --card-shadow:0 2px 4px rgba(44,62,80,0.06), 0 10px 24px rgba(44,62,80,0.14);
     --tile-data:#29B6F6; --tile-team:#FFB300; --tile-individual:#FF7043;
-    --tile-cohorts:#8A2BE2; --tile-repository:#EC407A; --tile-settings:#78909C;
+    --tile-cohorts:#8A2BE2; --tile-speed:#d9822b; --tile-repository:#EC407A; --tile-settings:#78909C;
     color-scheme:light;
   }
 
@@ -553,7 +553,7 @@
     --font-heading:-apple-system,BlinkMacSystemFont,'SF Pro Display',Inter,system-ui,sans-serif;
     --radius-card:12px; --card-shadow:none;
     --tile-data:#007aff; --tile-team:#ff9500; --tile-individual:#34c759;
-    --tile-cohorts:#af52de; --tile-repository:#ff2d55; --tile-settings:#8e8e93;
+    --tile-cohorts:#af52de; --tile-speed:#d9822b; --tile-repository:#ff2d55; --tile-settings:#8e8e93;
     color-scheme:light;
   }
   @media (prefers-color-scheme: dark){
@@ -570,7 +570,7 @@
     --font-heading:-apple-system,BlinkMacSystemFont,'SF Pro Display',Inter,system-ui,sans-serif;
     --radius-card:16px; --card-shadow:none;
     --tile-data:#1d9bf0; --tile-team:#ffd400; --tile-individual:#00ba7c;
-    --tile-cohorts:#a78bfa; --tile-repository:#f91880; --tile-settings:#71767b;
+    --tile-cohorts:#a78bfa; --tile-speed:#d9822b; --tile-repository:#f91880; --tile-settings:#71767b;
     color-scheme:dark;
     }
   }
@@ -587,7 +587,7 @@
     --font-heading:-apple-system,BlinkMacSystemFont,'SF Pro Display',Inter,system-ui,sans-serif;
     --radius-card:16px; --card-shadow:none;
     --tile-data:#1d9bf0; --tile-team:#ffd400; --tile-individual:#00ba7c;
-    --tile-cohorts:#a78bfa; --tile-repository:#f91880; --tile-settings:#71767b;
+    --tile-cohorts:#a78bfa; --tile-speed:#d9822b; --tile-repository:#f91880; --tile-settings:#71767b;
     color-scheme:dark;
   }
   body[data-appearance="playful"] :is(.cc-root, .cc-ui):not(#_):not(#_){
@@ -603,7 +603,13 @@
     --font-heading:'Baloo 2','Fredoka',system-ui,sans-serif;
     --radius-card:22px; --card-shadow:0 2px 4px rgba(44,62,80,0.06), 0 10px 24px rgba(44,62,80,0.14);
     --tile-data:#29B6F6; --tile-team:#FFB300; --tile-individual:#FF7043;
-    --tile-cohorts:#8A2BE2; --tile-repository:#EC407A; --tile-settings:#78909C;
+    --tile-cohorts:#8A2BE2; --tile-speed:#d9822b; --tile-repository:#EC407A; --tile-settings:#78909C;
     color-scheme:light;
   }
 
+
+  :is(.cc-root, .cc-ui) .speed-bar{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+  :is(.cc-root, .cc-ui) .speed-bar .field{margin-bottom:0;min-width:200px;}
+  :is(.cc-root, .cc-ui) .speed-wrap{overflow:auto;}
+  :is(.cc-root, .cc-ui) .speed-table td:not(:first-child), :is(.cc-root, .cc-ui) .speed-table th:not(:first-child){text-align:right;white-space:nowrap;}
+  :is(.cc-root, .cc-ui) .speed-table tr.is-inactive td{opacity:.55;}

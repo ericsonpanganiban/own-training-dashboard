@@ -101,12 +101,35 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   align-items: flex-end;
   gap: 6px;
   padding: 8px 8px 6px;
-  border-radius: 22px;
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border-radius: 26px;
+  /* Liquid glass: almost no fill, so the wallpaper shows through, bent and brightened by the blur;
+     light catches the rim (inset highlights) and a soft sheen runs across the top. */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06) 55%, rgba(255, 255, 255, 0.12));
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.75),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.28),
+    inset 1px 0 1px rgba(255, 255, 255, 0.22),
+    inset -1px 0 1px rgba(255, 255, 255, 0.22),
+    inset 0 14px 22px -12px rgba(255, 255, 255, 0.35),
+    0 12px 32px rgba(0, 0, 0, 0.28),
+    0 2px 6px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(22px) saturate(190%) brightness(1.12) contrast(1.02);
+  -webkit-backdrop-filter: blur(22px) saturate(190%) brightness(1.12) contrast(1.02);
   z-index: 9999;
+}
+/* A faint diagonal glint, like light sliding across the glass. */
+#dock::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 32%, rgba(255, 255, 255, 0) 68%, rgba(255, 255, 255, 0.16) 100%);
+  mix-blend-mode: soft-light;
+}
+@media (prefers-color-scheme: dark) {
+  #dock { border-color: rgba(255, 255, 255, 0.26); background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 55%, rgba(255, 255, 255, 0.08)); }
 }
 
 .dock-item {
@@ -1229,3 +1252,4 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .trash-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .btn-danger-ghost, .app-body .btn.btn-danger-ghost { color: #dc2626; }
 .app-body .btn.btn-danger-ghost:hover { border-color: #dc2626; }
+

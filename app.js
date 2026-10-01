@@ -139,11 +139,11 @@ const APPS = {
   },
 
   coaching: {
-    title: "Coaching Compass",
+    title: "Coaching",
     icon: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
     color: "#10b981",
     custom: true,
-    // Coaching Compass boots once with the page (coaching-compass/), so its state
+    // Coaching boots once with the page (coaching-compass/), so its state
     // survives closing the window; the window only borrows its root element.
     render(el) {
       el.classList.add("embed");
@@ -159,7 +159,7 @@ const APPS = {
     icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21.5 20a6.5 6.5 0 0 0-4-6"/>',
     color: "#f59e0b",
     // Cohorts, departments and team leads come from the shared roster (Settings → Roster),
-    // the same records Coaching Compass uses.
+    // the same records Coaching uses.
     render(el) {
       const cc = window.CoachingCompass;
       if (!cc) {
@@ -203,7 +203,7 @@ const APPS = {
         const pct = (n, d) => `${Math.round((n / d) * 100)}%`;
         const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
         const passedOf = (r) => `${Math.round(r.pass * 100) / 100} of ${r.total} audits passed`;
-        // Saved weeks from Coaching Compass, shown until (or if) the live pull can't run.
+        // Saved weeks from Coaching, shown until (or if) the live pull can't run.
         const saved = qa.total
           ? { value: pct(qa.pass, qa.total), hint: `${passedOf(qa)} · saved weeks only` }
           : { value: "—", hint: "No saved weeks yet" };
@@ -230,7 +230,7 @@ const APPS = {
           ? { value: "—", hint: "No CP side audits pulled yet" }
           : { value: "—", hint: "Not set up · Settings → QA Sheets" };
         // Pass rate per side: a trainee's department decides the side (a department named "CP" is CP Side,
-        // anything else C Side, same rule Coaching Compass uses for its knowledge base).
+        // anything else C Side, same rule Coaching uses for its knowledge base).
         const isCp = (t) => /\bcp\b/i.test(t.department || "");
         const passRateFor = (group, side) => {
           if (!members.length) return { value: "—", hint: "Add trainees to a cohort" };
@@ -319,7 +319,7 @@ const APPS = {
   },
 };
 
-// Attendance lives in attendance/attendance.js (loaded after Coaching Compass).
+// Attendance lives in attendance/attendance.js (loaded after Coaching).
 APPS.attendance = {
   title: "Attendance",
   icon: '<rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/><path d="m9 15 2 2 4-4"/>',
@@ -471,7 +471,7 @@ const SETTINGS_PAGES = [
     title: "Roster",
     color: "#10b981",
     icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21.5 20a6.5 6.5 0 0 0-4-6"/>',
-    // The roster belongs to Coaching Compass's data; it renders its own page here.
+    // The roster belongs to Coaching's data; it renders its own page here.
     render(slot) {
       slot.innerHTML = `<div class="settings-page cc-ui"><div class="cc-ui-scroll"></div></div>`;
       const host = slot.querySelector(".cc-ui-scroll");
@@ -484,7 +484,7 @@ const SETTINGS_PAGES = [
     title: "QA Sheets",
     color: "#f59e0b",
     icon: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M9 9v12"/>',
-    // Where QA audits are read from (C side and CP side); used by Coaching Compass and Cohorts.
+    // Where QA audits are read from (C side and CP side); used by Coaching and Cohorts.
     render(slot) {
       slot.innerHTML = `<div class="settings-page cc-ui"><div class="cc-ui-scroll"></div></div>`;
       const host = slot.querySelector(".cc-ui-scroll");
@@ -783,7 +783,7 @@ function openAddTrainee(content, cohortId) {
   sheet.querySelector("input:not([disabled]), button")?.focus();
 }
 
-// Performance: a trainee's saved QA weeks from Coaching Compass (the same weeks its Cohorts
+// Performance: a trainee's saved QA weeks from Coaching (the same weeks its Cohorts
 // page shows under the trainee's name): overall score, a score per week, and each week's
 // coaching talking points and markdowns.
 function openPerformance(content, traineeId) {
@@ -808,7 +808,7 @@ function openPerformance(content, traineeId) {
     if (!p.name) body = `<p class="muted">This trainee is no longer on the roster.</p>`;
     else if (!weeks.length && !p.loaded) body = `<p class="muted">Loading saved QA weeks…</p>`;
     else if (!weeks.length)
-      body = `<p class="muted">No saved QA weeks for ${escapeHtml(p.name)} yet${p.crm ? ` (CRM name “${escapeHtml(p.crm)}”)` : ""}. In Coaching Compass, request this trainee's cohort in QA Data Request and save the week.${p.crm ? "" : " Add their CRM name in Settings → Roster so their audits can be matched."}</p>`;
+      body = `<p class="muted">No saved QA weeks for ${escapeHtml(p.name)} yet${p.crm ? ` (CRM name “${escapeHtml(p.crm)}”)` : ""}. In Coaching, request this trainee's cohort in QA Data Request and save the week.${p.crm ? "" : " Add their CRM name in Settings → Roster so their audits can be matched."}</p>`;
     else
       body = `
         <div class="perf-head">

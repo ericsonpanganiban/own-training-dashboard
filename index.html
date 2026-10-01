@@ -40,7 +40,7 @@
     </section>
   </template>
 
-  <!-- Coaching Compass: parked here until its window opens -->
+  <!-- Coaching: parked here until its window opens -->
   <div id="ccHolder" hidden>
 <div class="cc-root" id="ccRoot">
 <button class="ask-fab" id="askFab" type="button" aria-label="Ask AI" title="Ask AI about your saved coaching data">
@@ -105,10 +105,13 @@
     </section>
 
     <section class="panel" data-panel="team">
+      <div class="trainee-picker" id="teamCohortPicker"></div>
+      <div class="subtabs week-tabs" id="teamWeekTabs" hidden></div>
       <div class="card"><div id="teamPanel"></div></div>
     </section>
 
     <section class="panel" data-panel="individual">
+      <div class="trainee-picker cohort-level" id="indCohortPicker"></div>
       <div class="trainee-picker" id="traineePicker"></div>
       <div class="subtabs week-tabs" id="traineeWeekTabs" hidden></div>
       <div class="trainee-card card" id="traineeCard"></div>

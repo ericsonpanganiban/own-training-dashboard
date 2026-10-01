@@ -1,4 +1,4 @@
-// Coaching Compass, running inside its Trainer Desk window.
+// Coaching, running inside its Trainer Desk window.
 (function(){
   "use strict";
 
@@ -39,19 +39,15 @@
     team: { eyebrow: "Team coaching", title: "Team coaching", sub: "Recurring themes across every trainee, ranked by impact." },
     individual: { eyebrow: "Individual coaching", title: "Individual coaching", sub: "A coaching brief for each trainee, ready for your next 1:1." },
     cohorts: { eyebrow: "Cohorts", title: "Cohorts", sub: "Group trainees into a cohort so you can pull and analyze a whole batch's audits at once." },
-    settings: { eyebrow: "Settings", title: "Settings", sub: "Configure where Coaching Compass reads its QA audits from." }
+    settings: { eyebrow: "Settings", title: "Settings", sub: "Configure where Coaching reads its QA audits from." }
   };
   var RESOURCE_TABS = [
     { key: "knowledge_base", label: "Knowledge Base" },
     { key: "appearance", label: "Appearance" }
   ];
   var THEMES = [
-    { key: "default", label: "Default", desc: "Coaching Compass' original palette.", swatches: ["#3c6e57", "#f4f1e8", "#ffffff", "#1c211d"] },
+    { key: "default", label: "Default", desc: "Coaching's original palette.", swatches: ["#3c6e57", "#f4f1e8", "#ffffff", "#1c211d"] },
     { key: "playful", label: "Playful", desc: "Inspired by Plants vs. Zombies 3 — leafy greens, sunflower yellow, and a bold comic-book feel.", swatches: ["#4CAF50", "#F0F9F0", "#FFEB3B", "#8A2BE2"] }
-  ];
-  var DATA_TABS = [
-    { key: "pull", label: "Pull audits" },
-    { key: "repository", label: "Calibration Log" }
   ];
   var LEARNINGS_FED_TO_ANALYSIS = 20;
   var KB_LINK_COUNT = 3;
@@ -95,6 +91,9 @@
     analyzing: false,
     analysis: null,
     selectedTrainee: null,
+    teamCohort: null,
+    teamWeek: null,
+    indCohort: "",
     settings: {
       c_side: { url: "", tab_name: "Nesting audits - Feedback" },
       cp_side: { url: "", tab_name: "" }
@@ -149,7 +148,7 @@
     "homeBody","homeTop","pageHead","homeHeader","homeApps","topbar","breadcrumb","sectionEyebrow","sectionTitle","sectionSub","reportActions","reportCopyBtn","reportDocBtn","reportLabel","reportNote",
     "statRow",
     "overviewBody",
-    "teamPanel","traineePicker","traineeWeekTabs","traineeCard",
+    "teamPanel","teamCohortPicker","teamWeekTabs","indCohortPicker","traineePicker","traineeWeekTabs","traineeCard",
     "resourceTabs","settingsBody",
     "modalRoot","modalBackdrop","modalCard","kebabMenu",
     "requestForms","requestResult",
@@ -172,7 +171,7 @@
   }
 
   // ---- Overlays ----
-  // Modals and menus open over the surface the coach is using: the Coaching Compass
+  // Modals and menus open over the surface the coach is using: the Coaching
   // window, or the Roster page in Trainer Desk's Settings (any .cc-ui element).
   var overlayHost = ccRoot;
   function trackOverlayHost(e){
@@ -286,7 +285,7 @@
     el.homeHeader.innerHTML =
       "<div class=\"brand\">" +
         "<span class=\"mark\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"></circle><polygon points=\"14.5 9.5 12 12 9.5 14.5 12 12 14.5 9.5\"></polygon></svg></span>" +
-        "<span class=\"word\">Coaching Compass</span>" +
+        "<span class=\"word\">Coaching</span>" +
       "</div>" +
       "<div class=\"home-greeting\"><h1>" + homeGreeting() + "</h1><p>" + subLine + "</p></div>";
 
@@ -463,7 +462,7 @@
     el.pageHead.hidden = onHome;
     el.sectionSub.hidden = onHome;
     ccRoot.classList.toggle("on-home", onHome);
-    // Trainer Desk shows these in the window's crumb bar: Trainer Desk › Coaching Compass › …
+    // Trainer Desk shows these in the window's crumb bar: Trainer Desk › Coaching › …
     if (window.TrainerDesk) window.TrainerDesk.setCrumbs("coaching", onHome ? [] : crumbs.map(function(c){ return { label: c.label, go: c.action || null }; }), goHome);
     if (onHome){ el.breadcrumb.innerHTML = ""; return; }
     crumbs.unshift({ label: "Home", action: goHome });
@@ -1311,13 +1310,73 @@
   }
 
   // ---- Team panel ----
+  // Saved cohort analyses grouped by cohort: { cohortId: { id, name, docs: [newest first] } }.
+  // An analysis that hasn't been saved yet shows under its cohort too, until it is saved.
+  function teamSources(){
+    var byCohort = {};
+    var docs = (Array.isArray(state.allAnalyses) ? state.allAnalyses : []).filter(function(d){ return d && d.mode === "cohort" && d.target_id; });
+    var c = state.pullContext;
+    if (state.analysis && c && c.mode === "cohort" && c.targetId && !docs.some(function(d){ return d.target_id === c.targetId && String(d.week) === String(c.week); })){
+      docs = [Object.assign({ id: "current", unsaved: true, week: c.week, mode: "cohort", target_id: c.targetId, target_label: c.targetLabel }, state.analysis)].concat(docs);
+    }
+    docs.forEach(function(d){
+      var g = byCohort[d.target_id] || (byCohort[d.target_id] = { id: d.target_id, name: d.target_label || "Cohort", docs: [] });
+      if (normalizeAnalysis(d).team_themes.length) g.docs.push(d);
+    });
+    Object.keys(byCohort).forEach(function(k){
+      byCohort[k].docs.sort(function(a, b){
+        var na = Number(a.week), nb = Number(b.week);
+        return (isFinite(na) && isFinite(nb)) ? nb - na : (String(b.week) > String(a.week) ? 1 : -1);
+      });
+    });
+    return byCohort;
+  }
+
+  // Cohorts newest first (by start date), so the batch being coached sits first as more are added.
+  function cohortsNewestFirst(){
+    return state.cohorts.slice().sort(function(a, b){
+      return String(b.training_start_date || "").localeCompare(String(a.training_start_date || "")) || String(a.name || "").localeCompare(String(b.name || ""));
+    });
+  }
+
   function renderTeamPanel(){
-    var a = state.analysis;
-    if (!a || !a.team_themes.length){
-      el.teamPanel.innerHTML = "<h2>Team coaching</h2><p class=\"hint\">Run an analysis to see recurring themes across the team here.</p>";
+    var cohorts = cohortsNewestFirst();
+    var src = teamSources();
+    if (!cohorts.length){
+      el.teamCohortPicker.innerHTML = "";
+      el.teamWeekTabs.hidden = true;
+      el.teamPanel.innerHTML = "<h2>Team coaching</h2><p class=\"hint\">Add a cohort in Cohorts, then request its audits in QA Data Request to see its recurring themes here.</p>";
       return;
     }
-    el.teamPanel.innerHTML = themesHtml(a.team_themes);
+    // Default: the cohort just analyzed, else the first cohort with a saved analysis, else the newest cohort.
+    var ids = cohorts.map(function(c){ return c.id; });
+    if (!state.teamCohort || ids.indexOf(state.teamCohort) === -1){
+      var cur = state.pullContext && state.pullContext.mode === "cohort" ? state.pullContext.targetId : null;
+      var withDocs = cohorts.filter(function(c){ return src[c.id] && src[c.id].docs.length; })[0];
+      state.teamCohort = (cur && ids.indexOf(cur) !== -1) ? cur : (withDocs || cohorts[0]).id;
+    }
+    var cohort = cohorts.filter(function(c){ return c.id === state.teamCohort; })[0];
+    el.teamCohortPicker.innerHTML = "<span class=\"picker-label\">Cohort</span>" + cohorts.map(function(c){
+      var n = src[c.id] ? src[c.id].docs.length : 0;
+      return "<button class=\"pill" + (c.id === state.teamCohort ? " active" : "") + "\" data-team-cohort=\"" + esc(c.id) + "\" type=\"button\">" + esc(c.name) +
+        (n ? " <span class=\"week-score\">" + n + " wk" + (n === 1 ? "" : "s") + "</span>" : "") + "</button>";
+    }).join("");
+    var g = src[cohort.id];
+    var docs = g ? g.docs : [];
+    if (!docs.length){
+      el.teamWeekTabs.hidden = true;
+      el.teamPanel.innerHTML = "<h2>" + esc(cohort.name) + "</h2><p class=\"hint\">No saved team analysis for this cohort yet. In QA Data Request, pull a week for " + esc(cohort.name) + " and save it to see its recurring themes here.</p>";
+      return;
+    }
+    var pick = docs.filter(function(d){ return String(d.week) === String(state.teamWeek); })[0] || docs[0];
+    state.teamWeek = String(pick.week);
+    el.teamWeekTabs.hidden = false;
+    el.teamWeekTabs.innerHTML = docs.map(function(d){
+      return "<button class=\"subtab" + (d === pick ? " active" : "") + "\" data-team-week=\"" + esc(String(d.week)) + "\" type=\"button\">Week " + esc(String(d.week)) + (d.unsaved ? " <span class=\"week-score\">unsaved</span>" : "") + "</button>";
+    }).join("");
+    var a = normalizeAnalysis(pick);
+    el.teamPanel.innerHTML = "<p class=\"trainee-meta\" style=\"margin-bottom:14px;\">" + esc(cohort.name) + " &middot; Week " + esc(String(pick.week)) + "</p>" +
+      (a.summary ? "<div class=\"summary-callout\" style=\"margin-bottom:16px;\">" + esc(a.summary) + "</div>" : "") + themesHtml(a.team_themes);
   }
 
   // ---- Individual panel: one tab per saved week, per trainee ----
@@ -1383,7 +1442,41 @@
 
   function renderIndividual(){
     var index = traineeWeekIndex();
-    var keys = Object.keys(index).sort(function(a, b){ return index[a].name.localeCompare(index[b].name); });
+    var allKeys = Object.keys(index).sort(function(a, b){ return index[a].name.localeCompare(index[b].name); });
+    // Cohort level: which saved trainees belong to which cohort (by roster CRM name).
+    var cohorts = cohortsNewestFirst();
+    var crmByTrainee = {};
+    state.trainees.forEach(function(t){ crmByTrainee[t.id] = (t.crm_name || "").trim().toLowerCase(); });
+    function keysOf(c){
+      var set = {};
+      (c.trainee_ids || []).forEach(function(id){ if (crmByTrainee[id]) set[crmByTrainee[id]] = true; });
+      return allKeys.filter(function(k){ return set[k]; });
+    }
+    // A trainee opened from elsewhere (Home, a cohort, Ask) switches to their cohort's list.
+    var want = resolveTraineeKey(index, state.selectedTrainee);
+    if (state.indCohort){
+      var cur = cohorts.filter(function(c){ return c.id === state.indCohort; })[0];
+      if (!cur) state.indCohort = "";
+      else if (want && keysOf(cur).indexOf(want) === -1){
+        var home = cohorts.filter(function(c){ return keysOf(c).indexOf(want) !== -1; })[0];
+        state.indCohort = home ? home.id : "";
+      }
+    }
+    var activeCohort = cohorts.filter(function(c){ return c.id === state.indCohort; })[0] || null;
+    var keys = activeCohort ? keysOf(activeCohort) : allKeys;
+    el.indCohortPicker.innerHTML = cohorts.length
+      ? "<span class=\"picker-label\">Cohort</span><button class=\"pill" + (activeCohort ? "" : " active") + "\" data-ind-cohort=\"\" type=\"button\">All cohorts</button>" + cohorts.map(function(c){
+          var n = keysOf(c).length;
+          return "<button class=\"pill" + (activeCohort && c.id === activeCohort.id ? " active" : "") + "\" data-ind-cohort=\"" + esc(c.id) + "\" type=\"button\">" + esc(c.name) + (n ? " <span class=\"week-score\">" + n + "</span>" : "") + "</button>";
+        }).join("")
+      : "";
+    if (activeCohort && !keys.length){
+      el.traineePicker.innerHTML = "";
+      el.traineeWeekTabs.hidden = true;
+      el.traineeCard.innerHTML = "<h2>" + esc(activeCohort.name) + "</h2><p class=\"hint\">None of this cohort's trainees have a saved week yet. Pull a week for " + esc(activeCohort.name) + " in QA Data Request and save it.</p>";
+      renderBreadcrumb();
+      return;
+    }
     if (!keys.length){
       el.traineePicker.innerHTML = "";
       el.traineeWeekTabs.hidden = true;
@@ -1393,7 +1486,7 @@
       renderBreadcrumb();
       return;
     }
-    var sel = resolveTraineeKey(index, state.selectedTrainee) || keys[0];
+    var sel = (want && keys.indexOf(want) !== -1) ? want : keys[0];
     var entry = index[sel];
     var weeks = sortedWeeks(entry);
     var wk = (state.selectedWeek && entry.weeks[state.selectedWeek]) ? state.selectedWeek : weeks[0];
@@ -1547,7 +1640,7 @@
     var today = new Date().toISOString().slice(0, 10);
     var sources = [];
     var head =
-      "You are the assistant inside Coaching Compass, a QA coaching tool a Homeaglow Care QA coach uses to coach trainees from their weekly QA audits.\n" +
+      "You are the assistant inside Coaching, a QA coaching tool a Homeaglow Care QA coach uses to coach trainees from their weekly QA audits.\n" +
       "Answer the coach's request using ONLY the data below. Rules:\n" +
       "- If what's needed isn't in the data, say exactly what's missing and how to get it (a week that isn't saved: \"request it in QA Data Request and save it\"; a knowledge gap analysis that doesn't exist: \"open Cohorts › <cohort> › Week <n> › Knowledge gap analysis and click Generate\"). Never invent numbers, names, or findings.\n" +
       "- Scores are already computed (Pass = 100%, Fail = 0%; passes ÷ audited tickets). Use them exactly as given; never recompute or estimate.\n" +
@@ -1759,7 +1852,7 @@
       var mapHtml = side.columns ? (
         "<div class=\"col-map\">" +
           "<h4>Column reference</h4>" +
-          "<p class=\"r-hint\">Inside that tab, Coaching Compass reads only these columns — everything else in the sheet is ignored:</p>" +
+          "<p class=\"r-hint\">Inside that tab, Coaching reads only these columns — everything else in the sheet is ignored:</p>" +
           side.columns.map(function(m){
             return "<div class=\"col-map-row\"><span class=\"row-top\"><span class=\"col-letter\">" + esc(m.col) + "</span><span class=\"col-field\">" + esc(m.field) + "</span></span><span class=\"col-desc\">" + esc(m.desc) + "</span></div>";
           }).join("") +
@@ -1782,7 +1875,7 @@
     qaSheetHost.innerHTML =
       "<div class=\"card\">" +
         "<div class=\"resource-head\"><span class=\"r-icon\">" + ICONS.sheet + "</span><h2>QA Sheet</h2></div>" +
-        "<p class=\"hint\">Point Coaching Compass at the Google Sheets your QA audits live in. Nothing is fetched automatically yet — this just tells the tool where to look.</p>" +
+        "<p class=\"hint\">Point Coaching at the Google Sheets your QA audits live in. Nothing is fetched automatically yet — this just tells the tool where to look.</p>" +
         "<div class=\"side-grid\">" + sidesHtml + "</div>" +
         "<div class=\"settings-foot\">" +
           "<button class=\"primary small\" id=\"saveSettingsBtn\" type=\"button\">Save sources</button>" +
@@ -1825,7 +1918,7 @@
 
   // ---- Knowledge base ----
   function normalizeKbLinks(arr){
-    var links = Array.isArray(arr) ? arr.slice(0, KB_LINK_COUNT) : [];
+    var links = Array.isArray(arr) ? arr.slice() : [];
     while (links.length < KB_LINK_COUNT) links.push({ label: "", url: "" });
     return links.map(function(l){ return { label: (l && l.label) || "", url: (l && l.url) || "" }; });
   }
@@ -1841,18 +1934,20 @@
             "<div class=\"field\"><label for=\"kb-label-" + idx + "\">Name (optional)</label><input type=\"text\" id=\"kb-label-" + idx + "\" placeholder=\"e.g. Resolution playbook\" value=\"" + esc(link.label) + "\"></div>" +
             "<div class=\"field\"><label for=\"kb-url-" + idx + "\">Link</label><input type=\"url\" id=\"kb-url-" + idx + "\" placeholder=\"https://…\" value=\"" + esc(link.url) + "\"></div>" +
           "</div>" +
+          (i >= KB_LINK_COUNT ? "<button class=\"ghost small kb-remove\" type=\"button\" data-kb-remove=\"" + side.key + "|" + i + "\" title=\"Remove this link\" aria-label=\"Remove link " + (i + 1) + "\">Remove</button>" : "") +
         "</div>";
       }).join("");
       return "<div class=\"side-card\">" +
         "<h4>" + esc(side.label) + (side.wip ? " <span class=\"badge warn\">In progress</span>" : "") + "</h4><p class=\"r-hint\">" + esc(side.hint) + "</p>" +
         "<div class=\"kb-list\">" + rowsHtml + "</div>" +
+        "<button class=\"ghost small kb-add\" type=\"button\" data-kb-add=\"" + side.key + "\">+ Add more</button>" +
       "</div>";
     }).join("");
 
     el.settingsBody.innerHTML =
       "<div class=\"card\">" +
         "<div class=\"resource-head\"><span class=\"r-icon\">" + ICONS.book + "</span><h2>Knowledge base</h2></div>" +
-        "<p class=\"hint\">Paste links to the docs, SOPs, or help center articles Coaching Compass should check against — so it can call out when a trainee's mistake is (or isn't) already covered in the knowledge base for that side.</p>" +
+        "<p class=\"hint\">Paste links to the docs, SOPs, or help center articles Coaching should check against — so it can call out when a trainee's mistake is (or isn't) already covered in the knowledge base for that side.</p>" +
         "<div class=\"side-grid\">" + sidesHtml + "</div>" +
         "<div class=\"settings-foot\">" +
           "<button class=\"primary small\" id=\"saveKbBtn\" type=\"button\">Save links</button>" +
@@ -1861,6 +1956,25 @@
       "</div>";
 
     document.getElementById("saveKbBtn").addEventListener("click", saveKnowledgeBase);
+    // Add more / Remove keep what's typed so far, then redraw. Nothing is saved until Save links.
+    el.settingsBody.querySelectorAll("[data-kb-add]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var key = btn.getAttribute("data-kb-add");
+        state.kbLinks = collectKbFromForm();
+        state.kbLinks[key].push({ label: "", url: "" });
+        renderKnowledgeBasePanel();
+        var inputs = document.querySelectorAll("[id^=\"kb-label-" + key + "-\"]");
+        if (inputs.length) inputs[inputs.length - 1].focus();
+      });
+    });
+    el.settingsBody.querySelectorAll("[data-kb-remove]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var parts = btn.getAttribute("data-kb-remove").split("|");
+        state.kbLinks = collectKbFromForm();
+        state.kbLinks[parts[0]].splice(Number(parts[1]), 1);
+        renderKnowledgeBasePanel();
+      });
+    });
   }
 
   function collectKbFromForm(){
@@ -1886,7 +2000,7 @@
     }
     if (statusEl){ statusEl.textContent = "Saving…"; statusEl.className = "save-status"; }
     var body = { updated_at: new Date().toISOString() };
-    SHEET_SIDES.forEach(function(side){ body[side.key] = payload[side.key]; });
+    SHEET_SIDES.forEach(function(side){ body[side.key] = payload[side.key].filter(function(l){ return l.url || l.label; }); });
     dbFn.doc("settings/knowledge_base").set(body)
       .then(function(){
         if (statusEl){ statusEl.textContent = "Saved."; statusEl.className = "save-status ok"; }
@@ -1924,7 +2038,7 @@
     el.settingsBody.innerHTML =
       "<div class=\"card\">" +
         "<div class=\"resource-head\"><span class=\"r-icon\">" + ICONS.palette + "</span><h2>Appearance</h2></div>" +
-        "<p class=\"hint\">Pick a colorway for Coaching Compass — it applies for everyone who opens this tool, no code changes needed.</p>" +
+        "<p class=\"hint\">Pick a colorway for Coaching — it applies for everyone who opens this tool, no code changes needed.</p>" +
         "<div class=\"theme-grid\">" + cardsHtml + "</div>" +
         "<span class=\"save-status\" id=\"appearanceStatus\"></span>" +
       "</div>";
@@ -2042,7 +2156,7 @@
           "<button class=\"ghost small\" id=\"bulkTraineeBtn\" style=\"margin-left:auto;\" type=\"button\">Bulk add</button>" +
           "<button class=\"primary small\" id=\"addTraineeBtn\" style=\"margin-left:8px;\" type=\"button\">+ Add trainee</button>" +
         "</div>" +
-        "<p class=\"hint\">One record per trainee, so Coaching Compass can match the CRM name on a QA audit back to a real person, their team lead and department. Team lead and department are picked from the lists on their own tabs.</p>" +
+        "<p class=\"hint\">One record per trainee, so Coaching can match the CRM name on a QA audit back to a real person, their team lead and department. Team lead and department are picked from the lists on their own tabs.</p>" +
         rosterHtml +
       "</div>";
   }
@@ -2628,15 +2742,9 @@
   }
 
   function renderDataPanel(){
-    var canSeeRepo = isArtifactOwner;
-    if (!canSeeRepo) state.dataTab = "pull";
-    el.dataTabs.hidden = !canSeeRepo;
-    if (canSeeRepo){
-      el.dataTabs.innerHTML = DATA_TABS.map(function(t){
-        var active = t.key === state.dataTab ? " active" : "";
-        return "<button class=\"subtab" + active + "\" data-data-tab=\"" + t.key + "\" type=\"button\">" + esc(t.label) + "</button>";
-      }).join("");
-    }
+    // The Calibration Log is no longer a tab here; the owner opens it from its tile on Home.
+    if (!isArtifactOwner) state.dataTab = "pull";
+    el.dataTabs.hidden = true;
     var onRepo = state.dataTab === "repository";
     el.dataPullView.hidden = onRepo;
     el.repositoryBody.hidden = !onRepo;
@@ -3741,7 +3849,7 @@
     if (!a) return [];
     var c = state.pullContext;
     var out = [
-      { type: "h1", text: "Coaching Compass — QA Audit Analysis" },
+      { type: "h1", text: "Coaching — QA Audit Analysis" },
       { type: "note", text: (c && c.week ? "Week " + c.week + (c.targetLabel ? " — " + c.targetLabel : "") + " · " : "") + generatedToday() }
     ];
     if (a.summary) out.push({ type: "h2", text: "Summary" }, { type: "p", text: a.summary });
@@ -3847,7 +3955,7 @@
   function exportToGoogleDoc(){
     var r = currentReport();
     if (!mcpFn || !r || docExporting) return;
-    var title = "Coaching Compass — " + r.title;
+    var title = "Coaching — " + r.title;
     docExporting = true;
     el.reportDocBtn.disabled = true;
     reportNote("Creating the Google Doc…");
@@ -3966,6 +4074,27 @@
     if (btn && !btn.disabled) submitRequest(btn.getAttribute("data-req-submit"));
   });
 
+  el.teamCohortPicker.addEventListener("click", function(e){
+    var btn = e.target.closest("[data-team-cohort]");
+    if (!btn) return;
+    state.teamCohort = btn.getAttribute("data-team-cohort");
+    state.teamWeek = null;
+    renderTeamPanel();
+    renderBreadcrumb();
+  });
+  el.teamWeekTabs.addEventListener("click", function(e){
+    var btn = e.target.closest("[data-team-week]");
+    if (!btn) return;
+    state.teamWeek = btn.getAttribute("data-team-week");
+    renderTeamPanel();
+  });
+  el.indCohortPicker.addEventListener("click", function(e){
+    var btn = e.target.closest("[data-ind-cohort]");
+    if (!btn) return;
+    state.indCohort = btn.getAttribute("data-ind-cohort") || "";
+    state.selectedWeek = null;
+    renderIndividual();
+  });
   el.traineePicker.addEventListener("click", function(e){
     var btn = e.target.closest("[data-trainee]");
     if (!btn) return;
@@ -4052,6 +4181,7 @@
         loadLatestSavedAnalysis();
         dbFn.collection("analyses").orderBy("pulled_at", "desc").limit(300).onSnapshot(onChangedSnapshot(function(snap){
           state.allAnalyses = snap.docs.map(function(d){ return Object.assign({ id: d.id }, thawed(d.data())); });
+          renderTeamPanel();
           renderIndividual();
           renderAskPage();
         }), function(){ state.allAnalyses = state.allAnalyses || []; renderIndividual(); });
@@ -4190,7 +4320,7 @@
       return out;
     },
     // One trainee's saved QA weeks (newest first), matched by CRM name the same way
-    // Coaching Compass's Cohorts and Individual pages do. HTML parts use Coaching Compass styles,
+    // Coaching's Cohorts and Individual pages do. HTML parts use Coaching styles,
     // so show them inside a .cc-ui element.
     traineePerformance: function(traineeId){
       var t = state.trainees.filter(function(x){ return x.id === traineeId; })[0];
@@ -4303,7 +4433,7 @@
       }
     },
     // Create a Google Doc from report blocks ({type:"h1"|"h2"|"h3"|"note"|"p"|"ul", ...}), the same
-    // way Coaching Compass's own "Export to Google Doc" does. Resolves with { id, link } (either may
+    // way Coaching's own "Export to Google Doc" does. Resolves with { id, link } (either may
     // be null); rejects with { message } when there's something to tell the viewer.
     exportGoogleDoc: function(title, blocks){
       if (!mcpFn) return Promise.reject({ message: "Google Doc export isn't available in this view." });

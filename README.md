@@ -2,13 +2,17 @@
 
 A macOS-style trainer dashboard: a dock of app tiles at the bottom, and each app opens in its own draggable, resizable window.
 
-Apps: **Settings**, **My Class**, **Cohorts** (sample data in `app.js`) and **Coaching Compass** (`coaching-compass/`).
+Apps: **Settings**, **My Class**, **Cohorts** (sample data in `app.js`) and **Coaching** (`coaching-compass/`).
 
-Open `index.html` in a browser to run it locally. Coaching Compass needs the Claude artifact runtime to save data, analyze audits and read Google Drive; outside an artifact it runs with nothing saved.
+Open `index.html` in a browser to run it locally. Coaching needs the Claude artifact runtime to save data, analyze audits and read Google Drive; outside an artifact it runs with nothing saved.
 
 To publish as a Claude artifact, run `python3 build.py` and publish `dist/trainer-desk.html`.
 
 To add an app, add an entry to `APPS` in `app.js`.
+
+Coaching (`coaching-compass/`): Team coaching and Individual coaching both start at a cohort level (cohort pills,
+newest first; Team also has a week tab per saved analysis). The Calibration Log is no longer a tab in QA Data Request;
+its tile stays on Coaching's Home. Settings → Knowledge Base has **+ Add more** (and Remove for extra rows) per side.
 
 Every window has a breadcrumb bar under its title (Trainer Desk › App › …). An app reports its deeper levels with
 `TrainerDesk.setCrumbs(appId, [{ label, go }], home)`; an open dialog adds its title as the last step, and clicking

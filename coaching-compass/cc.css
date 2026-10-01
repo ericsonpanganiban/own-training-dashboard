@@ -518,3 +518,8 @@
   :is(.cc-root, .cc-ui) .save-status{font-size:12.5px;color:var(--ink-soft);}
   :is(.cc-root, .cc-ui) .save-status.ok{color:var(--accent);}
   :is(.cc-root, .cc-ui) .save-status.err{color:var(--danger);}
+
+  :is(.cc-root, .cc-ui) .picker-label{align-self:center;margin-right:2px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);}
+  :is(.cc-root, .cc-ui) .trainee-picker.cohort-level{margin-bottom:10px;}
+  :is(.cc-root, .cc-ui) .kb-add{margin-top:12px;}
+  :is(.cc-root, .cc-ui) .kb-remove{flex:none;align-self:center;}

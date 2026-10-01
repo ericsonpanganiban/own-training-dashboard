@@ -36,8 +36,8 @@ Slack channel (its ID or a link to it) into the app, and new messages there are 
 channel lives in `notification_settings/notion`, never in the code. Quiz adds a read-only source that notices replies to
 recent quizzes (it doesn't grade; Check Quiz does). It runs only while the dashboard is open in a browser.
 
-Default layout: the owner's dock order and wallpaper are the default for everyone (`settings/dashboard_defaults`,
-`settings/dashboard_wallpaper`); the first time the owner opens it, their current ones are saved, and Settings →
+Default look: the owner's colorway, dock order and wallpaper are the default for everyone (`settings/dashboard_defaults`,
+`settings/dashboard_wallpaper`); the first time the owner opens it, their current ones are saved (a default saved before colorways existed gets the owner's colorway added), and Settings →
 Appearance has **Make mine the default for everyone**. A wallpaper photo is kept at full quality (the file itself when it's an ordinary web image up to 4K, else scaled to 3840 px) in the browser's IndexedDB, and "Make mine the default" uploads it as a file with the Assets capability, so everyone sees it in full resolution (`settings/dashboard_wallpaper` holds the file's id and URL). Anyone who reorders the dock or picks a wallpaper keeps their own
 until they choose **Use the default**.
 

@@ -76,7 +76,10 @@ const photoDb = {
 
 // The owner's dock order and wallpaper are the default everyone starts from (settings/dashboard_defaults and
 // settings/dashboard_wallpaper). A viewer who reorders the dock or changes the wallpaper keeps their own choice.
-const sharedDefaults = { loaded: false, dockOrder: null, wallpaper: null, photo: null, assetId: "" };
+const sharedDefaults = { loaded: false, dockOrder: null, wallpaper: null, photo: null, assetId: "", theme: null, raw: {} };
+const themeIsCustom = () => settings.themeCustom ?? settings.theme !== "system";
+// The colorway this viewer sees: their own choice, else the owner's default.
+const effectiveTheme = () => (themeIsCustom() || !sharedDefaults.theme ? settings.theme : sharedDefaults.theme);
 const dockIsCustom = () => settings.dockCustom ?? settings.dockOrder.length > 0;
 const wallpaperIsCustom = () => settings.wallpaperCustom ?? (settings.wallpaper !== "default" || !!wallpaperPhoto);
 // What this viewer sees: their own wallpaper if they chose one, else the shared default.
@@ -88,8 +91,9 @@ function effectiveWallpaper() {
 }
 
 function applySettings() {
-  if (settings.theme === "system") delete document.body.dataset.appearance;
-  else document.body.dataset.appearance = settings.theme;
+  const theme = effectiveTheme();
+  if (theme === "system") delete document.body.dataset.appearance;
+  else document.body.dataset.appearance = theme;
   const wp = effectiveWallpaper();
   document.body.dataset.wallpaper = wp.kind;
   if (wp.photo) document.body.style.setProperty("--wallpaper-photo", `url("${wp.photo}")`);
@@ -523,7 +527,10 @@ const SETTINGS_PAGES = [
       const magnify = $("#set-magnify");
       const note = $("#photo-note");
 
-      const syncTheme = () => slot.querySelectorAll("[data-theme-choice]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeChoice === settings.theme)));
+      const syncTheme = () => {
+        theme.value = effectiveTheme();
+        slot.querySelectorAll("[data-theme-choice]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeChoice === effectiveTheme())));
+      };
       slot.querySelector("#theme-grid").addEventListener("click", (e) => {
         const b = e.target.closest("[data-theme-choice]");
         if (!b) return;
@@ -544,16 +551,15 @@ const SETTINGS_PAGES = [
       // The default layout row: anyone can go back to it; the owner can publish theirs.
       const syncDefaults = () => {
         const row = $("#defaults-row");
-        const custom = dockIsCustom() || wallpaperIsCustom();
-        const canReset = sharedDefaults.loaded && (sharedDefaults.dockOrder || sharedDefaults.wallpaper) && custom;
+        const custom = dockIsCustom() || wallpaperIsCustom() || (themeIsCustom() && !!sharedDefaults.theme && settings.theme !== sharedDefaults.theme);
+        const canReset = sharedDefaults.loaded && (sharedDefaults.dockOrder || sharedDefaults.wallpaper || sharedDefaults.theme) && custom;
         row.hidden = !(canReset || defaultsOwner);
         $("#defaults-reset").hidden = !canReset;
         $("#defaults-publish").hidden = !defaultsOwner;
         $("#defaults-note").textContent = defaultsOwner
-          ? "The dock order and wallpaper others see until they change them. Rearrange the dock and pick a wallpaper, then publish."
-          : "You're using your own dock order or wallpaper. The default is the one the owner set.";
+          ? "The colorway, dock order and wallpaper others see until they change them. Set them up the way you like, then publish."
+          : "You're using your own colorway, dock order or wallpaper. The default is the one the owner set.";
       };
-      theme.value = settings.theme;
       syncTheme();
       size.value = settings.iconSize;
       magnify.checked = settings.magnify;
@@ -563,8 +569,10 @@ const SETTINGS_PAGES = [
       defaultsHooks.sync = () => slot.isConnected && (syncPhoto(), syncDefaults());
 
       const update = () => {
+        if (theme.value !== effectiveTheme()) settings.themeCustom = true;
         settings.theme = theme.value;
         syncTheme();
+        syncDefaults();
         settings.wallpaper = wallpaper.value;
         settings.iconSize = Number(size.value);
         settings.magnify = magnify.checked;
@@ -582,6 +590,7 @@ const SETTINGS_PAGES = [
       $("#defaults-reset").addEventListener("click", () => {
         settings.dockCustom = false;
         settings.wallpaperCustom = false;
+        settings.themeCustom = false;
         settings.dockOrder = [];
         saveSettings();
         reorderDock();
@@ -1910,7 +1919,7 @@ async function shrinkDataUrl(dataUrl, maxPx, quality) {
 async function publishDefaults() {
   if (!defaultsDb) return "Saved storage isn't available here, so the default can't be shared.";
   const wp = effectiveWallpaper();
-  const record = { dockOrder: dockOrder(), wallpaper: wp.kind, updated_at: new Date().toISOString() };
+  const record = { dockOrder: dockOrder(), wallpaper: wp.kind, theme: effectiveTheme(), updated_at: new Date().toISOString() };
   try {
     if (wp.kind === "photo" && wp.photo) {
       const personal = wallpaperIsCustom() && wallpaperPhoto && wp.photo === wallpaperPhoto;
@@ -1950,6 +1959,7 @@ async function publishDefaults() {
   }
   sharedDefaults.dockOrder = record.dockOrder;
   sharedDefaults.wallpaper = record.wallpaper;
+  sharedDefaults.theme = record.theme;
   return "";
 }
 
@@ -1983,7 +1993,14 @@ async function publishDefaults() {
           const d = snap.data() || {};
           sharedDefaults.dockOrder = Array.isArray(d.dockOrder) ? d.dockOrder : null;
           sharedDefaults.wallpaper = d.wallpaper || null;
+          sharedDefaults.theme = d.theme || null;
+          sharedDefaults.raw = d;
           apply();
+          // A default saved before colorways existed gets the owner's colorway added the first time they open this.
+          if (defaultsOwner && !d.theme && !seeded) {
+            seeded = true;
+            db.doc("settings/dashboard_defaults").set({ ...d, theme: effectiveTheme(), updated_at: new Date().toISOString() }).catch(() => {});
+          }
         } else if (defaultsOwner && !seeded) {
           // The first time the owner opens this, their own dock order and wallpaper become the default.
           seeded = true;

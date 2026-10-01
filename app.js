@@ -99,6 +99,14 @@ function applySettings() {
 
 const settings = loadSettings();
 
+// The colorways offered in Settings → Appearance → Themes. Light, Dark and Playful restyle every window.
+const THEME_CHOICES = [
+  { id: "system", name: "Match system", note: "Light by day, dark at night", swatches: ["#f5f5f7", "#ffffff", "#007aff", "#000000", "#16181c", "#1d9bf0"] },
+  { id: "light", name: "Light", note: "Clean off-white, blue active", swatches: ["#f5f5f7", "#ffffff", "#007aff", "#34c759", "#ff9500"] },
+  { id: "dark", name: "Dark", note: "Pitch black, light blue accent", swatches: ["#000000", "#16181c", "#2f3336", "#e7e9ea", "#1d9bf0"] },
+  { id: "playful", name: "Playful", note: "Leafy green, sunflower, violet", swatches: ["#f0f9f0", "#ffffff", "#4caf50", "#ffeb3b", "#8a2be2"] },
+];
+
 // ---------- Apps ----------
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -457,8 +465,14 @@ const SETTINGS_PAGES = [
               <option value="system">Match system</option>
               <option value="light">Light</option>
               <option value="dark">Dark</option>
+              <option value="playful">Playful</option>
             </select>
           </div>
+          <div class="theme-grid" id="theme-grid" role="group" aria-label="Colorways">${THEME_CHOICES.map(
+            (t) => `<button type="button" class="theme-card" data-theme-choice="${t.id}" aria-pressed="false">
+              <span class="theme-preview" aria-hidden="true">${t.swatches.map((c) => `<span style="background:${c}"></span>`).join("")}</span>
+              ${t.name}<small>${t.note}</small></button>`
+          ).join("")}</div>
           <div class="form-row">
             <label for="set-wallpaper">Wallpaper</label>
             <select id="set-wallpaper">
@@ -509,6 +523,14 @@ const SETTINGS_PAGES = [
       const magnify = $("#set-magnify");
       const note = $("#photo-note");
 
+      const syncTheme = () => slot.querySelectorAll("[data-theme-choice]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeChoice === settings.theme)));
+      slot.querySelector("#theme-grid").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-theme-choice]");
+        if (!b) return;
+        theme.value = b.dataset.themeChoice;
+        update();
+        syncTheme();
+      });
       const syncPhoto = () => {
         const wp = effectiveWallpaper();
         const own = wallpaperIsCustom() && !!wallpaperPhoto;
@@ -532,6 +554,7 @@ const SETTINGS_PAGES = [
           : "You're using your own dock order or wallpaper. The default is the one the owner set.";
       };
       theme.value = settings.theme;
+      syncTheme();
       size.value = settings.iconSize;
       magnify.checked = settings.magnify;
       note.textContent = "A JPG or PNG from your computer, kept at full quality (up to 4K). It stays in this browser.";
@@ -541,6 +564,7 @@ const SETTINGS_PAGES = [
 
       const update = () => {
         settings.theme = theme.value;
+        syncTheme();
         settings.wallpaper = wallpaper.value;
         settings.iconSize = Number(size.value);
         settings.magnify = magnify.checked;

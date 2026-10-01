@@ -18,6 +18,15 @@ Every window has a breadcrumb bar under its title (Trainer Desk › App › …)
 `TrainerDesk.setCrumbs(appId, [{ label, go }], home)`; an open dialog adds its title as the last step, and clicking
 an earlier step closes the dialog first. "Trainer Desk" shows the desktop.
 
+## Colorways
+
+Settings → Appearance → Themes: **Match system**, **Light** (clean off-white `#F5F5F7` with white cards, blue `#007AFF`
+active, green `#34C759` success, orange `#FF9500` warning), **Dark** (X-style: black, `#16181C` cards, `#2F3336`
+borders, `#1D9BF0` accent) and **Playful** (Plants vs. Zombies 3: pale green, white rounded cards with soft shadows,
+leafy green, sunflower yellow and violet, Baloo 2 headings). The colors are tokens on `body` in `styles.css`
+(`--window-bg`, `--card`, `--accent`, `--success`, …); Coaching maps its own tokens to the same colorway in
+`coaching-compass/cc.css`.
+
 ## Notifications and Notion
 
 `notify/notify.js`. A bell in the menu bar collects notifications from every app (`notifications/{id}`). Apps add a

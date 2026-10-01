@@ -270,7 +270,7 @@
     border:1px solid var(--line);background:var(--surface);color:var(--ink);transition:filter .12s ease, transform .05s ease;
   }
   :is(.cc-root, .cc-ui) button:hover:not(:disabled){filter:brightness(0.97);}
-  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) body:not([data-appearance="light"]) :is(.cc-root, .cc-ui) button:hover:not(:disabled){filter:brightness(1.15);}}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) body:not([data-appearance="light"]):not([data-appearance="playful"]) :is(.cc-root, .cc-ui) button:hover:not(:disabled){filter:brightness(1.15);}}
   :root[data-theme="dark"] :is(.cc-root, .cc-ui) button:hover:not(:disabled), body[data-appearance="dark"] :is(.cc-root, .cc-ui) button:hover:not(:disabled){filter:brightness(1.15);}
   :is(.cc-root, .cc-ui) button:active:not(:disabled){transform:translateY(1px);}
   :is(.cc-root, .cc-ui) button:disabled{opacity:.5;cursor:not-allowed;}
@@ -538,3 +538,72 @@
   @container (max-width:899px){
     :is(.cc-root, .cc-ui) #homeApps{padding-top:22px;}
   }
+
+  /* The dashboard's colorway (Settings → Appearance → Themes) also colors Coaching. */
+  body[data-appearance="light"] :is(.cc-root, .cc-ui):not(#_):not(#_){
+    --ink:#1d1d1f; --ink-soft:#6e6e73; --ink-faint:#86868b;
+    --paper:#f5f5f7; --surface:#ffffff; --surface-2:#f5f5f7; --surface-3:#ebebf0;
+    --line:#e5e5ea;
+    --accent:#007aff; --accent-ink:#ffffff; --accent-soft:#e5f0ff; --accent-soft-line:#bbd8ff;
+    --accent-2:#34c759; --accent-2-soft:#e3f8e9; --accent-2-soft-line:#b6eac4;
+    --warn:#b86e00; --warn-soft:#fff1db; --warn-soft-line:#ffd699;
+    --danger:#d70015; --danger-soft:#ffe5e3;
+    --shadow:rgba(0,0,0,0.08); --backdrop:rgba(0,0,0,0.35);
+    --highlight:#ffcc00;
+    --font-heading:-apple-system,BlinkMacSystemFont,'SF Pro Display',Inter,system-ui,sans-serif;
+    --radius-card:12px; --card-shadow:none;
+    --tile-data:#007aff; --tile-team:#ff9500; --tile-individual:#34c759;
+    --tile-cohorts:#af52de; --tile-repository:#ff2d55; --tile-settings:#8e8e93;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) body:not([data-appearance="light"]):not([data-appearance="playful"]) :is(.cc-root, .cc-ui):not(#_):not(#_){
+    --ink:#e7e9ea; --ink-soft:#8b98a5; --ink-faint:#71767b;
+    --paper:#000000; --surface:#16181c; --surface-2:#1d1f23; --surface-3:#26292d;
+    --line:#2f3336;
+    --accent:#1d9bf0; --accent-ink:#ffffff; --accent-soft:#08202f; --accent-soft-line:#0e3a57;
+    --accent-2:#00ba7c; --accent-2-soft:#04241b; --accent-2-soft-line:#0a4a37;
+    --warn:#ffd400; --warn-soft:#2a2400; --warn-soft-line:#4a3f00;
+    --danger:#ff5a64; --danger-soft:#2a0a0d;
+    --shadow:rgba(0,0,0,0.6); --backdrop:rgba(91,112,131,0.4);
+    --highlight:#ffd400;
+    --font-heading:-apple-system,BlinkMacSystemFont,'SF Pro Display',Inter,system-ui,sans-serif;
+    --radius-card:16px; --card-shadow:none;
+    --tile-data:#1d9bf0; --tile-team:#ffd400; --tile-individual:#00ba7c;
+    --tile-cohorts:#a78bfa; --tile-repository:#f91880; --tile-settings:#71767b;
+    color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"] body:not([data-appearance="light"]):not([data-appearance="playful"]) :is(.cc-root, .cc-ui):not(#_):not(#_), body[data-appearance="dark"] :is(.cc-root, .cc-ui):not(#_):not(#_){
+    --ink:#e7e9ea; --ink-soft:#8b98a5; --ink-faint:#71767b;
+    --paper:#000000; --surface:#16181c; --surface-2:#1d1f23; --surface-3:#26292d;
+    --line:#2f3336;
+    --accent:#1d9bf0; --accent-ink:#ffffff; --accent-soft:#08202f; --accent-soft-line:#0e3a57;
+    --accent-2:#00ba7c; --accent-2-soft:#04241b; --accent-2-soft-line:#0a4a37;
+    --warn:#ffd400; --warn-soft:#2a2400; --warn-soft-line:#4a3f00;
+    --danger:#ff5a64; --danger-soft:#2a0a0d;
+    --shadow:rgba(0,0,0,0.6); --backdrop:rgba(91,112,131,0.4);
+    --highlight:#ffd400;
+    --font-heading:-apple-system,BlinkMacSystemFont,'SF Pro Display',Inter,system-ui,sans-serif;
+    --radius-card:16px; --card-shadow:none;
+    --tile-data:#1d9bf0; --tile-team:#ffd400; --tile-individual:#00ba7c;
+    --tile-cohorts:#a78bfa; --tile-repository:#f91880; --tile-settings:#71767b;
+    color-scheme:dark;
+  }
+  body[data-appearance="playful"] :is(.cc-root, .cc-ui):not(#_):not(#_){
+    --ink:#2C3E50; --ink-soft:#5D6D7E; --ink-faint:#93A3AF;
+    --paper:#F0F9F0; --surface:#FFFFFF; --surface-2:#E8F5E9; --surface-3:#DCEDC8;
+    --line:#D7ECD7;
+    --accent:#4CAF50; --accent-ink:#08330f; --accent-soft:#E8F5E9; --accent-soft-line:#C8E6C9;
+    --accent-2:#8A2BE2; --accent-2-soft:#F1E4FB; --accent-2-soft-line:#DAB6F0;
+    --warn:#8a5a00; --warn-soft:#FFF9C4; --warn-soft-line:#FFE082;
+    --danger:#8A2BE2; --danger-soft:#F1E4FB;
+    --shadow:rgba(44,62,80,0.14); --backdrop:rgba(44,62,80,0.45);
+    --highlight:#FFEB3B;
+    --font-heading:'Baloo 2','Fredoka',system-ui,sans-serif;
+    --radius-card:22px; --card-shadow:0 2px 4px rgba(44,62,80,0.06), 0 10px 24px rgba(44,62,80,0.14);
+    --tile-data:#29B6F6; --tile-team:#FFB300; --tile-individual:#FF7043;
+    --tile-cohorts:#8A2BE2; --tile-repository:#EC407A; --tile-settings:#78909C;
+    color-scheme:light;
+  }
+

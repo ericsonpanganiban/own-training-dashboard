@@ -4604,6 +4604,7 @@
       var dates = {};
       doc.rows.forEach(function(r){ dates[r.d] = true; });
       var days = Object.keys(dates).sort();
+      var stale = doc.rows.some(function(r){ return r.t === undefined; });
       var cell = function(r, d, crm, name){
         var sp = r ? dayV(r) : null, need = r ? needFor(r.h) : null;
         var ok = need != null && r && r.t != null ? (r.t >= need) : null;
@@ -4613,7 +4614,7 @@
         return "<td><span class=\"sp-v\">" + speedFmt(sp) + "</span>" + inp("t", "Cleared tickets", r ? r.t : null, r && r.mt) + inp("h", "Hours", r ? r.h : null, r && r.mh) +
           (need != null ? "<span class=\"sp-need " + (ok ? "ok" : "short") + "\">need " + need + "</span>" : "") + "</td>";
       };
-      body = "<div class=\"speed-wrap\"><table class=\"preview speed-table\"><thead><tr><th class=\"sk sk1\">Trainee</th><th class=\"sk sk2\">Avg speed</th><th class=\"sk sk3\">Hours</th><th>Cleared</th>" + (speed.goal ? "<th>Needed</th>" : "") + days.map(function(d){ return "<th>" + esc(speedDayLabel(d)) + "</th>"; }).join("") + "</tr></thead><tbody>" +
+      body = (stale ? "<p class=\"save-status err\">This week was pulled before cleared tickets were added, so its ticket counts are empty. Type " + esc(speed.week) + " in Pull week and press Pull to load them from column J (your typed hours are kept).</p>" : "") + "<div class=\"speed-wrap\"><table class=\"preview speed-table\"><thead><tr><th class=\"sk sk1\">Trainee</th><th class=\"sk sk2\">Avg speed</th><th class=\"sk sk3\">Hours</th><th>Cleared</th>" + (speed.goal ? "<th>Needed</th>" : "") + days.map(function(d){ return "<th>" + esc(speedDayLabel(d)) + "</th>"; }).join("") + "</tr></thead><tbody>" +
         list.map(function(t){
           var keys = [(t.crm_name || "").trim().toLowerCase(), (t.name || "").trim().toLowerCase()].filter(Boolean);
           var mine = doc.rows.filter(function(r){ return keys.indexOf(String(r.c).toLowerCase()) !== -1; });

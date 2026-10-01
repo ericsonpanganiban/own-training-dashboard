@@ -158,22 +158,27 @@
     chime();
   }
 
-  // ---- Overdue banner: stays across the whole dashboard until the reminders are marked done ----
+  // ---- Overdue flag: a small red hazard icon beside the bell while any reminder is overdue ----
   function drawBanner() {
     const over = myReminders().filter(isDue);
-    let bar = document.getElementById("rem-banner");
-    if (!over.length) return void bar?.remove();
-    if (!bar) {
-      bar = document.createElement("button");
-      bar.type = "button";
-      bar.id = "rem-banner";
-      bar.addEventListener("click", () => {
+    let btn = document.getElementById("rem-flag");
+    if (!over.length) return void btn?.remove();
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.id = "rem-flag";
+      btn.addEventListener("click", () => {
         if (typeof openApp === "function") openApp("notion");
         window.TrainerNotion?.showPage("reminders");
       });
-      document.body.appendChild(bar);
+      const bellEl = document.getElementById("bell");
+      if (bellEl?.parentElement) bellEl.parentElement.insertBefore(btn, bellEl);
+      else document.querySelector(".menubar-right")?.prepend(btn);
     }
-    bar.innerHTML = `<span class="rb-icon" aria-hidden="true">⚠</span><b>${over.length} OVERDUE REMINDER${over.length === 1 ? "" : "S"}</b><span class="rb-text">${esc(over[0].title)}${over.length > 1 ? ` and ${over.length - 1} more` : ""}</span><span class="rb-go">Open reminders ›</span>`;
+    const label = `${over.length} overdue reminder${over.length === 1 ? "" : "s"}: ${over[0].title}${over.length > 1 ? ` and ${over.length - 1} more` : ""}`;
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    btn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>${over.length > 1 ? `<span class="rf-count">${over.length}</span>` : ""}`;
   }
   // A reminder that has come due lands in the bell once (and badges Ops Updates on the dock).
   let remindersRunning = false;

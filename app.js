@@ -919,19 +919,19 @@ async function exportCohort(el, cohortId) {
     perf.forEach((p) => p.weeks.forEach((w) => weekSet.add(String(w.week))));
     spd.forEach((p) => p.weeks.forEach((w) => weekSet.add(String(w.week))));
     const weeks = [...weekSet].sort(weekSort);
-    const speedLabel = spd.find((p) => p.weeks.length)?.label || "Speed";
+    const speedLabel = "Speed";
     const pctOf = (w) => (w.total ? `${Math.round((w.pass / w.total) * 100)}%` : "");
-    const head = ["Trainee", "CRM name", "Status", "Department", "Team lead", "Overall QA %", "QA audits", ...weeks.flatMap((w) => [`Week ${w} QA %`, `Week ${w} ${speedLabel}`]), `Average ${speedLabel}`];
+    const head = ["Trainee", "CRM name", "Status", "Department", "Team lead", "Overall QA %", "QA audits", ...weeks.flatMap((w) => [`Week ${w} QA %`, `Week ${w} Avg ${speedLabel}`, `Week ${w} Hours`]), `Average ${speedLabel}`];
     const perfRows = [head];
     members.forEach((t, i) => {
       const qaBy = new Map(perf[i].weeks.map((w) => [String(w.week), w]));
-      const spBy = new Map(spd[i].weeks.map((w) => [String(w.week), w.value]));
+      const spBy = new Map(spd[i].weeks.map((w) => [String(w.week), w]));
       const all = perf[i].weeks.reduce((a, w) => ({ pass: a.pass + w.pass, total: a.total + w.total }), { pass: 0, total: 0 });
-      const spVals = spd[i].weeks.map((w) => w.value);
+      const spVals = spd[i].weeks.map((w) => w.value).filter((v) => v != null);
       perfRows.push([
         t.name, t.crm_name || "", status(t), t.department || "", t.team_lead || "",
         pctOf(all), perf[i].weeks.reduce((n, w) => n + w.audits, 0),
-        ...weeks.flatMap((w) => [qaBy.has(w) ? pctOf(qaBy.get(w)) : "", spBy.has(w) ? spBy.get(w) : ""]),
+        ...weeks.flatMap((w) => [qaBy.has(w) ? pctOf(qaBy.get(w)) : "", spBy.get(w)?.value != null ? Math.round(spBy.get(w).value * 100) / 100 : "", spBy.has(w) ? Math.round(spBy.get(w).hours * 100) / 100 : ""]),
         spVals.length ? Math.round((spVals.reduce((a, b) => a + b, 0) / spVals.length) * 100) / 100 : "",
       ]);
     });
@@ -1192,22 +1192,30 @@ function openPerformance(content, traineeId) {
     if (!sp.configured)
       return `<p class="muted">No Speed sheet is set up yet. Add its Google Sheet link in Settings → Speed Productivity Sheet.</p>`;
     if (!sp.weeks.length)
-      return `<p class="muted">${sp.pulled ? `No Speed weeks for ${escapeHtml(sp.name)} in the sheet${sp.crm ? ` (CRM name “${escapeHtml(sp.crm)}”)` : ""}.${sp.crm ? "" : " Add their CRM name in Settings → Roster so their rows can be matched."}` : "Speed hasn't been pulled yet."}</p>
-        <div class="perf-tabs"><button type="button" class="btn-primary btn-small" data-speed-pull>${view.pulling ? "Pulling…" : "Pull Speed"}</button><span class="sheet-status" role="status">${escapeHtml(view.pullMsg || "")}</span></div>`;
-    const vals = sp.weeks.map((x) => x.value);
-    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-    const max = Math.max(...vals, 0) || 1;
+      return `<p class="muted">${sp.pulled ? `No Speed days for ${escapeHtml(sp.name)} in the weeks pulled so far${sp.crm ? ` (CRM name “${escapeHtml(sp.crm)}”)` : ""}.${sp.crm ? "" : " Add their CRM name in Settings → Roster so their rows can be matched."}` : "No Speed weeks pulled yet. Pull a week in Coaching → Speed."}</p>`;
+    if (!sp.weeks.some((x) => x.week === view.sweek)) view.sweek = sp.weeks[0].week;
+    const w = sp.weeks.find((x) => x.week === view.sweek);
+    const vals = sp.weeks.map((x) => x.value).filter((v) => v != null);
+    const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    const hrs = sp.weeks.reduce((a, x) => a + x.hours, 0);
+    const day = (d) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || "");
+      return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : d || "—";
+    };
+    const max = Math.max(...w.days.map((x) => x.speed || 0), 0) || 1;
     return `
       <div class="perf-head">
         <div class="perf-summary">
-          <div class="stat"><div class="value">${num(sp.weeks[0].value)}</div><div class="label">Latest ${escapeHtml(sp.label)}</div><div class="hint">Week ${escapeHtml(sp.weeks[0].week)}</div></div>
-          <div class="stat"><div class="value">${num(avg)}</div><div class="label">Average</div><div class="hint">across ${sp.weeks.length} week${sp.weeks.length === 1 ? "" : "s"}</div></div>
-          <div class="stat"><div class="value">${num(Math.max(...vals))}</div><div class="label">Best week</div><div class="hint">Week ${escapeHtml(sp.weeks[vals.indexOf(Math.max(...vals))].week)}</div></div>
+          <div class="stat"><div class="value">${w.value == null ? "—" : num(w.value)}</div><div class="label">Week ${escapeHtml(w.week)} speed</div><div class="hint">average of days with a speed · ${num(w.hours)} hrs</div></div>
+          <div class="stat"><div class="value">${avg == null ? "—" : num(avg)}</div><div class="label">Average across weeks</div><div class="hint">${sp.weeks.length} week${sp.weeks.length === 1 ? "" : "s"} pulled</div></div>
+          <div class="stat"><div class="value">${num(hrs)}</div><div class="label">Total hours</div></div>
         </div>
-        <div class="perf-tabs"><button type="button" class="btn btn-small" data-speed-pull>${view.pulling ? "Pulling…" : "Refresh from sheet"}</button><span class="sheet-status" role="status">${escapeHtml(view.pullMsg || "")}</span></div>
+        <div class="perf-weeks" role="tablist" aria-label="Weeks">${sp.weeks
+          .map((x) => `<button type="button" role="tab" class="pill${x.week === view.sweek ? " on" : ""}" aria-selected="${x.week === view.sweek}" data-sweek="${escapeHtml(x.week)}">Week ${escapeHtml(x.week)} <b>${x.value == null ? "—" : num(x.value)}</b></button>`)
+          .join("")}</div>
       </div>
-      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Week</th><th>${escapeHtml(sp.label)}</th><th aria-hidden="true"></th></tr></thead><tbody>${sp.weeks
-        .map((x) => `<tr><td>Week ${escapeHtml(x.week)}</td><td><b>${num(x.value)}</b></td><td><span class="speed-bar-fill" style="width:${Math.max(2, Math.round((x.value / max) * 100))}%"></span></td></tr>`)
+      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Day</th><th>Speed</th><th>Hours</th><th aria-hidden="true"></th></tr></thead><tbody>${w.days
+        .map((x) => `<tr><td>${escapeHtml(day(x.date))}</td><td><b>${x.speed == null ? "—" : num(x.speed)}</b></td><td>${x.hours == null ? "—" : num(x.hours)}${x.manual ? " <small class=\"muted\">typed</small>" : ""}</td><td><span class="speed-bar-fill" style="width:${Math.max(2, Math.round(((x.speed || 0) / max) * 100))}%"></span></td></tr>`)
         .join("")}</tbody></table></div>`;
   };
 
@@ -1241,23 +1249,11 @@ function openPerformance(content, traineeId) {
     if (b.dataset.week) view.week = b.dataset.week;
     else if (b.dataset.tab) view.tab = b.dataset.tab;
     else if (b.dataset.mode) view.mode = b.dataset.mode;
-    else if ("speedPull" in b.dataset) {
-      if (view.pulling) return;
-      view.pulling = true;
-      view.pullMsg = "";
-      draw();
-      cc.pullSpeed().then(
-        (got) => (view.pullMsg = `Pulled ${got.rows.length} weekly value${got.rows.length === 1 ? "" : "s"}.`),
-        (err) => (view.pullMsg = err?.message || "Couldn't pull Speed.")
-      ).finally(() => {
-        view.pulling = false;
-        if (sheet.isConnected) draw();
-      });
-      return;
-    } else if ("cancel" in b.dataset) return close();
+    else if (b.dataset.sweek) view.sweek = b.dataset.sweek;
+    else if ("cancel" in b.dataset) return close();
     else return;
     draw();
-    const key = b.dataset.week ? "week" : b.dataset.tab ? "tab" : "mode";
+    const key = b.dataset.week ? "week" : b.dataset.tab ? "tab" : b.dataset.sweek ? "sweek" : "mode";
     card.querySelector(`[data-${key}="${CSS.escape(b.dataset[key])}"]`)?.focus();
   });
   sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());

@@ -1231,7 +1231,7 @@ function openPerformance(content, traineeId) {
     return `
       <div class="perf-head">
         <div class="perf-summary">
-          <div class="stat"><div class="value">${w.value == null ? "—" : num(w.value)}</div><div class="label">Week ${escapeHtml(w.week)} speed</div><div class="hint">${num(w.hours)} hrs · ${num(w.tickets)} cleared${w.need != null ? ` · need ${w.need}` : ""}</div></div>
+          <div class="stat"><div class="value">${w.value == null ? "—" : num(w.value)}</div><div class="label">Week ${escapeHtml(w.week)} speed</div><div class="hint">${num(w.hours)} hrs · ${num(w.tickets)} cleared${w.left != null ? (w.left === 0 ? " · goal met" : ` · need ${w.left} more`) : ""}</div></div>
           <div class="stat"><div class="value">${avg == null ? "—" : num(avg)}</div><div class="label">Average across weeks</div><div class="hint">${sp.weeks.length} week${sp.weeks.length === 1 ? "" : "s"} pulled</div></div>
           <div class="stat"><div class="value">${sp.goal ? num(sp.goal) : "—"}</div><div class="label">Team goal (min/ticket)</div><div class="hint">${sp.goal ? "Lower is faster" : "Set it in Coaching → Speed"}</div></div>
         </div>
@@ -1239,8 +1239,8 @@ function openPerformance(content, traineeId) {
           .map((x) => `<button type="button" role="tab" class="pill${x.week === view.sweek ? " on" : ""}" aria-selected="${x.week === view.sweek}" data-sweek="${escapeHtml(x.week)}">Week ${escapeHtml(x.week)} <b>${x.value == null ? "—" : num(x.value)}</b></button>`)
           .join("")}</div>
       </div>
-      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Day</th><th>Speed</th><th>Hours</th><th>Cleared</th>${sp.goal ? "<th>Need</th>" : ""}<th aria-hidden="true"></th></tr></thead><tbody>${w.days
-        .map((x) => `<tr><td>${escapeHtml(day(x.date))}</td><td><b>${x.speed == null ? "—" : num(x.speed)}</b></td><td>${x.hours == null ? "—" : num(x.hours)}${x.manual ? " <small class=\"muted\">edited</small>" : ""}</td><td>${x.tickets == null ? "—" : num(x.tickets)}</td>${sp.goal ? `<td class="${x.need != null && (x.tickets || 0) < x.need ? "need-short" : ""}">${x.need == null ? "—" : x.need}</td>` : ""}<td><span class="speed-bar-fill" style="width:${Math.max(2, Math.round(((x.speed || 0) / max) * 100))}%"></span></td></tr>`)
+      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Day</th><th>Speed</th><th>Hours</th><th>Cleared</th>${sp.goal ? "<th>Still needed</th>" : ""}<th aria-hidden="true"></th></tr></thead><tbody>${w.days
+        .map((x) => `<tr><td>${escapeHtml(day(x.date))}</td><td><b>${x.speed == null ? "—" : num(x.speed)}</b></td><td>${x.hours == null ? "—" : num(x.hours)}${x.manual ? " <small class=\"muted\">edited</small>" : ""}</td><td>${x.tickets == null ? "—" : num(x.tickets)}</td>${sp.goal ? `<td class="${x.left > 0 ? "need-short" : ""}">${x.left == null ? "—" : x.left === 0 ? "Met" : x.left}</td>` : ""}<td><span class="speed-bar-fill" style="width:${Math.max(2, Math.round(((x.speed || 0) / max) * 100))}%"></span></td></tr>`)
         .join("")}</tbody></table></div>`;
   };
 
@@ -1292,8 +1292,8 @@ function openPerformance(content, traineeId) {
     const name = p.name;
     if (view.mode === "speed") {
       const sp = cc.traineeSpeed(traineeId);
-      const rows = [["Trainee", "Week", "Day", "Speed (min/ticket)", "Hours", "Cleared tickets", "Needed tickets"]];
-      sp.weeks.slice().reverse().forEach((w) => w.days.forEach((x) => rows.push([name, w.week, x.date, x.speed == null ? "" : num(x.speed), x.hours ?? "", x.tickets ?? "", x.need ?? ""])));
+      const rows = [["Trainee", "Week", "Day", "Speed (min/ticket)", "Hours", "Cleared tickets", "Tickets needed for goal", "Still needed"]];
+      sp.weeks.slice().reverse().forEach((w) => w.days.forEach((x) => rows.push([name, w.week, x.date, x.speed == null ? "" : num(x.speed), x.hours ?? "", x.tickets ?? "", x.need ?? "", x.left ?? ""])));
       return rows;
     }
     if (view.mode === "quiz") {

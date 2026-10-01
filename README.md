@@ -2,7 +2,7 @@
 
 A macOS-style trainer dashboard: a dock of app tiles at the bottom, and each app opens in its own draggable, resizable window.
 
-Apps: **Settings**, **My Class**, **Courseware**, **Cohorts** (sample data in `app.js`) and **Coaching** (`coaching-compass/`).
+Apps: **Settings**, **My Class**, **Courseware**, **Notion**, **Cohorts** (sample data in `app.js`) and **Coaching** (`coaching-compass/`).
 
 Open `index.html` in a browser to run it locally. Coaching needs the Claude artifact runtime to save data, analyze audits and read Google Drive; outside an artifact it runs with nothing saved.
 
@@ -17,6 +17,20 @@ its tile stays on Coaching's Home. Settings → Knowledge Base has **+ Add more*
 Every window has a breadcrumb bar under its title (Trainer Desk › App › …). An app reports its deeper levels with
 `TrainerDesk.setCrumbs(appId, [{ label, go }], home)`; an open dialog adds its title as the last step, and clicking
 an earlier step closes the dialog first. "Trainer Desk" shows the desktop.
+
+## Notifications and Notion
+
+`notify/notify.js`. A bell in the menu bar collects notifications from every app (`notifications/{id}`). Apps add a
+source with `TrainerNotify.register({ id, label, app, poll })`; each poll runs on open, every hour while the dashboard
+is open, when a sleeping tab wakes, and on **Check now**. The **Notion** app is the first source: the owner pastes the
+Slack channel (its ID or a link to it) into the app, and new messages there are listed and counted on the bell; the
+channel lives in `notification_settings/notion`, never in the code. Quiz adds a read-only source that notices replies to
+recent quizzes (it doesn't grade; Check Quiz does). It runs only while the dashboard is open in a browser.
+
+Default layout: the owner's dock order and wallpaper are the default for everyone (`settings/dashboard_defaults`,
+`settings/dashboard_wallpaper`); the first time the owner opens it, their current ones are saved, and Settings →
+Appearance has **Make mine the default for everyone**. Anyone who reorders the dock or picks a wallpaper keeps their own
+until they choose **Use the default**.
 
 ## Courseware
 

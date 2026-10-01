@@ -25,12 +25,25 @@ try {
   wallpaperPhoto = localStorage.getItem(PHOTO_KEY);
 } catch {}
 
+// The owner's dock order and wallpaper are the default everyone starts from (settings/dashboard_defaults and
+// settings/dashboard_wallpaper). A viewer who reorders the dock or changes the wallpaper keeps their own choice.
+const sharedDefaults = { loaded: false, dockOrder: null, wallpaper: null, photo: null };
+const dockIsCustom = () => settings.dockCustom ?? settings.dockOrder.length > 0;
+const wallpaperIsCustom = () => settings.wallpaperCustom ?? (settings.wallpaper !== "default" || !!wallpaperPhoto);
+// What this viewer sees: their own wallpaper if they chose one, else the shared default.
+function effectiveWallpaper() {
+  const custom = wallpaperIsCustom();
+  const kind = custom || !sharedDefaults.wallpaper ? settings.wallpaper : sharedDefaults.wallpaper;
+  const photo = custom ? wallpaperPhoto : sharedDefaults.photo || wallpaperPhoto;
+  return { kind: kind === "photo" && !photo ? "default" : kind, photo: kind === "photo" ? photo : wallpaperPhoto };
+}
+
 function applySettings() {
   if (settings.theme === "system") delete document.body.dataset.appearance;
   else document.body.dataset.appearance = settings.theme;
-  const wallpaper = settings.wallpaper === "photo" && !wallpaperPhoto ? "default" : settings.wallpaper;
-  document.body.dataset.wallpaper = wallpaper;
-  if (wallpaperPhoto) document.body.style.setProperty("--wallpaper-photo", `url("${wallpaperPhoto}")`);
+  const wp = effectiveWallpaper();
+  document.body.dataset.wallpaper = wp.kind;
+  if (wp.photo) document.body.style.setProperty("--wallpaper-photo", `url("${wp.photo}")`);
   else document.body.style.removeProperty("--wallpaper-photo");
   document.documentElement.style.setProperty("--icon-size", `${settings.iconSize}px`);
 }
@@ -363,6 +376,21 @@ APPS.courseware = {
   },
 };
 
+// Notion lives in notify/notify.js: updates from a Slack channel the owner names, checked every hour.
+APPS.notion = {
+  title: "Notion",
+  icon: '<path d="M6 4h9.5L19 7.5V20H6z"/><path d="M9.5 9v7.5M9.5 9l6 7.5V9"/>',
+  color: "#3f3f46",
+  custom: true,
+  render(el) {
+    if (window.TrainerNotion) window.TrainerNotion.render(el);
+    else el.innerHTML = `<p class="muted">Notion isn't available right now.</p>`;
+  },
+  onClose() {
+    window.TrainerNotion?.onClose();
+  },
+};
+
 // ---------- Settings pages ----------
 const SETTINGS_PAGES = [
   {
@@ -414,6 +442,16 @@ const SETTINGS_PAGES = [
             <label for="set-magnify">Dock magnification</label>
             <input id="set-magnify" type="checkbox" />
           </div>
+          <div class="form-row photo-row" id="defaults-row" hidden>
+            <div>
+              <span>Default layout</span>
+              <p class="muted photo-note" id="defaults-note"></p>
+            </div>
+            <div class="photo-controls">
+              <button type="button" class="button-like" id="defaults-reset" hidden>Use the default</button>
+              <button type="button" class="button-like" id="defaults-publish" hidden>Make mine the default for everyone</button>
+            </div>
+          </div>
         </div>`;
       const $ = (id) => slot.querySelector(id);
       const theme = $("#set-theme");
@@ -423,18 +461,34 @@ const SETTINGS_PAGES = [
       const note = $("#photo-note");
 
       const syncPhoto = () => {
-        wallpaper.querySelector('[value="photo"]').disabled = !wallpaperPhoto;
-        wallpaper.value = settings.wallpaper === "photo" && !wallpaperPhoto ? "default" : settings.wallpaper;
-        $("#photo-thumb").hidden = !wallpaperPhoto;
-        $("#photo-thumb").style.backgroundImage = wallpaperPhoto ? `url("${wallpaperPhoto}")` : "";
-        $("#photo-remove").hidden = !wallpaperPhoto;
-        $("#photo-pick-label").textContent = wallpaperPhoto ? "Change photo" : "Add photo";
+        const wp = effectiveWallpaper();
+        const own = wallpaperIsCustom() && !!wallpaperPhoto;
+        wallpaper.querySelector('[value="photo"]').disabled = !wp.photo;
+        wallpaper.value = wp.kind;
+        $("#photo-thumb").hidden = !wp.photo;
+        $("#photo-thumb").style.backgroundImage = wp.photo ? `url("${wp.photo}")` : "";
+        $("#photo-remove").hidden = !own;
+        $("#photo-pick-label").textContent = own ? "Change photo" : wp.photo ? "Use my own photo" : "Add photo";
+      };
+      // The default layout row: anyone can go back to it; the owner can publish theirs.
+      const syncDefaults = () => {
+        const row = $("#defaults-row");
+        const custom = dockIsCustom() || wallpaperIsCustom();
+        const canReset = sharedDefaults.loaded && (sharedDefaults.dockOrder || sharedDefaults.wallpaper) && custom;
+        row.hidden = !(canReset || defaultsOwner);
+        $("#defaults-reset").hidden = !canReset;
+        $("#defaults-publish").hidden = !defaultsOwner;
+        $("#defaults-note").textContent = defaultsOwner
+          ? "The dock order and wallpaper others see until they change them. Rearrange the dock and pick a wallpaper, then publish."
+          : "You're using your own dock order or wallpaper. The default is the one the owner set.";
       };
       theme.value = settings.theme;
       size.value = settings.iconSize;
       magnify.checked = settings.magnify;
       note.textContent = "A JPG or PNG from your computer. It stays in this browser.";
       syncPhoto();
+      syncDefaults();
+      defaultsHooks.sync = () => slot.isConnected && (syncPhoto(), syncDefaults());
 
       const update = () => {
         settings.theme = theme.value;
@@ -445,6 +499,32 @@ const SETTINGS_PAGES = [
         saveSettings();
       };
       [theme, wallpaper, size, magnify].forEach((input) => input.addEventListener("input", update));
+      // Choosing a wallpaper makes it yours; the default stays for everyone else.
+      wallpaper.addEventListener("input", () => {
+        settings.wallpaperCustom = true;
+        saveSettings();
+        syncPhoto();
+        syncDefaults();
+      });
+      $("#defaults-reset").addEventListener("click", () => {
+        settings.dockCustom = false;
+        settings.wallpaperCustom = false;
+        settings.dockOrder = [];
+        saveSettings();
+        reorderDock();
+        applySettings();
+        syncPhoto();
+        syncDefaults();
+        note.textContent = "Back to the default dock order and wallpaper.";
+      });
+      $("#defaults-publish").addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        note.textContent = "Saving the default…";
+        note.textContent = (await publishDefaults()) || "Your dock order and wallpaper are now the default for everyone who hasn't changed theirs.";
+        btn.disabled = false;
+        syncDefaults();
+      });
 
       $("#set-photo").addEventListener("change", async (e) => {
         const file = e.target.files[0];
@@ -464,9 +544,11 @@ const SETTINGS_PAGES = [
           note.textContent = "Photo set, but this browser couldn't save it, so it will reset when you reload.";
         }
         settings.wallpaper = "photo";
+        settings.wallpaperCustom = true;
         applySettings();
         saveSettings();
         syncPhoto();
+        syncDefaults();
       });
       $("#photo-remove").addEventListener("click", () => {
         wallpaperPhoto = null;
@@ -474,10 +556,12 @@ const SETTINGS_PAGES = [
           localStorage.removeItem(PHOTO_KEY);
         } catch {}
         if (settings.wallpaper === "photo") settings.wallpaper = "default";
+        settings.wallpaperCustom = true;
         note.textContent = "Photo removed.";
         applySettings();
         saveSettings();
         syncPhoto();
+        syncDefaults();
       });
     },
   },
@@ -1717,6 +1801,91 @@ function makeDraggable(handle, onMove, getStart, ignoreSelector) {
   });
 }
 
+// ---------- Shared defaults: dock order and wallpaper ----------
+let defaultsOwner = false;
+const defaultsHooks = { sync() {} };
+let defaultsDb = null;
+
+// A photo shared with everyone is shrunk harder than a personal one, to fit in a stored document.
+async function shrinkDataUrl(dataUrl, maxPx, quality) {
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+  const scale = Math.min(1, maxPx / Math.max(img.naturalWidth, img.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.naturalWidth * scale);
+  canvas.height = Math.round(img.naturalHeight * scale);
+  canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+// Saves the owner's current dock order and wallpaper as the default. Resolves with an error message, or "" when saved.
+async function publishDefaults() {
+  if (!defaultsDb) return "Saved storage isn't available here, so the default can't be shared.";
+  const wp = effectiveWallpaper();
+  const record = { dockOrder: dockOrder(), wallpaper: wp.kind, updated_at: new Date().toISOString() };
+  try {
+    if (wp.kind === "photo" && wp.photo) {
+      let data = wp.photo;
+      for (const [px, q] of [[1920, 0.8], [1600, 0.7], [1280, 0.65]]) {
+        data = await shrinkDataUrl(wp.photo, px, q);
+        if (data.length < 700000) break;
+      }
+      await defaultsDb.doc("settings/dashboard_wallpaper").set({ data, updated_at: record.updated_at });
+      sharedDefaults.photo = data;
+    } else {
+      sharedDefaults.photo = null;
+      await defaultsDb.doc("settings/dashboard_wallpaper").set({ data: "", updated_at: record.updated_at });
+    }
+    await defaultsDb.doc("settings/dashboard_defaults").set(record);
+  } catch {
+    return "Couldn't save the default. Try again.";
+  }
+  sharedDefaults.dockOrder = record.dockOrder;
+  sharedDefaults.wallpaper = record.wallpaper;
+  return "";
+}
+
+(function loadDefaults() {
+  const use = (name) => Promise.resolve().then(() => (window.claude ? window.claude.use(name) : null)).catch(() => null);
+  Promise.all([use("db"), use("user")]).then(async ([db, user]) => {
+    defaultsDb = db;
+    if (!db) return;
+    try {
+      defaultsOwner = !!(await user?.isOwner());
+    } catch {}
+    let seeded = false;
+    const apply = () => {
+      applySettings();
+      reorderDock();
+      defaultsHooks.sync();
+    };
+    db.doc("settings/dashboard_wallpaper").onSnapshot(
+      (snap) => {
+        sharedDefaults.photo = (snap.exists && snap.data()?.data) || null;
+        apply();
+      },
+      () => {}
+    );
+    db.doc("settings/dashboard_defaults").onSnapshot(
+      (snap) => {
+        sharedDefaults.loaded = true;
+        if (snap.exists) {
+          const d = snap.data() || {};
+          sharedDefaults.dockOrder = Array.isArray(d.dockOrder) ? d.dockOrder : null;
+          sharedDefaults.wallpaper = d.wallpaper || null;
+          apply();
+        } else if (defaultsOwner && !seeded) {
+          // The first time the owner opens this, their own dock order and wallpaper become the default.
+          seeded = true;
+          publishDefaults().then(apply);
+        } else defaultsHooks.sync();
+      },
+      () => {}
+    );
+  });
+})();
+
 // ---------- Dock ----------
 function setRunning(appId, running) {
   dock.querySelector(`[data-app="${appId}"]`)?.classList.toggle("running", running);
@@ -1726,8 +1895,17 @@ let dockMagnify = { reset() {} };
 
 function dockOrder() {
   const ids = Object.keys(APPS);
-  const saved = settings.dockOrder.filter((id) => ids.includes(id));
+  const base = !dockIsCustom() && sharedDefaults.dockOrder ? sharedDefaults.dockOrder : settings.dockOrder;
+  const saved = base.filter((id) => ids.includes(id));
   return [...saved, ...ids.filter((id) => !saved.includes(id))];
+}
+// Put the dock icons in the current order (the default arriving after the page loaded, or a reset).
+function reorderDock() {
+  if (dock.classList.contains("reordering")) return;
+  dockOrder().forEach((id) => {
+    const item = dock.querySelector(`[data-app="${id}"]`);
+    if (item) dock.appendChild(item);
+  });
 }
 
 function buildDock() {
@@ -1851,6 +2029,7 @@ function enableDockDrag(item) {
       item.classList.remove("dragging");
       dock.classList.remove("reordering");
       settings.dockOrder = [...dock.querySelectorAll(".dock-item")].map((i) => i.dataset.app);
+      settings.dockCustom = true;
       saveSettings();
       // The click that follows a drag shouldn't open the app.
       item.addEventListener("click", (ce) => ce.stopImmediatePropagation(), { capture: true, once: true });

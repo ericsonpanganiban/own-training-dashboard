@@ -2295,6 +2295,46 @@
     new MutationObserver((_, obs) => !x.s.isConnected && (off(), obs.disconnect())).observe(x.s.parentElement, { childList: true });
   }
 
+  // Hourly (from the dashboard's notification check): who has replied to a recent quiz and hasn't been graded yet.
+  // Read-only: nothing is graded or saved here; the notification points to Check Quiz.
+  window.TrainerNotify?.register({
+    id: "quiz",
+    label: "Quiz replies",
+    app: "quiz",
+    async poll() {
+      const s = slack();
+      if (!s) return [];
+      await dbReady;
+      await loadAllRuns();
+      const cutoff = Date.now() - 14 * 86400000;
+      const out = [];
+      let reads = 0;
+      for (const [quizId, list] of Object.entries(allRuns || {})) {
+        for (const run of list) {
+          if (Date.parse(run.sent_at) < cutoff) continue;
+          for (const [tid, rec] of Object.entries(run.recipients || {})) {
+            if (!rec.sent || !rec.slack_user_id || !rec.ts || run.responses?.[tid]?.text || reads >= 30) continue;
+            const id = `quiz:${run.id}:${tid}`;
+            reads++;
+            try {
+              const text = await traineeReplies(rec);
+              if (text.trim())
+                out.push({
+                  id,
+                  title: `${rec.name} replied to “${run.quiz?.title || "a quiz"}”`,
+                  body: "Open Check Quiz and click Check replies to grade it.",
+                  at: new Date().toISOString(),
+                });
+            } catch {
+              /* one DM that can't be read shouldn't stop the rest */
+            }
+          }
+        }
+      }
+      return out;
+    },
+  });
+
   window.TrainerQuiz = {
     render(el) {
       ui.el = el;

@@ -29,7 +29,7 @@ recent quizzes (it doesn't grade; Check Quiz does). It runs only while the dashb
 
 Default layout: the owner's dock order and wallpaper are the default for everyone (`settings/dashboard_defaults`,
 `settings/dashboard_wallpaper`); the first time the owner opens it, their current ones are saved, and Settings →
-Appearance has **Make mine the default for everyone**. Anyone who reorders the dock or picks a wallpaper keeps their own
+Appearance has **Make mine the default for everyone**. A wallpaper photo is kept at full quality (the file itself when it's an ordinary web image up to 4K, else scaled to 3840 px) in the browser's IndexedDB, and "Make mine the default" uploads it as a file with the Assets capability, so everyone sees it in full resolution (`settings/dashboard_wallpaper` holds the file's id and URL). Anyone who reorders the dock or picks a wallpaper keeps their own
 until they choose **Use the default**.
 
 ## Courseware

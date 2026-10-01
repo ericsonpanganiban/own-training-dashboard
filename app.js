@@ -19,15 +19,64 @@ function saveSettings() {
 }
 
 // A wallpaper photo is kept apart from the settings so a large image can't stop them saving.
+// It is stored at full quality in IndexedDB (no 5 MB limit); an older photo saved in localStorage is moved over.
 const PHOTO_KEY = "trainer.wallpaperPhoto";
-let wallpaperPhoto = null;
+let wallpaperPhoto = null; // a URL the page can show: a blob: URL, or an old data: URL until it is moved
+let wallpaperBlob = null; // the same photo as a file, for sharing it as the default
 try {
   wallpaperPhoto = localStorage.getItem(PHOTO_KEY);
 } catch {}
+const photoDb = {
+  open() {
+    return new Promise((resolve) => {
+      try {
+        const req = indexedDB.open("trainer-desk", 1);
+        req.onupgradeneeded = () => req.result.createObjectStore("photos");
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  },
+  async run(mode, fn) {
+    const db = await this.open();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction("photos", mode);
+        const req = fn(tx.objectStore("photos"));
+        tx.oncomplete = () => resolve(req && "result" in req ? req.result : true);
+        tx.onerror = tx.onabort = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  },
+  get: (key) => photoDb.run("readonly", (st) => st.get(key)),
+  set: (key, blob) => photoDb.run("readwrite", (st) => st.put(blob, key)),
+  del: (key) => photoDb.run("readwrite", (st) => st.delete(key)),
+};
+// On load: the stored full-quality photo replaces any old localStorage copy; an old copy is moved over.
+(async function restorePersonalPhoto() {
+  const stored = await photoDb.get("wallpaper");
+  if (stored instanceof Blob) {
+    wallpaperBlob = stored;
+    wallpaperPhoto = URL.createObjectURL(stored);
+    applySettings();
+    defaultsHooks.sync();
+  } else if (wallpaperPhoto?.startsWith("data:")) {
+    try {
+      const blob = await (await fetch(wallpaperPhoto)).blob();
+      wallpaperBlob = blob;
+      if (await photoDb.set("wallpaper", blob)) localStorage.removeItem(PHOTO_KEY);
+    } catch {}
+  }
+})();
 
 // The owner's dock order and wallpaper are the default everyone starts from (settings/dashboard_defaults and
 // settings/dashboard_wallpaper). A viewer who reorders the dock or changes the wallpaper keeps their own choice.
-const sharedDefaults = { loaded: false, dockOrder: null, wallpaper: null, photo: null };
+const sharedDefaults = { loaded: false, dockOrder: null, wallpaper: null, photo: null, assetId: "" };
 const dockIsCustom = () => settings.dockCustom ?? settings.dockOrder.length > 0;
 const wallpaperIsCustom = () => settings.wallpaperCustom ?? (settings.wallpaper !== "default" || !!wallpaperPhoto);
 // What this viewer sees: their own wallpaper if they chose one, else the shared default.
@@ -485,7 +534,7 @@ const SETTINGS_PAGES = [
       theme.value = settings.theme;
       size.value = settings.iconSize;
       magnify.checked = settings.magnify;
-      note.textContent = "A JPG or PNG from your computer. It stays in this browser.";
+      note.textContent = "A JPG or PNG from your computer, kept at full quality (up to 4K). It stays in this browser.";
       syncPhoto();
       syncDefaults();
       defaultsHooks.sync = () => slot.isConnected && (syncPhoto(), syncDefaults());
@@ -531,18 +580,22 @@ const SETTINGS_PAGES = [
         e.target.value = "";
         if (!file) return;
         note.textContent = "Loading photo…";
+        let blob;
         try {
-          wallpaperPhoto = await shrinkPhoto(file);
+          blob = await preparePhoto(file);
         } catch {
           note.textContent = "That file couldn't be opened as a photo. Try a JPG or PNG.";
           return;
         }
-        try {
-          localStorage.setItem(PHOTO_KEY, wallpaperPhoto);
-          note.textContent = "Photo set as your wallpaper.";
-        } catch {
-          note.textContent = "Photo set, but this browser couldn't save it, so it will reset when you reload.";
-        }
+        if (wallpaperPhoto?.startsWith("blob:")) URL.revokeObjectURL(wallpaperPhoto);
+        wallpaperBlob = blob;
+        wallpaperPhoto = URL.createObjectURL(blob);
+        if (await photoDb.set("wallpaper", blob)) {
+          try {
+            localStorage.removeItem(PHOTO_KEY);
+          } catch {}
+          note.textContent = "Photo set as your wallpaper, in full quality.";
+        } else note.textContent = "Photo set, but this browser couldn't save it, so it will reset when you reload.";
         settings.wallpaper = "photo";
         settings.wallpaperCustom = true;
         applySettings();
@@ -551,7 +604,10 @@ const SETTINGS_PAGES = [
         syncDefaults();
       });
       $("#photo-remove").addEventListener("click", () => {
+        if (wallpaperPhoto?.startsWith("blob:")) URL.revokeObjectURL(wallpaperPhoto);
         wallpaperPhoto = null;
+        wallpaperBlob = null;
+        photoDb.del("wallpaper");
         try {
           localStorage.removeItem(PHOTO_KEY);
         } catch {}
@@ -594,18 +650,24 @@ const SETTINGS_PAGES = [
 ];
 
 // Scale a photo down to screen size so it fits in browser storage.
-async function shrinkPhoto(file) {
+// A wallpaper at full quality: the file as it is when it's an ordinary web image up to 4K (no recompression), else
+// scaled down to 3840 px on its long side and saved as a high-quality JPEG.
+async function preparePhoto(file) {
   const url = URL.createObjectURL(file);
   try {
     const img = new Image();
     img.src = url;
     await img.decode();
-    const scale = Math.min(1, 2560 / Math.max(img.naturalWidth, img.naturalHeight));
+    const longest = Math.max(img.naturalWidth, img.naturalHeight);
+    if (longest <= 3840 && /^image\/(jpeg|png|webp)$/.test(file.type) && file.size <= 18 * 1024 * 1024) return file;
+    const scale = Math.min(1, 3840 / longest);
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(img.naturalWidth * scale);
     canvas.height = Math.round(img.naturalHeight * scale);
-    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.85);
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return await new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("encode"))), "image/jpeg", 0.92));
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -1820,19 +1882,40 @@ async function shrinkDataUrl(dataUrl, maxPx, quality) {
 }
 
 // Saves the owner's current dock order and wallpaper as the default. Resolves with an error message, or "" when saved.
+// A photo is uploaded as a file at full quality (the Assets capability) and everyone loads it from there.
 async function publishDefaults() {
   if (!defaultsDb) return "Saved storage isn't available here, so the default can't be shared.";
   const wp = effectiveWallpaper();
   const record = { dockOrder: dockOrder(), wallpaper: wp.kind, updated_at: new Date().toISOString() };
   try {
     if (wp.kind === "photo" && wp.photo) {
-      let data = wp.photo;
-      for (const [px, q] of [[1920, 0.8], [1600, 0.7], [1280, 0.65]]) {
-        data = await shrinkDataUrl(wp.photo, px, q);
-        if (data.length < 700000) break;
+      const personal = wallpaperIsCustom() && wallpaperPhoto && wp.photo === wallpaperPhoto;
+      if (personal) {
+        let blob = wallpaperBlob;
+        if (!blob) blob = await (await fetch(wallpaperPhoto)).blob();
+        const assets = await window.claude?.use("assets");
+        if (assets) {
+          const up = await assets.upload(blob);
+          await defaultsDb.doc("settings/dashboard_wallpaper").set({ asset_id: up.id, url: up.url, bytes: up.sizeBytes, updated_at: record.updated_at });
+          sharedDefaults.photo = up.url;
+          sharedDefaults.assetId = up.id;
+        } else {
+          // Without file storage the photo has to fit in a stored document, so it is shrunk.
+          const dataUrl = await new Promise((resolve) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result);
+            r.readAsDataURL(blob);
+          });
+          let data = dataUrl;
+          for (const [px, q] of [[2560, 0.85], [1920, 0.8], [1600, 0.7], [1280, 0.65]]) {
+            data = await shrinkDataUrl(dataUrl, px, q);
+            if (data.length < 700000) break;
+          }
+          await defaultsDb.doc("settings/dashboard_wallpaper").set({ data, updated_at: record.updated_at });
+          sharedDefaults.photo = data;
+        }
       }
-      await defaultsDb.doc("settings/dashboard_wallpaper").set({ data, updated_at: record.updated_at });
-      sharedDefaults.photo = data;
+      // Otherwise the photo already shared stays as it is.
     } else {
       sharedDefaults.photo = null;
       await defaultsDb.doc("settings/dashboard_wallpaper").set({ data: "", updated_at: record.updated_at });
@@ -1862,7 +1945,9 @@ async function publishDefaults() {
     };
     db.doc("settings/dashboard_wallpaper").onSnapshot(
       (snap) => {
-        sharedDefaults.photo = (snap.exists && snap.data()?.data) || null;
+        const d = (snap.exists && snap.data()) || {};
+        sharedDefaults.photo = d.url || (d.asset_id ? `/_blob/${d.asset_id}` : "") || d.data || null;
+        sharedDefaults.assetId = d.asset_id || "";
         apply();
       },
       () => {}

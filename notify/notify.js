@@ -88,6 +88,76 @@
     notify();
     return db ? db.doc(`reminders/${id}`).delete().catch(() => {}) : Promise.resolve();
   }
+  // ---- Alert when a reminder fires: a toast that stays until acted on, plus a short chime ----
+  // Browsers only allow sound after the page has been clicked, so the audio context is woken on the first click.
+  let audio = null;
+  const wakeAudio = () => {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+    } catch {}
+  };
+  document.addEventListener("pointerdown", wakeAudio, { capture: true });
+  document.addEventListener("keydown", wakeAudio, { capture: true });
+  function chime() {
+    try {
+      if (!audio || audio.state !== "running") return;
+      [[880, 0], [1175, 0.18], [1568, 0.36]].forEach(([freq, at]) => {
+        const o = audio.createOscillator();
+        const g = audio.createGain();
+        o.type = "sine";
+        o.frequency.value = freq;
+        const t0 = audio.currentTime + at;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+        o.connect(g).connect(audio.destination);
+        o.start(t0);
+        o.stop(t0 + 0.55);
+      });
+    } catch {}
+  }
+  function toastHost() {
+    let h = document.getElementById("rem-toasts");
+    if (!h) {
+      h = document.createElement("div");
+      h.id = "rem-toasts";
+      h.setAttribute("aria-live", "assertive");
+      document.body.appendChild(h);
+      h.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        const t = e.target.closest(".rem-toast");
+        if (!b || !t) return;
+        const id = t.dataset.rem;
+        if ("toastDone" in b.dataset) {
+          const r = reminders.find((x) => x.id === id);
+          if (r) saveReminder({ ...r, done: true, done_at: new Date().toISOString() }).catch(() => {});
+          markRead([`reminder_${id}`]);
+        }
+        if ("toastOpen" in b.dataset) {
+          markRead([`reminder_${id}`]);
+          if (typeof openApp === "function") openApp("notion");
+          window.TrainerNotion?.showPage("reminders");
+        }
+        t.remove();
+      });
+    }
+    return h;
+  }
+  function showReminderToast(r) {
+    const h = toastHost();
+    if (h.querySelector(`[data-rem="${CSS.escape(r.id)}"]`)) return;
+    const t = document.createElement("div");
+    t.className = "rem-toast";
+    t.dataset.rem = r.id;
+    t.setAttribute("role", "alert");
+    t.innerHTML = `<div class="rem-toast-head"><span class="rem-toast-icon" aria-hidden="true">⏰</span><b>${esc(r.title)}</b></div>
+      ${r.details ? `<p>${esc(r.details)}</p>` : ""}
+      <div class="rem-toast-foot"><button type="button" class="btn-primary btn-small" data-toast-done>Done</button><button type="button" class="btn btn-small" data-toast-open>Open</button><button type="button" class="btn btn-small" data-toast-dismiss>Dismiss</button></div>`;
+    h.appendChild(t);
+    chime();
+  }
+
   // A reminder that has come due lands in the bell once (and badges Ops Updates on the dock).
   let remindersRunning = false;
   async function checkReminders() {
@@ -97,6 +167,7 @@
       for (const r of myReminders().filter((x) => isDue(x) && !x.notified_at)) {
         const stamped = { ...r, notified_at: new Date().toISOString() };
         await saveReminder(stamped).catch(() => {});
+        showReminderToast(r);
         await putNote({ id: `reminder_${r.id}`, source: "reminders", app: "notion", read: false, owner: r.owner || viewer, title: `Reminder: ${r.title}`, body: r.details || "", at: r.due_at });
       }
     } finally {

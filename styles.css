@@ -1550,3 +1550,11 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .nt-root .rem-details { white-space: pre-wrap; }
 .nt-root textarea[name=details] { width: 100%; resize: vertical; font: inherit; box-sizing: border-box; }
 .nt-root input[type=date], .nt-root input[type=time] { font: inherit; }
+
+#rem-toasts { position: fixed; top: 40px; right: 16px; z-index: 100000; display: flex; flex-direction: column; gap: 10px; width: min(340px, calc(100vw - 32px)); }
+.rem-toast { padding: 14px 16px; border-radius: 14px; background: var(--card, #fff); color: var(--window-fg, #111); border: 1px solid var(--line, rgba(0,0,0,.12)); box-shadow: 0 18px 40px rgba(0,0,0,.3); animation: rem-in .25s ease-out; }
+.rem-toast-head { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.rem-toast p { margin: 8px 0 0; font-size: 13px; white-space: pre-wrap; color: var(--muted, inherit); }
+.rem-toast-foot { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
+@keyframes rem-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .rem-toast { animation: none; } }

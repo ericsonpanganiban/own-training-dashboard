@@ -91,6 +91,8 @@
     analyzing: false,
     analysis: null,
     selectedTrainee: null,
+    kbSaved: { c_side: [], cp_side: [] },
+    kbReads: {},
     teamCohort: null,
     teamWeek: null,
     indCohort: "",
@@ -1933,6 +1935,7 @@
           "<div class=\"kb-fields\">" +
             "<div class=\"field\"><label for=\"kb-label-" + idx + "\">Name (optional)</label><input type=\"text\" id=\"kb-label-" + idx + "\" placeholder=\"e.g. Resolution playbook\" value=\"" + esc(link.label) + "\"></div>" +
             "<div class=\"field\"><label for=\"kb-url-" + idx + "\">Link</label><input type=\"url\" id=\"kb-url-" + idx + "\" placeholder=\"https://…\" value=\"" + esc(link.url) + "\"></div>" +
+            "<div class=\"kb-marks\" id=\"kb-marks-" + idx + "\" aria-live=\"polite\"></div>" +
           "</div>" +
           (i >= KB_LINK_COUNT ? "<button class=\"ghost small kb-remove\" type=\"button\" data-kb-remove=\"" + side.key + "|" + i + "\" title=\"Remove this link\" aria-label=\"Remove link " + (i + 1) + "\">Remove</button>" : "") +
         "</div>";
@@ -1956,6 +1959,9 @@
       "</div>";
 
     document.getElementById("saveKbBtn").addEventListener("click", saveKnowledgeBase);
+    updateKbMarks();
+    el.settingsBody.querySelectorAll(".kb-row input").forEach(function(inp){ inp.addEventListener("input", updateKbMarks); });
+    backfillKbReads();
     // Add more / Remove keep what's typed so far, then redraw. Nothing is saved until Save links.
     el.settingsBody.querySelectorAll("[data-kb-add]").forEach(function(btn){
       btn.addEventListener("click", function(){
@@ -1975,6 +1981,78 @@
         renderKnowledgeBasePanel();
       });
     });
+  }
+
+  // Markers on each saved resource: Saved (matches what's stored, not just typed) and Read by Claude
+  // (an analysis fetched its content). A read is remembered in settings/kb_reads.
+  function kbKey(url){ return String(url || "").trim().replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase(); }
+  function kbDay(iso){ var d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString([], { month: "short", day: "numeric" }); }
+  function updateKbMarks(){
+    SHEET_SIDES.forEach(function(side){
+      (state.kbLinks[side.key] || []).forEach(function(_, i){
+        var idx = side.key + "-" + i;
+        var box = document.getElementById("kb-marks-" + idx);
+        var urlEl = document.getElementById("kb-url-" + idx);
+        if (!box || !urlEl) return;
+        var url = urlEl.value.trim();
+        if (!url){ box.innerHTML = ""; return; }
+        var saved = (state.kbSaved[side.key] || []).some(function(u){ return kbKey(u) === kbKey(url); });
+        var read = state.kbReads[kbKey(url)];
+        var html = saved
+          ? "<span class=\"kb-mark ok\">&#10003; Saved</span>"
+          : "<span class=\"kb-mark warn\">Not saved yet</span>";
+        if (saved && read){
+          html += read.fetched
+            ? "<span class=\"kb-mark ok\" title=\"Claude read this document in a knowledge base check" + (read.truncated ? " (a long one, so only the first part)" : "") + "\">&#10003; Read by Claude" + (read.at ? " &middot; " + esc(kbDay(read.at)) : "") + (read.truncated ? " &middot; first part" : "") + "</span>"
+            : "<span class=\"kb-mark\" title=\"Only Google Docs/Drive links can be read in full; for this one Claude used the name only\">Name only &middot; not read</span>";
+        }
+        box.innerHTML = html;
+      });
+    });
+  }
+  function recordKbReads(results){
+    var changed = false;
+    results.forEach(function(r){
+      if (!r || !r.url) return;
+      var k = kbKey(r.url), cur = state.kbReads[k];
+      var next = { fetched: !!r.fetched, truncated: !!r.truncated, at: new Date().toISOString() };
+      // A failed attempt never hides an earlier successful read.
+      if (cur && cur.fetched && !next.fetched) return;
+      state.kbReads[k] = next;
+      changed = true;
+    });
+    if (!changed) return;
+    updateKbMarks();
+    if (dbFn && isArtifactOwner){
+      var items = Object.keys(state.kbReads).map(function(k){ return Object.assign({ url: k }, state.kbReads[k]); });
+      dbFn.doc("settings/kb_reads").set({ items: items, updated_at: new Date().toISOString() }).catch(function(){ /* the marker still shows this session */ });
+    }
+  }
+  // Checks saved before reads were remembered: match their resources_checked by name.
+  var kbBackfilled = false;
+  function backfillKbReads(){
+    if (kbBackfilled || !isArtifactOwner || !dbFn || !viewerId) return;
+    kbBackfilled = true;
+    fetchKbReports().then(function(reports){
+      var byLabel = {};
+      Object.keys(reports || {}).forEach(function(id){
+        var rec = reports[id] || {};
+        (rec.resources_checked || []).forEach(function(r){
+          if (!r || !r.fetched || !r.label) return;
+          var cur = byLabel[r.label];
+          if (!cur || String(rec.generated_at || "") > String(cur.at || "")) byLabel[r.label] = { fetched: true, truncated: !!r.truncated, at: rec.generated_at || "" };
+        });
+      });
+      var any = false;
+      SHEET_SIDES.forEach(function(side){
+        (state.kbSaved[side.key] || []).forEach(function(u, i){
+          var link = (state.kbLinks[side.key] || [])[i];
+          var hit = byLabel[(link && link.label) || u] || byLabel[u];
+          if (hit && !state.kbReads[kbKey(u)]){ state.kbReads[kbKey(u)] = hit; any = true; }
+        });
+      });
+      if (any) updateKbMarks();
+    }).catch(function(){});
   }
 
   function collectKbFromForm(){
@@ -2003,6 +2081,8 @@
     SHEET_SIDES.forEach(function(side){ body[side.key] = payload[side.key].filter(function(l){ return l.url || l.label; }); });
     dbFn.doc("settings/knowledge_base").set(body)
       .then(function(){
+        SHEET_SIDES.forEach(function(side){ state.kbSaved[side.key] = body[side.key].map(function(l){ return l.url; }).filter(Boolean); });
+        updateKbMarks();
         if (statusEl){ statusEl.textContent = "Saved."; statusEl.className = "save-status ok"; }
       })
       .catch(function(e){
@@ -2974,6 +3054,9 @@
   }
 
   function fetchKbResourceContent(link){
+    return fetchKbResourceContentRaw(link).then(function(r){ recordKbReads([r]); return r; });
+  }
+  function fetchKbResourceContentRaw(link){
     var label = link.label || link.url;
     var fileId = extractDriveFileId(link.url);
     if (!mcpFn || !fileId) return Promise.resolve({ label: label, url: link.url, content: null, fetched: false, truncated: false });
@@ -4201,11 +4284,20 @@
           if (snap.exists){
             var data = thawed(snap.data()) || {};
             var next = {};
-            SHEET_SIDES.forEach(function(side){ next[side.key] = normalizeKbLinks(data[side.key]); });
+            SHEET_SIDES.forEach(function(side){ next[side.key] = normalizeKbLinks(data[side.key]); state.kbSaved[side.key] = (Array.isArray(data[side.key]) ? data[side.key] : []).map(function(l){ return l && l.url; }).filter(Boolean); });
             state.kbLinks = next;
           }
           renderAll();
         }), function(){ /* leave the last-known form values in place */ });
+
+        dbFn.doc("settings/kb_reads").onSnapshot(onChangedSnapshot(function(snap){
+          if (!snap.exists) return;
+          var data = thawed(snap.data()) || {};
+          (Array.isArray(data.items) ? data.items : []).forEach(function(it){
+            if (it && it.url) state.kbReads[kbKey(it.url)] = { fetched: !!it.fetched, truncated: !!it.truncated, at: it.at || "" };
+          });
+          updateKbMarks();
+        }), function(){ /* markers just stay empty */ });
 
         dbFn.doc("settings/appearance").onSnapshot(onChangedSnapshot(function(snap){
           var data = snap.exists ? (thawed(snap.data()) || {}) : {};

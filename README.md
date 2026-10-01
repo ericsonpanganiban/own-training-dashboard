@@ -2,7 +2,7 @@
 
 A macOS-style trainer dashboard: a dock of app tiles at the bottom, and each app opens in its own draggable, resizable window.
 
-Apps: **Settings**, **My Class**, **Cohorts** (sample data in `app.js`) and **Coaching** (`coaching-compass/`).
+Apps: **Settings**, **My Class**, **Courseware**, **Cohorts** (sample data in `app.js`) and **Coaching** (`coaching-compass/`).
 
 Open `index.html` in a browser to run it locally. Coaching needs the Claude artifact runtime to save data, analyze audits and read Google Drive; outside an artifact it runs with nothing saved.
 
@@ -12,11 +12,20 @@ To add an app, add an entry to `APPS` in `app.js`.
 
 Coaching (`coaching-compass/`): Team coaching and Individual coaching both start at a cohort level (cohort pills,
 newest first; Team also has a week tab per saved analysis). The Calibration Log is no longer a tab in QA Data Request;
-its tile stays on Coaching's Home. Settings → Knowledge Base has **+ Add more** (and Remove for extra rows) per side.
+its tile stays on Coaching's Home. Settings → Knowledge Base has **+ Add more** (and Remove for extra rows) per side, and each resource is marked **Saved** and **Read by Claude** (remembered in `settings/kb_reads`; older checks are matched by name).
 
 Every window has a breadcrumb bar under its title (Trainer Desk › App › …). An app reports its deeper levels with
 `TrainerDesk.setCrumbs(appId, [{ label, go }], home)`; an open dialog adds its title as the last step, and clicking
 an earlier step closes the dialog first. "Trainer Desk" shows the desktop.
+
+## Courseware
+
+`courseware/courseware.js`: a lobby for training material links, as tiles with a preview (`courseware/{id}`: title,
+url, category, note, preview). Add a link with an optional name, category and note; filter by category chip or search.
+A tile's preview is the file's thumbnail when the browser can fetch one (YouTube, Drive), else the first lines of a
+Google Doc (read once with Google Drive and saved; "Refresh preview" in the tile's menu), else a cover colored for its
+type (Doc, Sheet, Slides, Form, Drive folder/file, PDF, video, Notion, link). With no name typed, a Google Doc's first
+line becomes the name.
 
 ## Attendance
 

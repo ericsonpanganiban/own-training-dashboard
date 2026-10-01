@@ -348,6 +348,21 @@ APPS.quiz = {
   },
 };
 
+// Courseware lives in courseware/courseware.js: a lobby of training material links, as tiles with previews.
+APPS.courseware = {
+  title: "Courseware",
+  icon: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M8 13h8M8 16h5"/>',
+  color: "#0ea5e9",
+  custom: true,
+  render(el) {
+    if (window.TrainerCourseware) window.TrainerCourseware.render(el);
+    else el.innerHTML = `<p class="muted">Courseware isn't available right now.</p>`;
+  },
+  onClose() {
+    window.TrainerCourseware?.onClose();
+  },
+};
+
 // ---------- Settings pages ----------
 const SETTINGS_PAGES = [
   {

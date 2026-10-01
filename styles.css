@@ -104,18 +104,18 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   border-radius: 26px;
   /* Liquid glass: almost no fill, so the wallpaper shows through, bent and brightened by the blur;
      light catches the rim (inset highlights) and a soft sheen runs across the top. */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06) 55%, rgba(255, 255, 255, 0.12));
-  border: 1px solid rgba(255, 255, 255, 0.38);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.176), rgba(255, 255, 255, 0.048) 55%, rgba(255, 255, 255, 0.096));
+  border: 1px solid rgba(255, 255, 255, 0.304);
   box-shadow:
-    inset 0 1px 0.5px rgba(255, 255, 255, 0.75),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.28),
-    inset 1px 0 1px rgba(255, 255, 255, 0.22),
-    inset -1px 0 1px rgba(255, 255, 255, 0.22),
-    inset 0 14px 22px -12px rgba(255, 255, 255, 0.35),
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.6),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.224),
+    inset 1px 0 1px rgba(255, 255, 255, 0.176),
+    inset -1px 0 1px rgba(255, 255, 255, 0.176),
+    inset 0 14px 22px -12px rgba(255, 255, 255, 0.28),
     0 12px 32px rgba(0, 0, 0, 0.28),
     0 2px 6px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(22px) saturate(190%) brightness(1.12) contrast(1.02);
-  -webkit-backdrop-filter: blur(22px) saturate(190%) brightness(1.12) contrast(1.02);
+  backdrop-filter: blur(22px) saturate(190%) brightness(1.1) contrast(1.02);
+  -webkit-backdrop-filter: blur(22px) saturate(190%) brightness(1.1) contrast(1.02);
   z-index: 9999;
 }
 /* A faint diagonal glint, like light sliding across the glass. */
@@ -125,11 +125,11 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: linear-gradient(115deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 32%, rgba(255, 255, 255, 0) 68%, rgba(255, 255, 255, 0.16) 100%);
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.224) 0%, rgba(255, 255, 255, 0) 32%, rgba(255, 255, 255, 0) 68%, rgba(255, 255, 255, 0.128) 100%);
   mix-blend-mode: soft-light;
 }
 @media (prefers-color-scheme: dark) {
-  #dock { border-color: rgba(255, 255, 255, 0.26); background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 55%, rgba(255, 255, 255, 0.08)); }
+  #dock { border-color: rgba(255, 255, 255, 0.208); background: linear-gradient(180deg, rgba(255, 255, 255, 0.128), rgba(255, 255, 255, 0.032) 55%, rgba(255, 255, 255, 0.064)); }
 }
 
 .dock-item {
@@ -1253,3 +1253,45 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .btn-danger-ghost, .app-body .btn.btn-danger-ghost { color: #dc2626; }
 .app-body .btn.btn-danger-ghost:hover { border-color: #dc2626; }
 
+
+/* Courseware: a lobby of tiles with previews */
+.cw-host { display: flex; flex-direction: column; }
+.cw-root { display: flex; flex-direction: column; min-height: 0; height: 100%; padding: 16px 18px 0; }
+.cw-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.cw-heading { display: flex; align-items: baseline; gap: 10px; flex: 1 1 220px; min-width: 0; flex-wrap: wrap; }
+.cw-heading h3 { margin: 0; font-size: 17px; }
+.cw-heading .muted { font-size: 12.5px; color: var(--muted); }
+.cw-search { width: min(260px, 100%); padding: 7px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--window-bg); color: var(--window-fg); font: inherit; font-size: 13px; }
+.cw-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.cw-chip { border: 1px solid var(--line); background: var(--window-bg); color: var(--window-fg); border-radius: 99px; padding: 4px 12px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.cw-chip small { color: var(--muted); margin-left: 3px; }
+.cw-chip.is-on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cw-chip.is-on small { color: rgba(255, 255, 255, 0.8); }
+.cw-chip:focus-visible, .cw-preview:focus-visible, .cw-title a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cw-body { flex: 1; min-height: 0; overflow: auto; padding: 4px 4px 18px; margin: 0 -4px; }
+.cw-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+.cw-tile { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; background: var(--window-bg); overflow: hidden; transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease; }
+.cw-tile:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12); }
+.cw-preview { position: relative; display: block; aspect-ratio: 16 / 10; overflow: hidden; text-decoration: none; color: #fff; background: linear-gradient(145deg, color-mix(in srgb, var(--k) 88%, #fff), color-mix(in srgb, var(--k) 70%, #000)); }
+.cw-cover { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.95; }
+.cw-cover svg { filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25)); }
+/* A page peeking out of the tile, with the document's first lines on it. */
+.cw-page { position: absolute; left: 14%; right: 14%; top: 12%; bottom: -8%; padding: 10px 12px; border-radius: 6px 6px 0 0; background: #fff; color: #334155; font-size: 10.5px; line-height: 1.45; overflow: hidden; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
+.cw-page-title { display: block; margin-bottom: 5px; font-size: 11.5px; font-weight: 700; color: #0f172a; }
+.cw-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; background: #fff; }
+.cw-busy { position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 8px; font-size: 11px; background: rgba(0, 0, 0, 0.45); }
+.cw-meta { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; min-width: 0; }
+.cw-title { display: flex; align-items: flex-start; gap: 6px; }
+.cw-title a { flex: 1; min-width: 0; color: var(--window-fg); font-weight: 700; font-size: 13.5px; line-height: 1.3; text-decoration: none; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cw-title a:hover { color: var(--accent); }
+.cw-title .square-btn { width: 26px; height: 26px; flex: none; }
+.cw-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.cw-tags .chip { background: color-mix(in srgb, var(--k, #64748b) 14%, transparent); color: color-mix(in srgb, var(--k, #64748b) 82%, var(--window-fg)); }
+.cw-tags .cw-cat { --k: #64748b; }
+.cw-note { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cw-host .cw-host-line, .cw-meta .cw-host { font-size: 11px; }
+.cw-empty { max-width: 460px; margin: 40px auto; text-align: center; }
+.cw-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 13px; font-weight: 600; }
+.cw-field input { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--window-bg); color: var(--window-fg); font: inherit; font-weight: 400; }
+.cw-form { width: min(460px, 100%); }
+@media (prefers-reduced-motion: reduce) { .cw-tile { transition: none; } .cw-tile:hover { transform: none; } }

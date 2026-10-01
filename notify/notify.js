@@ -11,6 +11,7 @@
 (function () {
   const use = (name) => Promise.resolve().then(() => (window.claude ? window.claude.use(name) : null)).catch(() => null);
   const dbReady = use("db");
+  const userReady = use("user");
   const esc = (s) => escapeHtml(s == null ? "" : s);
   const HOUR = 3600000;
   const HALF_HOUR = 1800000;
@@ -20,6 +21,9 @@
   // ---- Storage (db, or memory) ----
   let db = null;
   let notes = [];
+  let rawNotes = [];
+  let viewer = ""; // this viewer's id; personal notifications and reminders carry it as `owner`
+  const mine = (x) => !x.owner || !viewer || x.owner === viewer;
   const cfgs = {}; // settings documents by id
   const CFG_IDS = ["notion", "ops_cp_gen", "ops_care"];
   const listeners = new Set();
@@ -31,7 +35,8 @@
     if (!db) return;
     db.collection("notifications").orderBy("at", "desc").limit(200).onSnapshot(
       (snap) => {
-        notes = snap.docs.map((doc) => ({ id: doc.id, ...JSON.parse(JSON.stringify(doc.data() || {})) }));
+        rawNotes = snap.docs.map((doc) => ({ id: doc.id, ...JSON.parse(JSON.stringify(doc.data() || {})) }));
+        notes = rawNotes.filter(mine);
         notes.forEach((n) => known.add(n.id));
         notify();
       },
@@ -47,6 +52,60 @@
       )
     );
   });
+  userReady.then((u) => u && u.id && u.id()).then((id) => {
+    if (!id) return;
+    viewer = String(id);
+    notes = rawNotes.filter(mine);
+    notify();
+  }).catch(() => {});
+
+  // ---- Personal reminders: reminders/{id} { owner, title, details, due_at (ISO), done, notified_at } ----
+  let reminders = [];
+  let remindersLoaded = false;
+  dbReady.then((d) => {
+    if (!d) return void (remindersLoaded = true);
+    d.collection("reminders").orderBy("due_at", "asc").onSnapshot(
+      (snap) => {
+        reminders = snap.docs.map((doc) => ({ id: doc.id, ...JSON.parse(JSON.stringify(doc.data() || {})) }));
+        remindersLoaded = true;
+        notify();
+        checkReminders();
+      },
+      () => (remindersLoaded = true)
+    );
+  });
+  const myReminders = () => reminders.filter(mine).sort((a, b) => (a.due_at || "").localeCompare(b.due_at || ""));
+  const isDue = (r) => !r.done && r.due_at && new Date(r.due_at).getTime() <= Date.now();
+  function saveReminder(r) {
+    reminders = [r, ...reminders.filter((x) => x.id !== r.id)];
+    notify();
+    if (!db) return Promise.resolve();
+    const { id, ...fields } = r;
+    return db.doc(`reminders/${id}`).set(fields);
+  }
+  function removeReminder(id) {
+    reminders = reminders.filter((x) => x.id !== id);
+    notify();
+    return db ? db.doc(`reminders/${id}`).delete().catch(() => {}) : Promise.resolve();
+  }
+  // A reminder that has come due lands in the bell once (and badges Ops Updates on the dock).
+  let remindersRunning = false;
+  async function checkReminders() {
+    if (remindersRunning || !remindersLoaded) return;
+    remindersRunning = true;
+    try {
+      for (const r of myReminders().filter((x) => isDue(x) && !x.notified_at)) {
+        const stamped = { ...r, notified_at: new Date().toISOString() };
+        await saveReminder(stamped).catch(() => {});
+        await putNote({ id: `reminder_${r.id}`, source: "reminders", app: "notion", read: false, owner: r.owner || viewer, title: `Reminder: ${r.title}`, body: r.details || "", at: r.due_at });
+      }
+    } finally {
+      remindersRunning = false;
+    }
+  }
+  setInterval(checkReminders, 30000);
+  document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && checkReminders());
+
   const unread = (source) => notes.filter((n) => !n.read && (!source || n.source === source));
 
   function putNote(n) {
@@ -209,6 +268,7 @@
   function register(src) {
     sources.set(src.id, src);
   }
+  register({ id: "reminders", label: "Personal Reminders", app: "notion", every: HOUR, poll: async () => (await checkReminders(), []) });
   PAGES.forEach((pg) => register({ id: pg.source, label: `Ops Updates · ${pg.name}`, app: "notion", cfg: pg.cfg, every: HALF_HOUR, poll: pollPage(pg) }));
 
   window.TrainerNotify = { register, runAll, unread, markRead, onChange: (f) => (listeners.add(f), () => listeners.delete(f)), list: () => notes, status: () => ({ ...state }), sources: () => [...sources.values()].map((x) => ({ id: x.id, every: x.every || HOUR })) };
@@ -296,6 +356,7 @@
         closePanel();
         const pg = PAGES.find((x) => x.source === n.source);
         if (pg) window.TrainerNotion?.showPage(pg.key);
+        if (n.source === "reminders") window.TrainerNotion?.showPage("reminders");
         if (n.app && APPS[n.app]) openApp(n.app);
       }
     });
@@ -307,11 +368,11 @@
 
   // ---- The Ops Updates app ----
   const PAGE_KEY = "trainer.opsPage";
-  const ui = { el: null, page: "", editing: false, msg: "" };
+  const ui = { el: null, page: "", editing: false, msg: "", confirming: null };
   try {
     ui.page = localStorage.getItem(PAGE_KEY) || "";
   } catch {}
-  if (!PAGES.some((x) => x.key === ui.page)) ui.page = PAGES[0].key;
+  if (!PAGES.some((x) => x.key === ui.page) && ui.page !== "reminders") ui.page = PAGES[0].key;
   const pageNow = () => PAGES.find((x) => x.key === ui.page) || PAGES[0];
   const chip = (n) => (n.read ? "" : `<span class="chip ok">New</span>`);
 
@@ -328,9 +389,69 @@
       .sort((a, b) => order[a.status] - order[b.status] || String(b.c.training_start_date || "").localeCompare(String(a.c.training_start_date || "")));
   }
 
+  function tabsHtml(active) {
+    const tabs = PAGES.map((x) => {
+      const n = notes.filter((m) => m.source === x.source && !m.read).length;
+      return `<button type="button" role="tab" data-nt-page="${x.key}" aria-selected="${x.key === active}">${esc(x.name)}${n ? ` <span class="tab-count">${n}</span>` : ""}</button>`;
+    });
+    const due = myReminders().filter(isDue).length;
+    tabs.push(`<button type="button" role="tab" data-nt-page="reminders" aria-selected="${active === "reminders"}">Personal Reminders${due ? ` <span class="tab-count">${due}</span>` : ""}</button>`);
+    return tabs.join("");
+  }
+  const dueText = (iso) => {
+    const d = new Date(iso);
+    return isNaN(d) ? "" : d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  };
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const localDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const remForm = { title: "", details: "", date: "", time: "" };
+  function drawReminders() {
+    const el = ui.el;
+    const now = new Date();
+    if (!remForm.date) {
+      const next = new Date(now.getTime() + HOUR);
+      remForm.date = localDate(next);
+      remForm.time = `${pad2(next.getHours())}:00`;
+    }
+    const list = myReminders();
+    const dueNow = list.filter(isDue);
+    const upcoming = list.filter((r) => !r.done && !isDue(r));
+    const done = list.filter((r) => r.done).sort((a, b) => (b.done_at || "").localeCompare(a.done_at || "")).slice(0, 20);
+    const item = (r, kind) => `<li class="nt-item${kind === "due" ? " is-new" : ""}">
+        <div class="nt-item-top"><b>${esc(r.title)}</b>${kind === "due" ? `<span class="chip bad">Due</span>` : kind === "done" ? `<span class="chip ok">Done</span>` : ""}</div>
+        <p class="muted">${esc(dueText(r.due_at))}</p>
+        ${r.details ? `<p class="rem-details">${esc(r.details)}</p>` : ""}
+        <div class="nt-item-foot">
+          ${kind === "done" ? `<button type="button" class="linkish" data-rem-undo="${esc(r.id)}">Mark not done</button>` : `<button type="button" class="linkish" data-rem-done="${esc(r.id)}">Mark done</button>`}
+          ${ui.confirming === r.id ? `<span>Delete this reminder?</span><button type="button" class="linkish" data-rem-del-cancel>Cancel</button><button type="button" class="btn-danger btn-small" data-rem-del="${esc(r.id)}">Delete</button>` : `<button type="button" class="linkish" data-rem-ask-del="${esc(r.id)}">Delete</button>`}
+        </div></li>`;
+    const group = (title, items, kind) => (items.length ? `<div class="nt-feed-head"><h4>${title} <span class="muted">${items.length}</span></h4></div><ul class="nt-feed">${items.map((r) => item(r, kind)).join("")}</ul>` : "");
+    el.innerHTML = `
+      <div class="nt-root">
+        <div class="nt-top"><div class="nt-heading"><h3>Ops Updates</h3><span class="muted">Personal reminders, only you see them</span></div></div>
+        <div class="quiz-tabs nt-tabs" role="tablist" aria-label="Ops Updates pages">${tabsHtml("reminders")}</div>
+        <section class="nt-setup">
+          <form data-rem-form novalidate>
+            <label class="cw-field">Title<input type="text" name="title" value="${esc(remForm.title)}" placeholder="e.g. Send week 3 coaching notes" autocomplete="off" /></label>
+            <div class="rem-when">
+              <label class="cw-field">Date<input type="date" name="date" value="${esc(remForm.date)}" /></label>
+              <label class="cw-field">Time<input type="time" name="time" value="${esc(remForm.time)}" /></label>
+            </div>
+            <label class="cw-field">Details (what to do)<textarea name="details" rows="3" placeholder="What needs to happen when this goes off">${esc(remForm.details)}</textarea></label>
+            <p class="sheet-status" data-rem-status role="status">${esc(ui.msg)}</p>
+            <div class="nt-row"><button type="submit" class="btn-primary">Add reminder</button></div>
+          </form>
+        </section>
+        ${group("Due now", dueNow, "due")}${group("Upcoming", upcoming, "up")}${group("Done", done, "done")}
+        ${list.length ? "" : `<p class="muted">No reminders yet. Add one above; it shows in the bell and on this app's dock icon when it comes due (while the dashboard is open).</p>`}
+      </div>`;
+    window.TrainerDesk?.setCrumbs("notion", [{ label: "Personal Reminders" }], () => draw());
+  }
+
   function draw() {
     const el = ui.el;
     if (!el) return;
+    if (ui.page === "reminders") return drawReminders();
     const pg = pageNow();
     const cfg = cfgOf(pg.cfg);
     const mine = notes.filter((n) => n.source === pg.source);
@@ -338,10 +459,7 @@
     const newCount = mine.filter((n) => !n.read).length;
     const status = state.results[pg.source];
     const setup = !cfg.channel_id || ui.editing;
-    const tabs = PAGES.map((x) => {
-      const n = notes.filter((m) => m.source === x.source && !m.read).length;
-      return `<button type="button" role="tab" data-nt-page="${x.key}" aria-selected="${x.key === pg.key}">${esc(x.name)}${n ? ` <span class="tab-count">${n}</span>` : ""}</button>`;
-    }).join("");
+    const tabs = tabsHtml(pg.key);
     el.innerHTML = `
       <div class="nt-root">
         <div class="nt-top">
@@ -388,6 +506,24 @@
         }
       </div>`;
     window.TrainerDesk?.setCrumbs("notion", [{ label: pg.name }], () => ((ui.editing = false), draw()));
+  }
+  async function addReminder(form) {
+    const status = form.querySelector("[data-rem-status]");
+    const title = form.title.value.trim();
+    const due = form.date.value && form.time.value ? new Date(`${form.date.value}T${form.time.value}`) : null;
+    if (!title) return void (status.textContent = "Give the reminder a title.");
+    if (!due || isNaN(due)) return void (status.textContent = "Pick a date and a time.");
+    if (due.getTime() <= Date.now()) return void (status.textContent = "That time has already passed. Pick a time in the future.");
+    status.textContent = "Saving…";
+    const id = `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    try {
+      await saveReminder({ id, owner: viewer, title, details: form.details.value.trim(), due_at: due.toISOString(), done: false, notified_at: "", created_at: new Date().toISOString() });
+    } catch {
+      return void (status.textContent = "Couldn't save the reminder. Try again.");
+    }
+    Object.assign(remForm, { title: "", details: "", date: "", time: "" });
+    ui.msg = "";
+    draw();
   }
   async function saveChannel(form) {
     const pg = pageNow();
@@ -500,12 +636,26 @@
         e.preventDefault();
         const f = e.target.closest("[data-nt-form]");
         if (f) saveChannel(f);
+        const r = e.target.closest("[data-rem-form]");
+        if (r) addReminder(r);
+      });
+      el.addEventListener("input", (e) => {
+        const f = e.target.closest("[data-rem-form]");
+        if (f && e.target.name in remForm) remForm[e.target.name] = e.target.value;
       });
       el.addEventListener("click", (e) => {
         const b = e.target.closest("button");
         if (!b) return;
         const ds = b.dataset;
         if (ds.ntPage) return window.TrainerNotion.showPage(ds.ntPage);
+        if (ds.remDone || ds.remUndo) {
+          const r = reminders.find((x) => x.id === (ds.remDone || ds.remUndo));
+          if (r) saveReminder({ ...r, done: !!ds.remDone, done_at: ds.remDone ? new Date().toISOString() : "" }).catch(() => {});
+          return;
+        }
+        if (ds.remAskDel) return ((ui.confirming = ds.remAskDel), draw());
+        if ("remDelCancel" in ds) return ((ui.confirming = null), draw());
+        if (ds.remDel) return ((ui.confirming = null), void removeReminder(ds.remDel));
         if ("ntEdit" in ds) return ((ui.editing = true), (ui.msg = ""), draw(), el.querySelector("[name=channel]")?.focus());
         if ("ntCancel" in ds) return ((ui.editing = false), (ui.msg = ""), draw());
         if ("ntCheck" in ds) return void runAll("manual", PAGES.map((x) => x.source));
@@ -527,7 +677,7 @@
       dbReady.then(() => setTimeout(() => runAll("open-app", PAGES.map((x) => x.source), true), 300));
     },
     showPage(key) {
-      if (!PAGES.some((x) => x.key === key)) return;
+      if (!PAGES.some((x) => x.key === key) && key !== "reminders") return;
       ui.page = key;
       ui.editing = false;
       ui.msg = "";

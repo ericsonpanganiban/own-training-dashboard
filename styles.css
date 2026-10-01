@@ -1546,3 +1546,7 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .quiz-perf-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .quiz-perf-score { margin-left: auto; }
 .quiz-opps { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }
+.nt-root .rem-when { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.nt-root .rem-details { white-space: pre-wrap; }
+.nt-root textarea[name=details] { width: 100%; resize: vertical; font: inherit; box-sizing: border-box; }
+.nt-root input[type=date], .nt-root input[type=time] { font: inherit; }

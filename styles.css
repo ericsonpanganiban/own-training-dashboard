@@ -1481,3 +1481,16 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .theme-preview { display: flex; gap: 0; height: 46px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(128, 128, 128, 0.3); }
 .theme-preview span { flex: 1; }
 .theme-card small { font-weight: 400; color: var(--muted); font-size: 11.5px; }
+
+/* Ops Updates */
+.nt-tabs { margin: 0 0 12px; flex-wrap: wrap; }
+.nt-tabs [role="tab"] { flex: 1 1 auto; white-space: nowrap; }
+.nt-tabs .tab-count { margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 700; }
+.nt-fwd { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sheet-card.nt-fwd-card { width: min(560px, 100%); max-height: calc(100% - 64px); overflow: auto; }
+.nt-fwd-card textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--window-fg); font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+.nt-cohorts { display: grid; gap: 4px; max-height: 190px; overflow: auto; margin: 4px 0; }
+.nt-fwd-card > * { flex: none; }
+.nt-fwd-card .cw-field { display: flex; flex-direction: column; gap: 4px; }
+.nt-fwd-card .sheet-actions { position: sticky; bottom: -20px; padding: 10px 0 0; background: var(--card); }
+.nt-cohorts { max-height: 150px; }

@@ -450,15 +450,15 @@ APPS.courseware = {
   },
 };
 
-// Notion lives in notify/notify.js: updates from a Slack channel the owner names, checked every hour.
+// Ops Updates (formerly Notion) lives in notify/notify.js: updates from Slack channels the owner names, checked every 30 minutes.
 APPS.notion = {
-  title: "Notion",
-  icon: '<path d="M6 4h9.5L19 7.5V20H6z"/><path d="M9.5 9v7.5M9.5 9l6 7.5V9"/>',
+  title: "Ops Updates",
+  icon: '<path d="M3 11v2a1 1 0 0 0 1 1h2.5l5.5 4V6L6.5 10H4a1 1 0 0 0-1 1z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5"/><path d="M18 7a7 7 0 0 1 0 10"/>',
   color: "#3f3f46",
   custom: true,
   render(el) {
     if (window.TrainerNotion) window.TrainerNotion.render(el);
-    else el.innerHTML = `<p class="muted">Notion isn't available right now.</p>`;
+    else el.innerHTML = `<p class="muted">Ops Updates isn't available right now.</p>`;
   },
   onClose() {
     window.TrainerNotion?.onClose();

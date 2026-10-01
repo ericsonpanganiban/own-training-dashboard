@@ -2,7 +2,7 @@
 
 A macOS-style trainer dashboard: a dock of app tiles at the bottom, and each app opens in its own draggable, resizable window.
 
-Apps: **Settings**, **My Class**, **Courseware**, **Notion**, **Cohorts** (sample data in `app.js`) and **Coaching** (`coaching-compass/`).
+Apps: **Settings**, **My Class**, **Courseware**, **Ops Updates**, **Cohorts** (sample data in `app.js`) and **Coaching** (`coaching-compass/`).
 
 Open `index.html` in a browser to run it locally. Coaching needs the Claude artifact runtime to save data, analyze audits and read Google Drive; outside an artifact it runs with nothing saved.
 
@@ -27,14 +27,20 @@ leafy green, sunflower yellow and violet, Baloo 2 headings). The colors are toke
 (`--window-bg`, `--card`, `--accent`, `--success`, …); Coaching maps its own tokens to the same colorway in
 `coaching-compass/cc.css`.
 
-## Notifications and Notion
+## Notifications and Ops Updates
 
 `notify/notify.js`. A bell in the menu bar collects notifications from every app (`notifications/{id}`). Apps add a
-source with `TrainerNotify.register({ id, label, app, poll })`; each poll runs on open, every hour while the dashboard
-is open, when a sleeping tab wakes, and on **Check now**. The **Notion** app is the first source: the owner pastes the
-Slack channel (its ID or a link to it) into the app, and new messages there are listed and counted on the bell; the
-channel lives in `notification_settings/notion`, never in the code. Quiz adds a read-only source that notices replies to
-recent quizzes (it doesn't grade; Check Quiz does). It runs only while the dashboard is open in a browser.
+source with `TrainerNotify.register({ id, label, app, poll, every, cfg })`; each source is checked when it comes due
+(on open, then every 5-minute look for anything due, when a sleeping tab wakes) and on **Check now**.
+
+**Ops Updates** (the former Notion app) has three pages: **CP Gen**, **Care** and **Notion Update Requests**. The owner
+pastes a Slack channel (its ID or a link) for each page; new messages there are listed and counted on the bell, checked
+every 30 minutes while the dashboard is open. Channels are stored in `notification_settings/{ops_cp_gen|ops_care|notion}`
+(the Requests page keeps the original `notion` document, so earlier updates carry over), never in the code.
+**Forward to a cohort…** sends a message to the Slack channel of any cohort you tick. That channel is the one saved on the
+cohort in Attendance (`attendance_channel_id`), so it is only set once; the message is editable first and nothing is sent
+until you confirm. Forwards are noted on the message. Quiz adds a read-only hourly source that notices replies to recent
+quizzes (it doesn't grade; Check Quiz does). Checks run only while the dashboard is open in a browser.
 
 Default look: the owner's colorway, dock order and wallpaper are the default for everyone (`settings/dashboard_defaults`,
 `settings/dashboard_wallpaper`); the first time the owner opens it, their current ones are saved (a default saved before colorways existed gets the owner's colorway added), and Settings →

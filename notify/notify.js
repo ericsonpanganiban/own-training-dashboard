@@ -158,6 +158,23 @@
     chime();
   }
 
+  // ---- Overdue banner: stays across the whole dashboard until the reminders are marked done ----
+  function drawBanner() {
+    const over = myReminders().filter(isDue);
+    let bar = document.getElementById("rem-banner");
+    if (!over.length) return void bar?.remove();
+    if (!bar) {
+      bar = document.createElement("button");
+      bar.type = "button";
+      bar.id = "rem-banner";
+      bar.addEventListener("click", () => {
+        if (typeof openApp === "function") openApp("notion");
+        window.TrainerNotion?.showPage("reminders");
+      });
+      document.body.appendChild(bar);
+    }
+    bar.innerHTML = `<span class="rb-icon" aria-hidden="true">⚠</span><b>${over.length} OVERDUE REMINDER${over.length === 1 ? "" : "S"}</b><span class="rb-text">${esc(over[0].title)}${over.length > 1 ? ` and ${over.length - 1} more` : ""}</span><span class="rb-go">Open reminders ›</span>`;
+  }
   // A reminder that has come due lands in the bell once (and badges Ops Updates on the dock).
   let remindersRunning = false;
   async function checkReminders() {
@@ -174,7 +191,7 @@
       remindersRunning = false;
     }
   }
-  setInterval(checkReminders, 30000);
+  setInterval(() => (checkReminders(), drawBanner()), 30000);
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && checkReminders());
 
   const unread = (source) => notes.filter((n) => !n.read && (!source || n.source === source));
@@ -435,11 +452,12 @@
     document.addEventListener("keydown", onKey, true);
   });
   listeners.add(drawBell);
+  listeners.add(drawBanner);
   drawBell();
 
   // ---- The Ops Updates app ----
   const PAGE_KEY = "trainer.opsPage";
-  const ui = { el: null, page: "", editing: false, msg: "", confirming: null };
+  const ui = { el: null, page: "", editing: false, msg: "", confirming: null, editRem: null };
   try {
     ui.page = localStorage.getItem(PAGE_KEY) || "";
   } catch {}
@@ -488,19 +506,42 @@
     const dueNow = list.filter(isDue);
     const upcoming = list.filter((r) => !r.done && !isDue(r));
     const done = list.filter((r) => r.done).sort((a, b) => (b.done_at || "").localeCompare(a.done_at || "")).slice(0, 20);
-    const item = (r, kind) => `<li class="nt-item${kind === "due" ? " is-new" : ""}">
-        <div class="nt-item-top"><b>${esc(r.title)}</b>${kind === "due" ? `<span class="chip bad">Due</span>` : kind === "done" ? `<span class="chip ok">Done</span>` : ""}</div>
+    const late = (iso) => {
+      const m = Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
+      return m < 1 ? "just now" : m < 60 ? `${m} min late` : m < 1440 ? `${Math.floor(m / 60)} h late` : `${Math.floor(m / 1440)} d late`;
+    };
+    const editItem = (r) => {
+      const d = new Date(r.due_at);
+      return `<li class="nt-item editing"><form data-rem-edit-form="${esc(r.id)}" novalidate>
+          <label class="cw-field">Title<input type="text" name="title" value="${esc(r.title)}" autocomplete="off" /></label>
+          <div class="rem-when">
+            <label class="cw-field">Date<input type="date" name="date" value="${esc(isNaN(d) ? "" : localDate(d))}" /></label>
+            <label class="cw-field">Time<input type="time" name="time" value="${esc(isNaN(d) ? "" : `${pad2(d.getHours())}:${pad2(d.getMinutes())}`)}" /></label>
+          </div>
+          <label class="cw-field">Details (what to do)<textarea name="details" rows="3">${esc(r.details || "")}</textarea></label>
+          <p class="sheet-status" data-rem-edit-status role="status"></p>
+          <div class="nt-row"><button type="submit" class="btn-primary btn-small">Save</button><button type="button" class="btn btn-small" data-rem-edit-cancel>Cancel</button></div>
+        </form></li>`;
+    };
+    const item = (r, kind) => {
+      if (ui.editRem === r.id) return editItem(r);
+      return `<li class="nt-item${kind === "due" ? " is-overdue" : ""}">
+        <div class="nt-item-top"><b>${esc(r.title)}</b>${kind === "due" ? `<span class="overdue-flag">OVERDUE · ${esc(late(r.due_at))}</span>` : kind === "done" ? `<span class="chip ok">Done</span>` : ""}
+          <button type="button" class="square-btn kebab rem-menu" data-rem-menu="${esc(r.id)}" title="Reminder options" aria-label="Options for ${esc(r.title)}">⋮</button></div>
         <p class="muted">${esc(dueText(r.due_at))}</p>
         ${r.details ? `<p class="rem-details">${esc(r.details)}</p>` : ""}
+        ${ui.confirming === r.id ? `<div class="nt-item-foot"><span>Delete this reminder?</span><button type="button" class="btn btn-small" data-rem-del-cancel>Cancel</button><button type="button" class="btn-danger btn-small" data-rem-del="${esc(r.id)}">Delete</button></div>` : ""}
         <div class="nt-item-foot">
-          ${kind === "done" ? `<button type="button" class="linkish" data-rem-undo="${esc(r.id)}">Mark not done</button>` : `<button type="button" class="linkish" data-rem-done="${esc(r.id)}">Mark done</button>`}
-          ${ui.confirming === r.id ? `<span>Delete this reminder?</span><button type="button" class="linkish" data-rem-del-cancel>Cancel</button><button type="button" class="btn-danger btn-small" data-rem-del="${esc(r.id)}">Delete</button>` : `<button type="button" class="linkish" data-rem-ask-del="${esc(r.id)}">Delete</button>`}
+          ${kind === "done" ? `<button type="button" class="btn btn-small" data-rem-undo="${esc(r.id)}">Mark not done</button>` : `<button type="button" class="${kind === "due" ? "btn-primary" : "btn"} btn-small" data-rem-done="${esc(r.id)}">Mark done</button>`}
         </div></li>`;
+    };
     const group = (title, items, kind) => (items.length ? `<div class="nt-feed-head"><h4>${title} <span class="muted">${items.length}</span></h4></div><ul class="nt-feed">${items.map((r) => item(r, kind)).join("")}</ul>` : "");
     el.innerHTML = `
       <div class="nt-root">
         <div class="nt-top"><div class="nt-heading"><h3>Ops Updates</h3><span class="muted">Personal reminders, only you see them</span></div></div>
         <div class="quiz-tabs nt-tabs" role="tablist" aria-label="Ops Updates pages">${tabsHtml("reminders")}</div>
+        ${dueNow.length ? `<div class="overdue-banner" role="alert"><span aria-hidden="true">⚠</span> ${dueNow.length} overdue reminder${dueNow.length === 1 ? "" : "s"}. Mark ${dueNow.length === 1 ? "it" : "them"} done once handled.</div>` : ""}
+        ${group("Overdue", dueNow, "due")}
         <section class="nt-setup">
           <form data-rem-form novalidate>
             <label class="cw-field">Title<input type="text" name="title" value="${esc(remForm.title)}" placeholder="e.g. Send week 3 coaching notes" autocomplete="off" /></label>
@@ -513,7 +554,7 @@
             <div class="nt-row"><button type="submit" class="btn-primary">Add reminder</button></div>
           </form>
         </section>
-        ${group("Due now", dueNow, "due")}${group("Upcoming", upcoming, "up")}${group("Done", done, "done")}
+        ${group("Upcoming", upcoming, "up")}${group("Done", done, "done")}
         ${list.length ? "" : `<p class="muted">No reminders yet. Add one above; it shows in the bell and on this app's dock icon when it comes due (while the dashboard is open).</p>`}
       </div>`;
     window.TrainerDesk?.setCrumbs("notion", [{ label: "Personal Reminders" }], () => draw());
@@ -577,6 +618,27 @@
         }
       </div>`;
     window.TrainerDesk?.setCrumbs("notion", [{ label: pg.name }], () => ((ui.editing = false), draw()));
+  }
+  async function saveEdit(form) {
+    const status = form.querySelector("[data-rem-edit-status]");
+    const r = reminders.find((x) => x.id === form.dataset.remEditForm);
+    if (!r) return void ((ui.editRem = null), draw());
+    const title = form.title.value.trim();
+    const due = form.date.value && form.time.value ? new Date(`${form.date.value}T${form.time.value}`) : null;
+    if (!title) return void (status.textContent = "Give the reminder a title.");
+    if (!due || isNaN(due)) return void (status.textContent = "Pick a date and a time.");
+    const moved = due.toISOString() !== r.due_at;
+    const future = due.getTime() > Date.now();
+    status.textContent = "Saving…";
+    try {
+      // A new future time makes it fire again; the old alert and its bell entry are cleared.
+      await saveReminder({ ...r, title, details: form.details.value.trim(), due_at: due.toISOString(), ...(moved && future ? { notified_at: "", done: false, done_at: "" } : {}), updated_at: new Date().toISOString() });
+      if (moved && future) markRead([`reminder_${r.id}`]);
+    } catch {
+      return void (status.textContent = "Couldn't save the changes. Try again.");
+    }
+    ui.editRem = null;
+    draw();
   }
   async function addReminder(form) {
     const status = form.querySelector("[data-rem-status]");
@@ -709,6 +771,8 @@
         if (f) saveChannel(f);
         const r = e.target.closest("[data-rem-form]");
         if (r) addReminder(r);
+        const ed = e.target.closest("[data-rem-edit-form]");
+        if (ed) saveEdit(ed);
       });
       el.addEventListener("input", (e) => {
         const f = e.target.closest("[data-rem-form]");
@@ -724,6 +788,16 @@
           if (r) saveReminder({ ...r, done: !!ds.remDone, done_at: ds.remDone ? new Date().toISOString() : "" }).catch(() => {});
           return;
         }
+        if (ds.remMenu) {
+          const r = reminders.find((x) => x.id === ds.remMenu);
+          if (!r || typeof openMenu !== "function") return;
+          return openMenu(b, [
+            { label: "Edit", run: () => ((ui.editRem = r.id), (ui.confirming = null), draw(), el.querySelector("[data-rem-edit-form] [name=title]")?.focus()) },
+            { label: r.done ? "Mark not done" : "Mark done", run: () => void saveReminder({ ...r, done: !r.done, done_at: r.done ? "" : new Date().toISOString() }).catch(() => {}) },
+            { label: "Delete", danger: true, run: () => ((ui.confirming = r.id), draw()) },
+          ]);
+        }
+        if ("remEditCancel" in ds) return ((ui.editRem = null), draw());
         if (ds.remAskDel) return ((ui.confirming = ds.remAskDel), draw());
         if ("remDelCancel" in ds) return ((ui.confirming = null), draw());
         if (ds.remDel) return ((ui.confirming = null), void removeReminder(ds.remDel));

@@ -1569,3 +1569,14 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .overdue-flag { padding: 2px 8px; border-radius: 6px; background: #d92d20; color: #fff; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; }
 .nt-root .nt-item-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .nt-root .nt-item-top .rem-menu { margin-left: auto; }
+
+.quiz-summary-wrap { padding-bottom: 12px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.quiz-summary-wrap h4 { margin: 0 0 8px; font-size: 13px; }
+.quiz-summary { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 12.5px; }
+.quiz-summary th, .quiz-summary td { padding: 6px 10px; border: 1px solid var(--line); text-align: center; }
+.quiz-summary thead th { background: var(--surface, rgba(127,127,127,.08)); }
+.quiz-summary th:first-child { text-align: left; }
+.quiz-summary td.q-ok { background: var(--success-bg); color: var(--success-ink); }
+.quiz-summary td.q-bad { background: var(--danger-bg); color: var(--danger-ink); }
+.quiz-summary td.q-avg { font-weight: 700; }
+.quiz-summary-foot { margin: 0; font-size: 12px; }

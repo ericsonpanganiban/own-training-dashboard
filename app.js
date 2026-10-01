@@ -1276,7 +1276,26 @@ function openPerformance(content, traineeId) {
         </div>
         <div class="perf-tabs"><button type="button" class="btn btn-small" data-quiz-refresh>↻ Refresh</button></div>
       </div>
-      <div class="perf-detail">${d.items.map(card).join("")}</div>`;
+      <div class="perf-detail">${summaryHtml(d)}${d.items.map(card).join("")}</div>`;
+  };
+  // Scores by quiz type, in the order taken. A weekly quiz always has two slots; short quizzes have no fixed count.
+  const summaryHtml = (d) => {
+    const cellFor = (x) => (x ? `<td class="${x.pct >= x.passing ? "q-ok" : "q-bad"}" title="${escapeHtml(x.title)} · ${escapeHtml(fmtStamp(x.sent_at))}"><b>${x.pct}%</b></td>` : `<td class="muted">—</td>`);
+    const groups = [...(d.types || []), { id: "", name: "No type", weight: null }];
+    // One table per type so the weekly quiz keeps its two slots while short quizzes grow.
+    const per = groups
+      .map((t) => {
+        const scores = d.items.filter((x) => x.pct != null && (x.typeId || "") === t.id).sort((a, b) => (a.sent_at || "").localeCompare(b.sent_at || ""));
+        if (!t.id && !scores.length) return "";
+        const weekly = /weekly/i.test(`${t.id} ${t.name}`);
+        const slots = weekly ? Math.max(2, scores.length) : Math.max(1, scores.length);
+        const avg = scores.length ? Math.round(scores.reduce((a, x) => a + x.pct, 0) / scores.length) : null;
+        const heads = Array.from({ length: slots }, (_, i) => `<th>${weekly ? `Week ${i + 1}` : `Quiz ${i + 1}`}</th>`).join("");
+        const cells = Array.from({ length: slots }, (_, i) => cellFor(scores[i])).join("");
+        return `<table class="quiz-summary"><thead><tr><th>${escapeHtml(t.name)}${t.weight ? ` <small class="muted">${t.weight}% of weighted</small>` : ""}</th>${heads}<th>Average</th></tr></thead><tbody><tr><th scope="row">Score</th>${cells}<td class="q-avg">${avg == null ? "—" : `<b>${avg}%</b>`}</td></tr></tbody></table>`;
+      })
+      .join("");
+    return `<section class="quiz-summary-wrap"><h4>Score summary</h4>${per}<p class="muted quiz-summary-foot">Weighted average: <b>${d.weighted == null ? "—" : `${d.weighted}%`}</b>. Green is at or above the quiz's passing score. Hover a score for the quiz name and date.</p></section>`;
   };
   const loadQuiz = () => {
     if (!window.TrainerQuiz || view.quiz?.loading) return;

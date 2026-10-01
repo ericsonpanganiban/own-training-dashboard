@@ -2394,6 +2394,7 @@
             return {
               title: quiz.title || quizById.get(quizId)?.title || "Quiz",
               type: typeOf(quizById.get(quizId))?.name || "",
+              typeId: typeOf(quizById.get(quizId))?.id || "",
               sent_at: r.sent_at || "",
               status: answered ? "Answered" : r.recipients[traineeId].sent ? "No reply yet" : "Not sent",
               pct: answered ? x.pct : null,
@@ -2404,7 +2405,7 @@
               missed,
             };
           });
-        return { avg: st.taken ? Math.round(st.sum / st.taken) : null, weighted: st.weighted, taken: st.taken, sent: st.sent, items };
+        return { avg: st.taken ? Math.round(st.sum / st.taken) : null, weighted: st.weighted, taken: st.taken, sent: st.sent, items, types: quizTypes.map((t) => ({ id: t.id, name: t.name, weight: Number(t.weight) || 0 })) };
       });
     },
     // For tests and reuse.

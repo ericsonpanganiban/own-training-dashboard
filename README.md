@@ -18,6 +18,13 @@ Every window has a breadcrumb bar under its title (Trainer Desk › App › …)
 `TrainerDesk.setCrumbs(appId, [{ label, go }], home)`; an open dialog adds its title as the last step, and clicking
 an earlier step closes the dialog first. "Trainer Desk" shows the desktop.
 
+## Dock
+
+A floating, rounded glass dock tinted by the active colorway (rim, fill and glow use the accent). Icons can be dragged
+to reorder. A thin divider separates the trainer apps from the tools (Ops Updates, Settings), a small accent-colored
+dot marks open apps and pops in as the icon hops when an app opens, and apps with unread notifications (Quiz replies,
+Ops Updates) show a count badge on the icon.
+
 ## Colorways
 
 Settings → Appearance → Themes: **Match system**, **Light** (clean off-white `#F5F5F7` with white cards, blue `#007AFF`

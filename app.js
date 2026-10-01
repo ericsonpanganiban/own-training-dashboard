@@ -2027,7 +2027,38 @@ async function publishDefaults() {
 
 // ---------- Dock ----------
 function setRunning(appId, running) {
-  dock.querySelector(`[data-app="${appId}"]`)?.classList.toggle("running", running);
+  const item = dock.querySelector(`[data-app="${appId}"]`);
+  if (!item) return;
+  // An app opening (from the dock, a notification or anywhere else) makes its icon hop once.
+  if (running && !item.classList.contains("running")) {
+    item.classList.remove("bounce");
+    void item.offsetWidth;
+    item.classList.add("bounce");
+  }
+  item.classList.toggle("running", running);
+}
+
+// A thin divider separates the trainer apps from the tools (Ops Updates, Settings), wherever the icons are moved.
+const DOCK_TOOLS = new Set(["notion", "settings"]);
+function markDockGroups() {
+  let prev = null;
+  dock.querySelectorAll(".dock-item").forEach((item) => {
+    const tool = DOCK_TOOLS.has(item.dataset.app);
+    item.classList.toggle("group-start", prev !== null && tool !== prev);
+    prev = tool;
+  });
+}
+
+// Unread counts on dock icons: notifications that belong to an app (Quiz replies, Ops Updates).
+function updateDockBadges(counts) {
+  dock.querySelectorAll(".dock-item").forEach((item) => {
+    const n = counts?.[item.dataset.app] || 0;
+    const badge = item.querySelector(".dock-badge");
+    if (!badge) return;
+    badge.hidden = !n;
+    badge.textContent = n > 99 ? "99+" : String(n);
+    item.setAttribute("aria-label", n ? `${APPS[item.dataset.app].title}, ${n} unread` : APPS[item.dataset.app].title);
+  });
 }
 
 let dockMagnify = { reset() {} };
@@ -2045,6 +2076,7 @@ function reorderDock() {
     const item = dock.querySelector(`[data-app="${id}"]`);
     if (item) dock.appendChild(item);
   });
+  markDockGroups();
 }
 
 function buildDock() {
@@ -2058,20 +2090,16 @@ function buildDock() {
       <span class="dock-face">
         <span class="dock-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${app.icon}</svg>
+          <span class="dock-badge" hidden></span>
         </span>
         <span class="dock-label">${escapeHtml(app.title)}</span>
       </span>`;
-    btn.addEventListener("click", () => {
-      if (!openWindows.has(id)) {
-        btn.classList.remove("bounce");
-        void btn.offsetWidth;
-        btn.classList.add("bounce");
-      }
-      openApp(id);
-    });
+    btn.addEventListener("click", () => openApp(id));
     enableDockDrag(btn);
     dock.appendChild(btn);
   });
+
+  markDockGroups();
 
   // macOS-style magnification: icons grow toward the cursor. Targets update on
   // mousemove; a requestAnimationFrame loop eases each icon toward its target, so the
@@ -2169,6 +2197,7 @@ function enableDockDrag(item) {
       dock.classList.remove("reordering");
       settings.dockOrder = [...dock.querySelectorAll(".dock-item")].map((i) => i.dataset.app);
       settings.dockCustom = true;
+      markDockGroups();
       saveSettings();
       // The click that follows a drag shouldn't open the app.
       item.addEventListener("click", (ce) => ce.stopImmediatePropagation(), { capture: true, once: true });

@@ -241,6 +241,10 @@
     badge.textContent = n > 99 ? "99+" : String(n);
     bell.setAttribute("aria-label", n ? `Notifications, ${n} unread` : "Notifications");
     if (panel) drawPanel();
+    // Unread counts on the dock icons of the apps the notifications belong to.
+    const byApp = {};
+    notes.forEach((x) => !x.read && x.app && (byApp[x.app] = (byApp[x.app] || 0) + 1));
+    if (typeof updateDockBadges === "function") updateDockBadges(byApp);
   }
   function drawPanel() {
     const list = notes.slice(0, 40);

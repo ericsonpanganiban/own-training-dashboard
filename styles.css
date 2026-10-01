@@ -203,24 +203,21 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 #dock {
   position: fixed;
   left: 50%;
-  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   display: flex;
   align-items: flex-end;
-  gap: 6px;
-  padding: 8px 8px 6px;
-  border-radius: 26px;
-  /* Liquid glass: almost no fill, so the wallpaper shows through, bent and brightened by the blur;
-     light catches the rim (inset highlights) and a soft sheen runs across the top. */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01) 55%, rgba(255, 255, 255, 0.019));
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  gap: 4px;
+  padding: 6px 10px 5px;
+  border-radius: 30px;
+  /* Liquid glass, tinted by the colorway (Settings → Appearance → Themes): almost clear, with only a hint of the
+     accent in the fill, the rim and the glow beneath, and very little white. */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 9%, rgba(255, 255, 255, 0.03)), color-mix(in srgb, var(--accent) 3%, transparent) 60%, color-mix(in srgb, var(--accent) 6%, rgba(255, 255, 255, 0.015)));
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, rgba(255, 255, 255, 0.12));
   box-shadow:
     inset 0 1px 0.5px rgba(255, 255, 255, 0.12),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.045),
-    inset 1px 0 1px rgba(255, 255, 255, 0.035),
-    inset -1px 0 1px rgba(255, 255, 255, 0.035),
-    inset 0 14px 22px -12px rgba(255, 255, 255, 0.056),
-    0 12px 32px rgba(0, 0, 0, 0.28),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.04),
+    0 14px 34px color-mix(in srgb, var(--accent) 22%, rgba(0, 0, 0, 0.18)),
     0 2px 6px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(22px) saturate(150%) brightness(1.02);
   -webkit-backdrop-filter: blur(22px) saturate(150%) brightness(1.02);
@@ -236,18 +233,15 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   background: linear-gradient(115deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0) 32%, rgba(255, 255, 255, 0) 68%, rgba(255, 255, 255, 0.026) 100%);
   mix-blend-mode: soft-light;
 }
-@media (prefers-color-scheme: dark) {
-  #dock { border-color: rgba(255, 255, 255, 0.12); background: linear-gradient(180deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.006) 55%, rgba(255, 255, 255, 0.013)); }
-}
 
 .dock-item {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: calc(var(--icon-size) + 44px);
+  width: calc(var(--icon-size) + 36px);
   /* The face is drawn at full magnified size and scaled down, so the item keeps the base size. */
-  height: calc(var(--icon-size) + 21.6px);
+  height: calc(var(--icon-size) + 19.6px);
   border: 0;
   padding: 0;
   background: none;
@@ -269,12 +263,13 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: calc(6px * var(--dock-max));
+  gap: calc(4px * var(--dock-max));
   transform: translateX(-50%) translateX(var(--shift, 0px)) scale(calc(var(--mag, 1) / var(--dock-max)));
   transform-origin: 50% 100%;
   will-change: transform;
 }
 .dock-icon {
+  position: relative;
   width: calc(var(--icon-size) * var(--dock-max));
   height: calc(var(--icon-size) * var(--dock-max));
   border-radius: 24%;
@@ -299,19 +294,53 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   position: absolute;
   top: calc((var(--icon-size) + 1px) * var(--dock-max));
   left: 50%;
-  width: calc(4px * var(--dock-max));
-  height: calc(4px * var(--dock-max));
-  margin-left: calc(-2px * var(--dock-max));
+  width: calc(5px * var(--dock-max));
+  height: calc(5px * var(--dock-max));
+  margin-left: calc(-2.5px * var(--dock-max));
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
+  /* A small colored dot (the colorway's accent) that pops in when an app opens. */
+  background: var(--accent);
+  box-shadow: 0 0 calc(6px * var(--dock-max)) var(--accent);
+  animation: dot-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
+@keyframes dot-pop { from { scale: 0; } to { scale: 1; } }
 #dock.reordering .dock-item { cursor: grabbing; }
 .dock-item.dragging { z-index: 1; opacity: 0.9; }
 .dock-item.dragging .dock-icon svg { filter: drop-shadow(0 9px 15px rgba(0, 0, 0, 0.4)); }
-.dock-item.bounce { animation: bounce 0.5s ease; }
+.dock-item.bounce { animation: bounce 0.6s cubic-bezier(0.28, 0.84, 0.42, 1); }
 @keyframes bounce {
   0%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-14px); }
+  28% { transform: translateY(-16px); }
+  52% { transform: translateY(0); }
+  70% { transform: translateY(-6px); }
+  86% { transform: translateY(0); }
+}
+/* A thin divider between the trainer apps and the tools (Ops Updates, Settings). */
+.dock-item.group-start::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 14%;
+  bottom: 22%;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+}
+/* Unread count on an app's icon. */
+.dock-badge {
+  position: absolute;
+  top: calc(-3px * var(--dock-max));
+  right: calc(-3px * var(--dock-max));
+  min-width: calc(19px * var(--dock-max));
+  height: calc(19px * var(--dock-max));
+  padding: 0 calc(5px * var(--dock-max));
+  border-radius: 99px;
+  background: var(--badge-bg);
+  color: #fff;
+  font-size: calc(11px * var(--dock-max));
+  font-weight: 700;
+  line-height: calc(19px * var(--dock-max));
+  text-align: center;
+  box-shadow: 0 0 0 calc(2px * var(--dock-max)) rgba(0, 0, 0, 0.25);
 }
 
 /* ---------- Windows ---------- */
@@ -525,6 +554,7 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 @media (prefers-reduced-motion: reduce) {
   .window, .window.closing, .dock-item.bounce { animation: none; }
   .dock-item { transition: none; }
+  .dock-item.running .dock-icon::after { animation: none; }
 }
 .dock-item:focus-visible { outline: 2px solid #fff; outline-offset: 4px; border-radius: 14px; }
 
@@ -1465,7 +1495,7 @@ body[data-appearance="playful"] :is(.btn-primary, .status-pill.on):active { tran
 body[data-appearance="playful"] :is(.pill, .cw-chip, .chip) { border-radius: 99px; }
 body[data-appearance="playful"] :is(.quiz-tabs [role="tab"][aria-selected="true"], .notes-card .notes-tabs [role="tab"][aria-selected="true"]) { box-shadow: inset 0 -3px 0 var(--highlight), 0 1px 3px rgba(44, 62, 80, 0.12); }
 body[data-appearance="playful"] :is(.np-item.is-new, .nt-item.is-new) { background: color-mix(in srgb, var(--highlight) 22%, var(--card)); border-color: color-mix(in srgb, var(--highlight) 70%, var(--line)); }
-body[data-appearance="playful"] .dock-item.running .dock-icon::after { background: var(--highlight); box-shadow: 0 0 6px var(--highlight); }
+body[data-appearance="playful"] .dock-item.running .dock-icon::after { background: var(--highlight); box-shadow: 0 0 calc(6px * var(--dock-max)) var(--highlight); }
 body[data-appearance="playful"] .bell-badge { background: var(--violet); }
 body[data-appearance="playful"] .titlebar .title { font-weight: 800; font-size: 14px; letter-spacing: 0.01em; }
 body[data-appearance="playful"] :is(.quiz-top h3, .cw-heading h3, .nt-heading h3, .app-body h3, .sheet-card h3) { font-weight: 800; }

@@ -241,21 +241,31 @@ const APPS = {
         return;
       }
       const openRows = new Set(); // cohorts expanded to show their schedule and trainees
-      // Live C Side QA: pulled from the QA sheet when the window opens and on Refresh.
-      const live = { status: "idle", result: null, error: null };
-      const memberCrms = () => {
+      // Live QA, one pull per side: C Side from the C side sheet, CP Side from the CP side sheet.
+      // Pulled from the QA sheets when the window opens and on Refresh. A trainee's department decides the side
+      // (a department named "CP" is CP Side, anything else C Side).
+      const live = { c_side: { status: "idle", result: null, error: null }, cp_side: { status: "idle", result: null, error: null } };
+      const isCpTrainee = (t) => /\bcp\b/i.test(t.department || "");
+      const memberCrms = (side) => {
         const { cohorts, trainees } = cc.data();
         const ids = new Set(cohorts.flatMap((c) => c.trainee_ids || []));
-        return trainees.filter((t) => ids.has(t.id)).map((t) => t.crm_name).filter(Boolean);
+        return trainees.filter((t) => ids.has(t.id) && isCpTrainee(t) === (side === "cp_side")).map((t) => t.crm_name).filter(Boolean);
       };
+      const anyLoading = () => live.c_side.status === "loading" || live.cp_side.status === "loading";
       const pull = () => {
-        if (live.status === "loading") return;
-        live.status = "loading";
+        if (anyLoading()) return;
+        const jobs = ["c_side", "cp_side"].map((side) => {
+          const crms = memberCrms(side);
+          const state = live[side];
+          if (!crms.length) return Object.assign(state, { status: "idle", result: null, error: null }) && null;
+          state.status = "loading";
+          return cc.liveSideQa(crms, side).then(
+            (result) => Object.assign(state, { status: "ok", result, error: null }),
+            (e) => Object.assign(state, { status: "error", error: e?.message || "Couldn't read the QA sheet." })
+          );
+        });
         draw();
-        cc.liveCSideQa(memberCrms()).then(
-          (result) => Object.assign(live, { status: "ok", result, error: null }),
-          (e) => Object.assign(live, { status: "error", error: e?.message || "Couldn't read the QA sheet." })
-        ).then(() => el.isConnected && draw());
+        Promise.all(jobs).then(() => el.isConnected && draw());
       };
 
       const draw = () => {
@@ -278,34 +288,37 @@ const APPS = {
         const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
         const passedOf = (r) => `${Math.round(r.pass * 100) / 100} of ${r.total} audits passed`;
         // Saved weeks from Coaching, shown until (or if) the live pull can't run.
-        const saved = qa.total
-          ? { value: pct(qa.pass, qa.total), hint: `${passedOf(qa)} · saved weeks only` }
-          : { value: "—", hint: "No saved weeks yet" };
-        let cQa;
-        if (!members.length) cQa = { value: "—", hint: "Add trainees to a cohort" };
-        else if (live.status === "ok") {
-          const r = live.result;
-          cQa = r.total
-            ? { value: pct(r.pass, r.total), hint: `${passedOf(r)} · ${plural(r.weeks, "week")} · ${plural(r.trainees, "trainee")}${r.source === "partial" ? " · may be incomplete" : ""}` }
-            : { value: "—", hint: "No audits in the QA sheet for this cohort's CRM names" };
-        } else if (live.status === "loading") cQa = { value: saved.value === "—" ? "…" : saved.value, hint: "Pulling the latest from the QA sheet…" };
-        else if (live.status === "error") cQa = { value: saved.value, hint: `${live.error} ${saved.value === "—" ? "" : "Showing saved weeks."}`.trim() };
-        else if (!sheets.c_side?.url) cQa = { value: "—", hint: "Not set up · Settings → QA Sheets" };
-        else cQa = saved;
-        const updated =
-          live.status === "ok"
-            ? `Updated from the QA sheet at ${new Date(live.result.fetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-            : live.status === "loading"
-              ? "Refreshing…"
-              : live.status === "error"
-                ? "Last refresh failed"
-                : "";
-        const cpQa = sheets.cp_side?.url
-          ? { value: "—", hint: "No CP side audits pulled yet" }
-          : { value: "—", hint: "Not set up · Settings → QA Sheets" };
+        const sideTile = (side, label, group) => {
+          const st = live[side];
+          const q = cc.qaSummary(group.map((t) => t.crm_name).filter(Boolean));
+          const saved = q.total
+            ? { value: pct(q.pass, q.total), hint: `${passedOf(q)} · saved weeks only` }
+            : { value: "—", hint: "No saved weeks yet" };
+          if (!group.length) return { value: "—", hint: members.length ? `No ${label} trainees in a cohort` : "Add trainees to a cohort" };
+          if (st.status === "ok") {
+            const r = st.result;
+            return r.total
+              ? { value: pct(r.pass, r.total), hint: `${passedOf(r)} · ${plural(r.weeks, "week")} · ${plural(r.trainees, "trainee")}${r.source === "partial" ? " · may be incomplete" : ""}` }
+              : { value: "—", hint: `No audits in the ${label} QA sheet for these CRM names` };
+          }
+          if (st.status === "loading") return { value: saved.value === "—" ? "…" : saved.value, hint: "Pulling the latest from the QA sheet…" };
+          if (st.status === "error") return { value: saved.value, hint: `${st.error} ${saved.value === "—" ? "" : "Showing saved weeks."}`.trim() };
+          if (!sheets[side]?.url) return { value: "—", hint: "Not set up · Settings → QA Sheets" };
+          return saved;
+        };
+        const cQa = sideTile("c_side", "C Side", members.filter((t) => !isCpTrainee(t)));
+        const cpQa = sideTile("cp_side", "CP Side", members.filter(isCpTrainee));
+        const stamps = ["c_side", "cp_side"].map((k) => live[k]).filter((x) => x.status === "ok").map((x) => x.result.fetchedAt).sort();
+        const updated = anyLoading()
+          ? "Refreshing…"
+          : stamps.length
+            ? `Updated from the QA sheets at ${new Date(stamps[stamps.length - 1]).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+            : live.c_side.status === "error" || live.cp_side.status === "error"
+              ? "Last refresh failed"
+              : "";
         // Pass rate per side: a trainee's department decides the side (a department named "CP" is CP Side,
         // anything else C Side, same rule Coaching uses for its knowledge base).
-        const isCp = (t) => /\bcp\b/i.test(t.department || "");
+        const isCp = isCpTrainee;
         const passRateFor = (group, side) => {
           if (!members.length) return { value: "—", hint: "Add trainees to a cohort" };
           if (!group.length) return { value: "—", hint: `No ${side} trainees in a cohort` };
@@ -344,7 +357,7 @@ const APPS = {
               <div class="group-head">
                 <h4>Nesting QA</h4>
                 ${average(cQa, cpQa)}
-                <button type="button" class="btn btn-small" data-refresh-qa${live.status === "loading" ? " disabled" : ""}>${live.status === "loading" ? "Refreshing…" : "↻ Refresh"}</button>
+                <button type="button" class="btn btn-small" data-refresh-qa${anyLoading() ? " disabled" : ""}>${anyLoading() ? "Refreshing…" : "↻ Refresh"}</button>
               </div>
               <div class="metric-pair">
                 ${metric("Nesting QA Score (C Side)", cQa)}

@@ -12,7 +12,7 @@ To add an app, add an entry to `APPS` in `app.js`.
 
 Coaching (`coaching-compass/`): Team coaching and Individual coaching both start at a cohort level (cohort pills,
 newest first; Team also has a week tab per saved analysis). The Calibration Log is no longer a tab in QA Data Request;
-its tile stays on Coaching's Home. Settings → Knowledge Base has **+ Add more** (and Remove for extra rows) per side, and each resource is marked **Saved** and **Read by Claude** (remembered in `settings/kb_reads`; older checks are matched by name).
+its tile stays on Coaching's Home. QA Sheets has a C side and a CP side sheet, read the same way (first tab, header row 1, columns found by name): QA Data Request pulls from the side of the cohort's or trainee's department (a department named CP is CP side), and Cohorts shows a live QA score for each side. Settings → Knowledge Base has **+ Add more** (and Remove for extra rows) per side, and each resource is marked **Saved** and **Read by Claude** (remembered in `settings/kb_reads`; older checks are matched by name).
 
 Every window has a breadcrumb bar under its title (Trainer Desk › App › …). An app reports its deeper levels with
 `TrainerDesk.setCrumbs(appId, [{ label, go }], home)`; an open dialog adds its title as the last step, and clicking

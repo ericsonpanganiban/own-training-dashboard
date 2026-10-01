@@ -70,7 +70,7 @@
   ];
   var SHEET_SIDES = [
     { key: "c_side", label: "C side", hint: "Customer-facing QA audits", columns: COLUMN_MAP },
-    { key: "cp_side", label: "CP side", hint: "Cleaner Partner QA audits", columns: null, wip: true }
+    { key: "cp_side", label: "CP side", hint: "Cleaner Partner QA audits", columns: COLUMN_MAP }
   ];
 
 
@@ -989,14 +989,14 @@
       var t = state.trainees.filter(function(x){ return x.id === draft.target; })[0];
       if (!t) return fail("That trainee is no longer on the roster.");
       if (!(t.crm_name || "").trim()) return fail("Add this trainee's CRM name under Settings → Roster first.");
-      ctx = { mode: "trainee", week: week, targetId: t.id, targetLabel: t.name, targetCrm: t.crm_name, memberNames: null, memberCrmNames: null };
+      ctx = { mode: "trainee", week: week, side: sideForDepartment(t.department), targetId: t.id, targetLabel: t.name, targetCrm: t.crm_name, memberNames: null, memberCrmNames: null };
     } else {
       var c = state.cohorts.filter(function(x){ return x.id === draft.target; })[0];
       if (!c) return fail("That cohort no longer exists.");
       var members = (c.trainee_ids || []).map(function(id){ return state.trainees.filter(function(x){ return x.id === id; })[0] || null; }).filter(Boolean);
       var crmNames = members.map(function(m){ return (m.crm_name || "").trim(); }).filter(Boolean);
       if (!crmNames.length) return fail("None of this cohort's trainees has a CRM name yet.");
-      ctx = { mode: "cohort", week: week, targetId: c.id, targetLabel: c.name, targetCrm: "", memberNames: members.map(function(m){ return m.name; }).filter(Boolean), memberCrmNames: crmNames };
+      ctx = { mode: "cohort", week: week, side: sideForDepartment(c.department), targetId: c.id, targetLabel: c.name, targetCrm: "", memberNames: members.map(function(m){ return m.name; }).filter(Boolean), memberCrmNames: crmNames };
     }
     if (statusEl){ statusEl.textContent = ""; statusEl.className = "save-status"; }
     var req = { ctx: ctx, status: "fetching", headers: EXTRACT_COLUMNS, rows: [], analysis: null, error: null, fetchedText: null, extracted: null };
@@ -1006,9 +1006,11 @@
   }
 
   function fetchForRequest(req){
-    var fileId = extractDriveFileId(state.settings.c_side.url);
+    var sideKey = req.ctx.side === "cp_side" ? "cp_side" : "c_side";
+    var sideName = sideKey === "cp_side" ? "CP side" : "C side";
+    var fileId = extractDriveFileId((state.settings[sideKey] || {}).url);
     function failed(msg){ req.status = "fetch_failed"; req.error = msg; renderDataRequest(); }
-    if (!fileId) return failed("No C side QA sheet is set up yet (Trainer Desk → Settings → QA Sheets).");
+    if (!fileId) return failed("No " + sideName + " QA sheet is set up yet (Trainer Desk → Settings → QA Sheets).");
     if (!mcpFn) return failed("Google Drive isn't available in this view.");
 
     function useTables(tables){
@@ -1854,7 +1856,7 @@
       var mapHtml = side.columns ? (
         "<div class=\"col-map\">" +
           "<h4>Column reference</h4>" +
-          "<p class=\"r-hint\">Inside that tab, Coaching reads only these columns — everything else in the sheet is ignored:</p>" +
+          "<p class=\"r-hint\">Inside that tab, Coaching reads only these columns — everything else in the sheet is ignored. It finds them by the header names in row 1 (Week Number, CRM Name, Rating, Comments on Resolution, Comments on Communication, Score), so the order can differ:</p>" +
           side.columns.map(function(m){
             return "<div class=\"col-map-row\"><span class=\"row-top\"><span class=\"col-letter\">" + esc(m.col) + "</span><span class=\"col-field\">" + esc(m.field) + "</span></span><span class=\"col-desc\">" + esc(m.desc) + "</span></div>";
           }).join("") +
@@ -1877,7 +1879,7 @@
     qaSheetHost.innerHTML =
       "<div class=\"card\">" +
         "<div class=\"resource-head\"><span class=\"r-icon\">" + ICONS.sheet + "</span><h2>QA Sheet</h2></div>" +
-        "<p class=\"hint\">Point Coaching at the Google Sheets your QA audits live in. Nothing is fetched automatically yet — this just tells the tool where to look.</p>" +
+        "<p class=\"hint\">Point Coaching at the Google Sheets your QA audits live in, one per side. Coaching reads the <b>first tab</b> of each sheet, with the header in row 1. A cohort or trainee in a department named CP is pulled from the CP side sheet, everyone else from the C side sheet.</p>" +
         "<div class=\"side-grid\">" + sidesHtml + "</div>" +
         "<div class=\"settings-foot\">" +
           "<button class=\"primary small\" id=\"saveSettingsBtn\" type=\"button\">Save sources</button>" +
@@ -4340,10 +4342,12 @@
   }
 
   // ---- Live C side QA: read the whole audits tab from the QA sheet, all weeks ----
-  function liveCSideQa(crmNames){
+  function liveSideQa(crmNames, sideKey){
+    sideKey = sideKey === "cp_side" ? "cp_side" : "c_side";
+    var sideName = sideKey === "cp_side" ? "CP Side" : "C Side";
     return whenReady(["mcp", "settings"], 8000).then(function(){
-      var fileId = extractDriveFileId(state.settings.c_side.url);
-      if (!fileId) return Promise.reject({ code: "no_sheet", message: "No C Side sheet is set up (Settings → QA Sheets)." });
+      var fileId = extractDriveFileId((state.settings[sideKey] || {}).url);
+      if (!fileId) return Promise.reject({ code: "no_sheet", message: "No " + sideName + " sheet is set up (Settings → QA Sheets)." });
       if (!mcpFn) return Promise.reject({ code: "no_drive", message: "Google Drive isn't available in this view." });
       return readFirstTabAudits(fileId).then(function(tables){
         if (tables) return { tables: tables, source: "full" };
@@ -4392,7 +4396,8 @@
       return function(){ changeListeners = changeListeners.filter(function(f){ return f !== fn; }); };
     },
     sheets: function(){ return JSON.parse(JSON.stringify(state.settings)); },
-    liveCSideQa: liveCSideQa,
+    liveCSideQa: function(crmNames){ return liveSideQa(crmNames, "c_side"); },
+    liveSideQa: liveSideQa,
     // C side QA across saved weeks (newest pull per trainee and week), limited to the given CRM names.
     qaSummary: function(crmNames){
       var want = null;

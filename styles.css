@@ -1538,3 +1538,11 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .export-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0 12px; }
 .export-bar .check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 .export-bar .sheet-status { min-width: 0; }
+
+.perf-card .perf-title [data-copy-msg] { margin-left: auto; }
+.perf-card .need-short { color: var(--danger-ink, #b42318); font-weight: 600; }
+.quiz-perf { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.quiz-perf:last-child { border-bottom: 0; }
+.quiz-perf-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.quiz-perf-score { margin-left: auto; }
+.quiz-opps { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }

@@ -20,10 +20,10 @@
 
   var SECTIONS = [
     { key: "data", label: "QA Data Request", icon: "table", countKey: "rows" },
+    { key: "cohorts", label: "QA Data", icon: "roster", countKey: "cohorts" },
+    { key: "speed", label: "Speed", icon: "trend" },
     { key: "team", label: "Team coaching", icon: "users", countKey: "themes" },
-    { key: "individual", label: "Individual coaching", icon: "user" },
-    { key: "cohorts", label: "Cohorts", icon: "roster", countKey: "cohorts" },
-    { key: "speed", label: "Speed", icon: "trend" }
+    { key: "individual", label: "Individual coaching", icon: "user" }
   ];
   var SOON = [
     { label: "Trends over time", icon: "trend" },
@@ -39,7 +39,7 @@
     data: { eyebrow: "QA Data Request", title: "QA Data Request", sub: "Request a week's QA audits. Every request is analyzed automatically, and nothing is kept unless you save it." },
     team: { eyebrow: "Team coaching", title: "Team coaching", sub: "Recurring themes across every trainee, ranked by impact." },
     individual: { eyebrow: "Individual coaching", title: "Individual coaching", sub: "A coaching brief for each trainee, ready for your next 1:1." },
-    cohorts: { eyebrow: "Cohorts", title: "Cohorts", sub: "Group trainees into a cohort so you can pull and analyze a whole batch's audits at once." },
+    cohorts: { eyebrow: "QA Data", title: "QA Data", sub: "Each cohort's saved QA weeks and coaching data. Cohorts themselves are managed in the Cohorts app." },
     speed: { eyebrow: "Speed", title: "Speed", sub: "Daily Speed and hours per trainee, summarised per week, read from the Speed Productivity Sheet." },
     settings: { eyebrow: "Settings", title: "Settings", sub: "Configure where Coaching reads its QA audits from." }
   };
@@ -1648,7 +1648,7 @@
     var head =
       "You are the assistant inside Coaching, a QA coaching tool a Homeaglow Care QA coach uses to coach trainees from their weekly QA audits.\n" +
       "Answer the coach's request using ONLY the data below. Rules:\n" +
-      "- If what's needed isn't in the data, say exactly what's missing and how to get it (a week that isn't saved: \"request it in QA Data Request and save it\"; a knowledge gap analysis that doesn't exist: \"open Cohorts › <cohort> › Week <n> › Knowledge gap analysis and click Generate\"). Never invent numbers, names, or findings.\n" +
+      "- If what's needed isn't in the data, say exactly what's missing and how to get it (a week that isn't saved: \"request it in QA Data Request and save it\"; a knowledge gap analysis that doesn't exist: \"open QA Data › <cohort> › Week <n> › Knowledge gap analysis and click Generate\"). Never invent numbers, names, or findings.\n" +
       "- Scores are already computed (Pass = 100%, Fail = 0%; passes ÷ audited tickets). Use them exactly as given; never recompute or estimate.\n" +
       "- Call trainees by their roster name.\n" +
       "- Some weeks appear only in the index, not in full detail. If the answer needs one of those, say so and suggest asking about that week by number.\n" +
@@ -2628,14 +2628,12 @@
 
     el.cohortsBody.innerHTML =
       "<div class=\"card\">" +
-        "<div class=\"resource-head\"><span class=\"r-icon\">" + ICONS.roster + "</span><h2>Cohorts</h2>" +
-          "<button class=\"primary small\" id=\"addCohortBtn\" style=\"margin-left:auto;\" type=\"button\">+ Add cohort</button>" +
+        "<div class=\"resource-head\"><span class=\"r-icon\">" + ICONS.roster + "</span><h2>QA Data</h2>" +
         "</div>" +
-        "<p class=\"hint\">Group trainees added under Settings → Roster → Trainee into a cohort, so you can pull and analyze a whole team/batch's audits at once from QA Data Request. Click a cohort's name to see its coaching data.</p>" +
+        "<p class=\"hint\">Group trainees added under Settings → Roster → Trainee into a cohort, so you can pull and analyze a whole team/batch's audits at once from QA Data Request. Click a cohort's name to see its coaching data. Add or edit cohorts in the Cohorts app.</p>" +
         listHtml +
       "</div>";
 
-    document.getElementById("addCohortBtn").addEventListener("click", openAddCohortModal);
     el.cohortsBody.querySelectorAll("[data-del-cohort]").forEach(function(btn){
       btn.addEventListener("click", function(){ deleteCohort(btn.getAttribute("data-del-cohort")); });
     });
@@ -2976,7 +2974,7 @@
     } else if (state.learnings === null){
       body = "<p class=\"hint\">Loading…</p>";
     } else if (!state.learnings.length){
-      body = "<p class=\"hint\">Nothing saved yet. Open a week under Cohorts → Knowledge gap analysis and add a comment on any finding — it lands here as soon as you click away from the box.</p>";
+      body = "<p class=\"hint\">Nothing saved yet. Open a week under QA Data → Knowledge gap analysis and add a comment on any finding — it lands here as soon as you click away from the box.</p>";
     } else {
       var cohorts = [];
       state.learnings.forEach(function(e){ if (e.cohort_name && cohorts.indexOf(e.cohort_name) === -1) cohorts.push(e.cohort_name); });
@@ -4395,7 +4393,7 @@
   // with columns A, E, D, F, K as the fallback. You type the week to pull; only roster trainees are kept, one
   // document per week in speed_weeks/{week}: rows { d: date, c: CRM name, h: hours, v: speed, m: 1 when hours were typed in }.
   var speedHost = null, speedSettingsHost = null;
-  var speed = { url: "", tab_name: "", weeks: {}, label: "Speed", busy: false, msg: "", err: false, cohort: "", week: "", pullWeek: "" };
+  var speed = { url: "", tab_name: "", goal: null, weeks: {}, label: "Speed", busy: false, msg: "", err: false, cohort: "", week: "", pullWeek: "" };
 
   function speedNorm(c){ return String(c == null ? "" : c).trim().toLowerCase().replace(/[_\s]+/g, " "); }
   function speedHeader(cells){
@@ -4406,20 +4404,20 @@
       week: find(function(c){ return c === "week num" || c === "week number" || c === "week"; }),
       date: find(function(c){ return c === "hubstaff date" || c === "date"; }),
       hours: find(function(c){ return c === "total billed ticket hours"; }),
+      tickets: find(function(c){ return c === "total tickets"; }),
       speed: find(function(c){ return c === "speed"; })
     };
     var hasNames = h.crm !== -1 && h.week !== -1 && h.speed !== -1;
     if (!hasNames){
-      if (cells.length >= 11 && /crm/i.test(String(cells[0])) ) h = { crm: 0, date: 3, week: 4, hours: 5, speed: 10 };
+      if (cells.length >= 11 && /crm/i.test(String(cells[0]))) h = { crm: 0, date: 3, week: 4, hours: 5, tickets: 9, speed: 10 };
       else return null;
     }
-    h.label = "Speed";
     return h;
   }
   var weekKey = function(w){ var d = String(w == null ? "" : w).replace(/\D/g, ""); return d || String(w == null ? "" : w).trim().toLowerCase(); };
   var speedNum = function(x){ var t = String(x == null ? "" : x).replace(/[,%\s]/g, ""); var v = t === "" ? NaN : parseFloat(t); return isNaN(v) ? null : v; };
 
-  // Rows of the wanted week for roster CRM names only (a Set of lowercase names).
+  // Rows of the wanted week for roster CRM names only (an object of lowercase names).
   function speedRowsFromCells(table, wantWeek, wantCrms){
     for (var i = 0; i < Math.min(table.length, 12); i++){
       var h = speedHeader(table[i]);
@@ -4432,7 +4430,7 @@
         if (!crm || !wantCrms[crm.toLowerCase()]) continue;
         var d = h.date !== -1 ? String(r[h.date] == null ? "" : r[h.date]).trim() : "";
         var k = d + "|" + crm.toLowerCase();
-        var row = { d: d, c: crm, h: h.hours !== -1 ? speedNum(r[h.hours]) : null, v: speedNum(r[h.speed]) };
+        var row = { d: d, c: crm, h: h.hours !== -1 ? speedNum(r[h.hours]) : null, t: h.tickets !== -1 ? speedNum(r[h.tickets]) : null, v: speedNum(r[h.speed]) };
         if (k in seen) rows[seen[k]] = row; else { seen[k] = rows.length; rows.push(row); }
       }
       return { rows: rows };
@@ -4447,23 +4445,33 @@
   function speedFmt(v){ return v == null ? "—" : String(Math.round(v * 100) / 100); }
   function speedWeekList(){ return Object.keys(speed.weeks).sort(speedWeekSort); }
   function speedDocId(week){ return "w" + String(week).replace(/[^A-Za-z0-9]+/g, "_"); }
-  function speedAvg(days){
-    var vs = days.map(function(x){ return x.v; }).filter(function(v){ return v != null && v > 0; });
-    return vs.length ? vs.reduce(function(a, b){ return a + b; }, 0) / vs.length : null;
+  // The sheet's SPEED is minutes per ticket: billed ticket hours × 60 ÷ tickets. It's recomputed here whenever hours or
+  // tickets are edited; the sheet's own value is the fallback when one of them is missing. Lower is faster.
+  function dayV(r){ return r.h > 0 && r.t > 0 ? r.h * 60 / r.t : (r.v != null ? r.v : null); }
+  // Tickets needed to hit the goal in these hours.
+  function needFor(hours){ return speed.goal > 0 && hours > 0 ? Math.ceil(hours * 60 / speed.goal) : null; }
+  // A week's numbers for a set of daily rows: speed = hours × 60 ÷ tickets over the days that have both.
+  function speedTotals(rows){
+    var both = rows.filter(function(r){ return r.h > 0 && r.t > 0; });
+    var bh = both.reduce(function(a, r){ return a + r.h; }, 0), bt = both.reduce(function(a, r){ return a + r.t; }, 0);
+    var hours = rows.reduce(function(a, r){ return a + (r.h || 0); }, 0), tickets = rows.reduce(function(a, r){ return a + (r.t || 0); }, 0);
+    var value = bt > 0 ? bh * 60 / bt : (function(){ var vs = rows.map(dayV).filter(function(v){ return v != null && v > 0; }); return vs.length ? vs.reduce(function(a, b){ return a + b; }, 0) / vs.length : null; })();
+    return { value: value, hours: hours, tickets: tickets, need: needFor(hours) };
   }
 
-  // One trainee's Speed weeks, newest first: { week, value (average of days with a speed), hours, days:[{date, speed, hours, manual}] }.
+  // One trainee's Speed weeks, newest first: { week, value, hours, tickets, need, days:[{date, speed, hours, tickets, need, manual}] }.
   function traineeSpeed(traineeId){
     var t = state.trainees.filter(function(x){ return x.id === traineeId; })[0];
-    var out = { name: t ? t.name : "", crm: t ? (t.crm_name || "") : "", label: "Speed", weeks: [], configured: !!speed.url, pulled: speedWeekList().length > 0 };
+    var out = { name: t ? t.name : "", crm: t ? (t.crm_name || "") : "", label: "Speed", goal: speed.goal, weeks: [], configured: !!speed.url, pulled: speedWeekList().length > 0 };
     if (!t) return out;
     var keys = [(t.crm_name || "").trim().toLowerCase(), (t.name || "").trim().toLowerCase()].filter(Boolean);
     speedWeekList().forEach(function(w){
       var mine = (speed.weeks[w].rows || []).filter(function(r){ return keys.indexOf(String(r.c).toLowerCase()) !== -1; });
       if (!mine.length) return;
       mine.sort(function(a, b){ return String(a.d).localeCompare(String(b.d)); });
-      var hours = mine.reduce(function(a, r){ return a + (r.h || 0); }, 0);
-      out.weeks.push({ week: w, value: speedAvg(mine), hours: hours, days: mine.map(function(r){ return { date: r.d, speed: r.v, hours: r.h, manual: !!r.m }; }) });
+      var tot = speedTotals(mine);
+      out.weeks.push({ week: w, value: tot.value, hours: tot.hours, tickets: tot.tickets, need: tot.need,
+        days: mine.map(function(r){ return { date: r.d, speed: dayV(r), hours: r.h, tickets: r.t, need: needFor(r.h), manual: !!(r.mh || r.mt) }; }) });
     });
     out.weeks.sort(function(a, b){ return speedWeekSort(b.week, a.week); });
     return out;
@@ -4471,12 +4479,11 @@
 
   function saveSpeedWeek(week){
     var doc = speed.weeks[week];
-    if (!doc) return Promise.resolve();
-    if (!dbFn) return Promise.resolve();
+    if (!doc || !dbFn) return Promise.resolve();
     return dbFn.doc("speed_weeks/" + speedDocId(week)).set({ week: week, rows: doc.rows, pulled_at: doc.pulled_at || "", updated_at: new Date().toISOString() });
   }
 
-  // Pull one week from the sheet. Hours typed in by hand are kept.
+  // Pull one week from the sheet. Hours and tickets typed in by hand are kept.
   function pullSpeed(week){
     week = String(week == null ? "" : week).trim();
     if (!week) return Promise.reject({ message: "Type the week number to pull." });
@@ -4494,9 +4501,9 @@
         if (!got) return Promise.reject({ message: "Couldn't find the CRM_NAME, WEEK_NUM and SPEED columns in the first tab of that sheet." });
         if (!got.rows.length) return Promise.reject({ message: "No rows for week " + week + " matched a CRM name on your roster." });
         var old = speed.weeks[week] ? speed.weeks[week].rows : [];
-        old.filter(function(r){ return r.m; }).forEach(function(m){
+        old.filter(function(r){ return r.mh || r.mt; }).forEach(function(m){
           var hit = got.rows.filter(function(r){ return r.d === m.d && r.c.toLowerCase() === String(m.c).toLowerCase(); })[0];
-          if (hit){ hit.h = m.h; hit.m = 1; } else got.rows.push(m);
+          if (hit){ if (m.mh){ hit.h = m.h; hit.mh = 1; } if (m.mt){ hit.t = m.t; hit.mt = 1; } } else got.rows.push(m);
         });
         speed.weeks[week] = { week: week, rows: got.rows, pulled_at: new Date().toISOString() };
         speed.week = week;
@@ -4504,20 +4511,30 @@
       });
   }
 
-  // Type the hours for a trainee's day when the sheet doesn't have them.
-  function setSpeedHours(week, crm, date, text){
+  // Type the hours or cleared tickets for a trainee's day; Speed recalculates.
+  function setSpeedField(week, crm, date, field, text){
     var doc = speed.weeks[week];
     if (!doc) return;
-    var h = speedNum(text);
+    var val = speedNum(text);
     var row = doc.rows.filter(function(r){ return r.d === date && String(r.c).toLowerCase() === crm.toLowerCase(); })[0];
     if (!row){
-      if (h == null) return;
-      row = { d: date, c: crm, h: null, v: null };
+      if (val == null) return;
+      row = { d: date, c: crm, h: null, t: null, v: null };
       doc.rows.push(row);
     }
-    if (row.h === h) return;
-    row.h = h; row.m = 1;
-    saveSpeedWeek(week).catch(function(){ speed.msg = "Couldn't save the hours. Try again."; speed.err = true; }).then(function(){ renderAll(); });
+    if (row[field] === val) return;
+    row[field] = val; row[field === "h" ? "mh" : "mt"] = 1;
+    saveSpeedWeek(week).catch(function(){ speed.msg = "Couldn't save that change. Try again."; speed.err = true; }).then(function(){ renderAll(); });
+  }
+
+  function saveSpeedConfig(extra){
+    var doc = { url: speed.url, tab_name: speed.tab_name, goal: speed.goal == null ? null : speed.goal, updated_at: new Date().toISOString() };
+    return dbFn ? dbFn.doc("settings/speed_sheet").set(doc) : Promise.resolve();
+  }
+  function setSpeedGoal(text){
+    var g = speedNum(text);
+    speed.goal = g != null && g > 0 ? g : null;
+    saveSpeedConfig().catch(function(){ speed.msg = "Couldn't save the goal. Try again."; speed.err = true; }).then(function(){ renderAll(); });
   }
 
   function runSpeedPull(){
@@ -4539,7 +4556,7 @@
   function startSpeedDb(){
     dbFn.doc("settings/speed_sheet").onSnapshot(onChangedSnapshot(function(snap){
       var d = snap.exists ? (thawed(snap.data()) || {}) : {};
-      speed.url = d.url || ""; speed.tab_name = d.tab_name || "";
+      speed.url = d.url || ""; speed.tab_name = d.tab_name || ""; speed.goal = d.goal > 0 ? d.goal : null;
       renderAll();
     }), function(){});
     dbFn.collection("speed_weeks").onSnapshot(onChangedSnapshot(function(snap){
@@ -4573,7 +4590,8 @@
     var head = "<div class=\"speed-bar\">" +
       "<div class=\"field\"><label for=\"speedCohort\">Cohort</label><select id=\"speedCohort\">" + cohortOpts + "</select></div>" +
       (saved.length ? "<div class=\"field\"><label for=\"speedWeekSel\">Saved week</label><select id=\"speedWeekSel\">" + weekOpts + "</select></div>" : "") +
-      "<div class=\"field\"><label for=\"speedWeekIn\">Pull week</label><input id=\"speedWeekIn\" type=\"text\" inputmode=\"numeric\" placeholder=\"e.g. 561\" value=\"" + esc(speed.pullWeek) + "\" style=\"width:110px\" /></div>" +
+      "<div class=\"field\"><label for=\"speedGoal\" title=\"Minutes per ticket the team should reach. Lower is faster.\">Team speed goal (min/ticket)</label><input id=\"speedGoal\" type=\"text\" inputmode=\"decimal\" placeholder=\"e.g. 12\" value=\"" + (speed.goal == null ? "" : esc(speedFmt(speed.goal))) + "\" style=\"width:90px\" /></div>" +
+      "<div class=\"field\"><label for=\"speedWeekIn\">Pull week</label><input id=\"speedWeekIn\" type=\"text\" inputmode=\"numeric\" placeholder=\"e.g. 561\" value=\"" + esc(speed.pullWeek) + "\" style=\"width:100px\" /></div>" +
       "<button class=\"primary small\" id=\"speedPullBtn\" type=\"button\"" + (speed.busy || !speed.url ? " disabled" : "") + ">" + (speed.busy ? "Pulling…" : "Pull") + "</button>" + speedStatusLine() + "</div>";
     var body;
     var doc = speed.weeks[speed.week];
@@ -4586,17 +4604,26 @@
       var dates = {};
       doc.rows.forEach(function(r){ dates[r.d] = true; });
       var days = Object.keys(dates).sort();
-      body = "<div class=\"speed-wrap\"><table class=\"preview speed-table\"><thead><tr><th>Trainee</th>" + days.map(function(d){ return "<th>" + esc(speedDayLabel(d)) + "</th>"; }).join("") + "<th>Avg speed</th><th>Hours</th></tr></thead><tbody>" +
+      var cell = function(r, d, crm, name){
+        var sp = r ? dayV(r) : null, need = r ? needFor(r.h) : null;
+        var ok = need != null && r && r.t != null ? (r.t >= need) : null;
+        var inp = function(field, label, val, manual){
+          return "<input class=\"sp-in" + (manual ? " manual" : "") + "\" type=\"text\" inputmode=\"decimal\" aria-label=\"" + label + " on " + esc(speedDayLabel(d)) + " for " + esc(name) + "\" placeholder=\"" + (field === "h" ? "hrs" : "tkts") + "\" value=\"" + (val != null ? esc(speedFmt(val)) : "") + "\" data-sp-week=\"" + esc(speed.week) + "\" data-sp-crm=\"" + esc(crm) + "\" data-sp-date=\"" + esc(d) + "\" data-sp-field=\"" + field + "\" />";
+        };
+        return "<td><span class=\"sp-v\">" + speedFmt(sp) + "</span>" + inp("t", "Cleared tickets", r ? r.t : null, r && r.mt) + inp("h", "Hours", r ? r.h : null, r && r.mh) +
+          (need != null ? "<span class=\"sp-need " + (ok ? "ok" : "short") + "\">need " + need + "</span>" : "") + "</td>";
+      };
+      body = "<div class=\"speed-wrap\"><table class=\"preview speed-table\"><thead><tr><th class=\"sk sk1\">Trainee</th><th class=\"sk sk2\">Avg speed</th><th class=\"sk sk3\">Hours</th><th>Cleared</th>" + (speed.goal ? "<th>Needed</th>" : "") + days.map(function(d){ return "<th>" + esc(speedDayLabel(d)) + "</th>"; }).join("") + "</tr></thead><tbody>" +
         list.map(function(t){
           var keys = [(t.crm_name || "").trim().toLowerCase(), (t.name || "").trim().toLowerCase()].filter(Boolean);
           var mine = doc.rows.filter(function(r){ return keys.indexOf(String(r.c).toLowerCase()) !== -1; });
           var crm = mine[0] ? mine[0].c : (t.crm_name || t.name || "");
-          var hours = mine.reduce(function(a, r){ return a + (r.h || 0); }, 0);
-          return "<tr" + (t.cohort_status === "inactive" ? " class=\"is-inactive\"" : "") + "><td>" + esc(t.name) + "</td>" + days.map(function(d){
-            var r = mine.filter(function(x){ return x.d === d; })[0];
-            return "<td><span class=\"sp-v\">" + speedFmt(r ? r.v : null) + "</span><input class=\"sp-h" + (r && r.m ? " manual" : "") + "\" type=\"text\" inputmode=\"decimal\" aria-label=\"Hours on " + esc(speedDayLabel(d)) + " for " + esc(t.name) + "\" placeholder=\"hrs\" value=\"" + (r && r.h != null ? esc(speedFmt(r.h)) : "") + "\" data-sp-week=\"" + esc(speed.week) + "\" data-sp-crm=\"" + esc(crm) + "\" data-sp-date=\"" + esc(d) + "\" /></td>";
-          }).join("") + "<td><b>" + speedFmt(speedAvg(mine)) + "</b></td><td>" + (mine.length ? speedFmt(hours) : "—") + "</td></tr>";
-        }).join("") + "</tbody></table></div><p class=\"hint\">Speed is the sheet's SPEED column for each day; the weekly figure averages the days that have one. Hours come from TOTAL_BILLED_TICKET_HOURS; type hours into an empty box if the sheet doesn't have them (kept when you pull again).</p>";
+          var tot = speedTotals(mine);
+          var short = tot.need != null && tot.tickets < tot.need;
+          return "<tr" + (t.cohort_status === "inactive" ? " class=\"is-inactive\"" : "") + "><td class=\"sk sk1\">" + esc(t.name) + "</td><td class=\"sk sk2\"><b>" + speedFmt(tot.value) + "</b></td><td class=\"sk sk3\">" + (mine.length ? speedFmt(tot.hours) : "—") + "</td><td>" + (mine.length ? speedFmt(tot.tickets) : "—") + "</td>" +
+            (speed.goal ? "<td" + (short ? " class=\"sp-short\"" : "") + ">" + (tot.need != null ? tot.need : "—") + "</td>" : "") +
+            days.map(function(d){ return cell(mine.filter(function(x){ return x.d === d; })[0], d, crm, t.name); }).join("") + "</tr>";
+        }).join("") + "</tbody></table></div><p class=\"hint\">Speed is minutes per ticket (hours × 60 ÷ cleared tickets), so lower is faster; it recalculates when you change hours or tickets. " + (speed.goal ? "“Need” is the tickets required in that many hours to hit the " + esc(speedFmt(speed.goal)) + " min goal. " : "Set a team speed goal to see the tickets each trainee needs. ") + "Edited boxes are outlined and kept when you pull again.</p>";
     }
     host.innerHTML = head + body;
   }
@@ -4621,7 +4648,7 @@
     speed.msg = "Saving…"; speed.err = false;
     var done = function(msg, err){ speed.msg = msg; speed.err = !!err; renderSpeedSettings(true); renderSpeedPanel(true); };
     if (!dbFn){ done("Saved to this browser tab only — settings storage isn't available in this view.", true); return; }
-    dbFn.doc("settings/speed_sheet").set({ url: url, tab_name: tab, updated_at: new Date().toISOString() })
+    dbFn.doc("settings/speed_sheet").set({ url: url, tab_name: tab, goal: speed.goal == null ? null : speed.goal, updated_at: new Date().toISOString() })
       .then(function(){ done("Saved."); }, function(e){ done(e && e.code === "invalid_argument" ? "You don't have permission to change these settings." : "Couldn't save — try again.", true); });
   }
 
@@ -4632,7 +4659,7 @@
   });
   document.addEventListener("keydown", function(e){
     if (e.key === "Enter" && e.target && e.target.id === "speedWeekIn") runSpeedPull();
-    else if (e.key === "Enter" && e.target && e.target.classList && e.target.classList.contains("sp-h")) e.target.blur();
+    else if (e.key === "Enter" && e.target && e.target.classList && (e.target.classList.contains("sp-in") || e.target.id === "speedGoal")) e.target.blur();
   });
   document.addEventListener("input", function(e){
     if (e.target && e.target.id === "speedWeekIn") speed.pullWeek = e.target.value;
@@ -4642,7 +4669,8 @@
     if (!t) return;
     if (t.id === "speedCohort"){ speed.cohort = t.value; renderSpeedPanel(true); }
     else if (t.id === "speedWeekSel"){ speed.week = t.value; renderSpeedPanel(true); }
-    else if (t.classList && t.classList.contains("sp-h")) setSpeedHours(t.getAttribute("data-sp-week"), t.getAttribute("data-sp-crm"), t.getAttribute("data-sp-date"), t.value);
+    else if (t.id === "speedGoal") setSpeedGoal(t.value);
+    else if (t.classList && t.classList.contains("sp-in")) setSpeedField(t.getAttribute("data-sp-week"), t.getAttribute("data-sp-crm"), t.getAttribute("data-sp-date"), t.getAttribute("data-sp-field"), t.value);
   });
 
   // ---- Shared data for other Trainer Desk apps (Settings → Roster is the one list) ----

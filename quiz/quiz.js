@@ -2373,6 +2373,40 @@
       ui.offCc?.();
       ui.el = null;
     },
+    // One trainee's quiz results for Performance: every quiz they answered with its score, and the
+    // questions they missed (their "opportunities"). Resolves { ready, avg, weighted, taken, sent, items }.
+    traineeResults(traineeId) {
+      const waitQuizzes = (n = 0) => (quizzesLoaded || n > 40 ? Promise.resolve() : new Promise((r) => setTimeout(r, 100)).then(() => waitQuizzes(n + 1)));
+      return dbReady.then(waitQuizzes).then(() => loadAllRuns()).then(() => {
+        const st = traineeQuizStats(traineeId);
+        const quizById = new Map(allQuizzes().map((q) => [q.id, q]));
+        const items = Object.entries(allRuns || {})
+          .flatMap(([quizId, list]) => list.filter((r) => r.recipients?.[traineeId]).map((r) => ({ quizId, r, x: r.responses?.[traineeId] })))
+          .sort((a, b) => (b.r.sent_at || "").localeCompare(a.r.sent_at || ""))
+          .map(({ quizId, r, x }) => {
+            const quiz = r.quiz || {};
+            const answered = !!(x?.text && x.total);
+            const missed = answered
+              ? (quiz.questions || [])
+                  .filter((q) => x.results?.[q.id]?.correct === false)
+                  .map((q) => ({ question: q.prompt, answer: x.results[q.id].answer || "", correct: keyText(q) }))
+              : [];
+            return {
+              title: quiz.title || quizById.get(quizId)?.title || "Quiz",
+              type: typeOf(quizById.get(quizId))?.name || "",
+              sent_at: r.sent_at || "",
+              status: answered ? "Answered" : r.recipients[traineeId].sent ? "No reply yet" : "Not sent",
+              pct: answered ? x.pct : null,
+              earned: answered ? x.earned : null,
+              total: answered ? x.total : null,
+              passing: quiz.passing ?? 80,
+              pending: answered ? x.pending || 0 : 0,
+              missed,
+            };
+          });
+        return { avg: st.taken ? Math.round(st.sum / st.taken) : null, weighted: st.weighted, taken: st.taken, sent: st.sent, items };
+      });
+    },
     // For tests and reuse.
     _parseAnswers: parseAnswers,
   };

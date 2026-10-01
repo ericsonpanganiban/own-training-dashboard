@@ -921,7 +921,7 @@ async function exportCohort(el, cohortId) {
     const weeks = [...weekSet].sort(weekSort);
     const speedLabel = "Speed";
     const pctOf = (w) => (w.total ? `${Math.round((w.pass / w.total) * 100)}%` : "");
-    const head = ["Trainee", "CRM name", "Status", "Department", "Team lead", "Overall QA %", "QA audits", ...weeks.flatMap((w) => [`Week ${w} QA %`, `Week ${w} Avg ${speedLabel}`, `Week ${w} Hours`]), `Average ${speedLabel}`];
+    const head = ["Trainee", "CRM name", "Status", "Department", "Team lead", "Overall QA %", "QA audits", ...weeks.flatMap((w) => [`Week ${w} QA %`, `Week ${w} ${speedLabel} (min/ticket)`, `Week ${w} Hours`, `Week ${w} Cleared`]), `Average ${speedLabel}`];
     const perfRows = [head];
     members.forEach((t, i) => {
       const qaBy = new Map(perf[i].weeks.map((w) => [String(w.week), w]));
@@ -931,7 +931,7 @@ async function exportCohort(el, cohortId) {
       perfRows.push([
         t.name, t.crm_name || "", status(t), t.department || "", t.team_lead || "",
         pctOf(all), perf[i].weeks.reduce((n, w) => n + w.audits, 0),
-        ...weeks.flatMap((w) => [qaBy.has(w) ? pctOf(qaBy.get(w)) : "", spBy.get(w)?.value != null ? Math.round(spBy.get(w).value * 100) / 100 : "", spBy.has(w) ? Math.round(spBy.get(w).hours * 100) / 100 : ""]),
+        ...weeks.flatMap((w) => [qaBy.has(w) ? pctOf(qaBy.get(w)) : "", spBy.get(w)?.value != null ? Math.round(spBy.get(w).value * 100) / 100 : "", spBy.has(w) ? Math.round(spBy.get(w).hours * 100) / 100 : "", spBy.has(w) ? spBy.get(w).tickets : ""]),
         spVals.length ? Math.round((spVals.reduce((a, b) => a + b, 0) / spVals.length) * 100) / 100 : "",
       ]);
     });
@@ -1140,6 +1140,32 @@ function openAddTrainee(content, cohortId) {
   sheet.querySelector("input:not([disabled]), button")?.focus();
 }
 
+// Copy rows to the clipboard as tab-separated text, ready to paste into Google Sheets or Excel.
+const tsvCell = (v) => {
+  const t = v == null ? "" : String(v);
+  return /[\t\n\r"]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
+const toTsv = (rows) => rows.map((r) => r.map(tsvCell).join("\t")).join("\n");
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {}
+    ta.remove();
+    return ok;
+  }
+}
+
 // Performance: a full page in the window (not a floating dialog), with the trainee's two views:
 // QA (saved QA weeks from Coaching: overall score, a score per week, coaching talking points and
 // markdowns) and Speed (the weekly Speed number from Settings → Speed Productivity Sheet).
@@ -1149,7 +1175,7 @@ function openPerformance(content, traineeId) {
   if (win.querySelector(".sheet")) return;
   const cc = window.CoachingCompass;
   const appId = win.dataset.app;
-  const view = { week: null, tab: "talking", mode: "qa" };
+  const view = { week: null, tab: "talking", mode: "qa", quiz: null, copyMsg: "" };
   const sheet = document.createElement("div");
   sheet.className = "sheet page";
   sheet.innerHTML = `<div class="sheet-card perf-card" role="region" aria-label="Performance"></div>`;
@@ -1159,7 +1185,7 @@ function openPerformance(content, traineeId) {
   const num = (v) => String(Math.round(v * 100) / 100);
   const cohortOf = () => cc.data().cohorts.find((c) => (c.trainee_ids || []).includes(traineeId));
   const savedCrumbs = crumbState[appId]?.items || [];
-  const modeLabel = () => (view.mode === "speed" ? "Speed" : "QA");
+  const modeLabel = () => (view.mode === "speed" ? "Speed" : view.mode === "quiz" ? "Quiz" : "QA");
 
   const qaBody = (p) => {
     const weeks = p.weeks;
@@ -1197,8 +1223,7 @@ function openPerformance(content, traineeId) {
     const w = sp.weeks.find((x) => x.week === view.sweek);
     const vals = sp.weeks.map((x) => x.value).filter((v) => v != null);
     const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    const hrs = sp.weeks.reduce((a, x) => a + x.hours, 0);
-    const day = (d) => {
+        const day = (d) => {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d || "");
       return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : d || "—";
     };
@@ -1206,30 +1231,108 @@ function openPerformance(content, traineeId) {
     return `
       <div class="perf-head">
         <div class="perf-summary">
-          <div class="stat"><div class="value">${w.value == null ? "—" : num(w.value)}</div><div class="label">Week ${escapeHtml(w.week)} speed</div><div class="hint">average of days with a speed · ${num(w.hours)} hrs</div></div>
+          <div class="stat"><div class="value">${w.value == null ? "—" : num(w.value)}</div><div class="label">Week ${escapeHtml(w.week)} speed</div><div class="hint">${num(w.hours)} hrs · ${num(w.tickets)} cleared${w.need != null ? ` · need ${w.need}` : ""}</div></div>
           <div class="stat"><div class="value">${avg == null ? "—" : num(avg)}</div><div class="label">Average across weeks</div><div class="hint">${sp.weeks.length} week${sp.weeks.length === 1 ? "" : "s"} pulled</div></div>
-          <div class="stat"><div class="value">${num(hrs)}</div><div class="label">Total hours</div></div>
+          <div class="stat"><div class="value">${sp.goal ? num(sp.goal) : "—"}</div><div class="label">Team goal (min/ticket)</div><div class="hint">${sp.goal ? "Lower is faster" : "Set it in Coaching → Speed"}</div></div>
         </div>
         <div class="perf-weeks" role="tablist" aria-label="Weeks">${sp.weeks
           .map((x) => `<button type="button" role="tab" class="pill${x.week === view.sweek ? " on" : ""}" aria-selected="${x.week === view.sweek}" data-sweek="${escapeHtml(x.week)}">Week ${escapeHtml(x.week)} <b>${x.value == null ? "—" : num(x.value)}</b></button>`)
           .join("")}</div>
       </div>
-      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Day</th><th>Speed</th><th>Hours</th><th aria-hidden="true"></th></tr></thead><tbody>${w.days
-        .map((x) => `<tr><td>${escapeHtml(day(x.date))}</td><td><b>${x.speed == null ? "—" : num(x.speed)}</b></td><td>${x.hours == null ? "—" : num(x.hours)}${x.manual ? " <small class=\"muted\">typed</small>" : ""}</td><td><span class="speed-bar-fill" style="width:${Math.max(2, Math.round(((x.speed || 0) / max) * 100))}%"></span></td></tr>`)
+      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Day</th><th>Speed</th><th>Hours</th><th>Cleared</th>${sp.goal ? "<th>Need</th>" : ""}<th aria-hidden="true"></th></tr></thead><tbody>${w.days
+        .map((x) => `<tr><td>${escapeHtml(day(x.date))}</td><td><b>${x.speed == null ? "—" : num(x.speed)}</b></td><td>${x.hours == null ? "—" : num(x.hours)}${x.manual ? " <small class=\"muted\">edited</small>" : ""}</td><td>${x.tickets == null ? "—" : num(x.tickets)}</td>${sp.goal ? `<td class="${x.need != null && (x.tickets || 0) < x.need ? "need-short" : ""}">${x.need == null ? "—" : x.need}</td>` : ""}<td><span class="speed-bar-fill" style="width:${Math.max(2, Math.round(((x.speed || 0) / max) * 100))}%"></span></td></tr>`)
         .join("")}</tbody></table></div>`;
+  };
+
+  const quizBody = () => {
+    const q = view.quiz;
+    if (!window.TrainerQuiz) return `<p class="muted">Quiz isn't available right now.</p>`;
+    if (!q || q.loading) return `<p class="muted">Loading quiz scores…</p>`;
+    if (q.error) return `<p class="muted">Couldn't load quiz scores. Try Refresh.</p>`;
+    const d = q.data;
+    if (!d.items.length) return `<p class="muted">No quizzes sent to this trainee yet. Send one from the Quiz app.</p>`;
+    const missed = d.items.reduce((n, x) => n + x.missed.length, 0);
+    const card = (x) => `
+      <section class="quiz-perf">
+        <div class="quiz-perf-head"><b>${escapeHtml(x.title)}</b>${x.type ? ` <span class="chip">${escapeHtml(x.type)}</span>` : ""}
+          <span class="muted">${escapeHtml(fmtStamp(x.sent_at))}</span>
+          <span class="quiz-perf-score">${x.pct == null ? `<span class="muted">${escapeHtml(x.status)}</span>` : `<b>${x.pct}%</b> <small class="muted">${x.earned}/${x.total} pts</small> ${x.pending ? `<span class="chip warn">${x.pending} to review</span>` : x.pct >= x.passing ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${x.passing}%</span>`}`}</span></div>
+        ${
+          x.pct == null
+            ? ""
+            : x.missed.length
+              ? `<ul class="quiz-opps">${x.missed
+                  .map((m) => `<li><b>${escapeHtml(m.question)}</b><br><span class="muted">Answered:</span> ${escapeHtml(m.answer || "—")} <span class="muted">· Correct:</span> ${escapeHtml(m.correct)}</li>`)
+                  .join("")}</ul>`
+              : `<p class="muted">No missed questions.</p>`
+        }
+      </section>`;
+    return `
+      <div class="perf-head">
+        <div class="perf-summary">
+          <div class="stat"><div class="value">${d.avg == null ? "—" : `${d.avg}%`}</div><div class="label">Average quiz score</div><div class="hint">${d.taken} of ${d.sent} taken</div></div>
+          <div class="stat"><div class="value">${d.weighted == null ? "—" : `${d.weighted}%`}</div><div class="label">Weighted average</div><div class="hint">by quiz type</div></div>
+          <div class="stat"><div class="value">${missed}</div><div class="label">Opportunities</div><div class="hint">questions missed</div></div>
+        </div>
+        <div class="perf-tabs"><button type="button" class="btn btn-small" data-quiz-refresh>↻ Refresh</button></div>
+      </div>
+      <div class="perf-detail">${d.items.map(card).join("")}</div>`;
+  };
+  const loadQuiz = () => {
+    if (!window.TrainerQuiz || view.quiz?.loading) return;
+    view.quiz = { loading: true };
+    window.TrainerQuiz.traineeResults(traineeId).then(
+      (data) => (view.quiz = { data }),
+      () => (view.quiz = { error: true })
+    ).finally(() => sheet.isConnected && draw());
+  };
+  // The current view as rows for pasting into a sheet.
+  const copyRows = () => {
+    const p = cc.traineePerformance(traineeId);
+    const name = p.name;
+    if (view.mode === "speed") {
+      const sp = cc.traineeSpeed(traineeId);
+      const rows = [["Trainee", "Week", "Day", "Speed (min/ticket)", "Hours", "Cleared tickets", "Needed tickets"]];
+      sp.weeks.slice().reverse().forEach((w) => w.days.forEach((x) => rows.push([name, w.week, x.date, x.speed == null ? "" : num(x.speed), x.hours ?? "", x.tickets ?? "", x.need ?? ""])));
+      return rows;
+    }
+    if (view.mode === "quiz") {
+      const d = view.quiz?.data;
+      const rows = [["Trainee", "Quiz", "Type", "Sent", "Status", "Score %", "Points", "Opportunities (missed questions)"]];
+      (d?.items || []).forEach((x) => rows.push([name, x.title, x.type, fmtStamp(x.sent_at), x.status, x.pct ?? "", x.pct == null ? "" : `${x.earned}/${x.total}`, x.missed.map((m) => m.question).join(" | ")]));
+      return rows;
+    }
+    const rows = [["Trainee", "Week", "Source", "Audits", "Passed", "Scored", "QA %"]];
+    p.weeks.slice().reverse().forEach((w) => rows.push([name, w.week, w.source, w.audits, Math.round(w.pass * 100) / 100, w.total, w.total ? Math.round((w.pass / w.total) * 100) : ""]));
+    return rows;
+  };
+  const copyView = async () => {
+    const rows = copyRows();
+    if (rows.length < 2) view.copyMsg = "Nothing to copy yet.";
+    else view.copyMsg = (await copyText(toTsv(rows))) ? `Copied ${rows.length - 1} row${rows.length === 2 ? "" : "s"}. Paste into a sheet.` : "Couldn't copy. Your browser blocked the clipboard.";
+    const out = card.querySelector("[data-copy-msg]");
+    if (out) out.textContent = view.copyMsg;
+    setTimeout(() => {
+      view.copyMsg = "";
+      const o = card.querySelector("[data-copy-msg]");
+      if (o) o.textContent = "";
+    }, 5000);
   };
 
   const draw = () => {
     const p = cc.traineePerformance(traineeId);
     const body = !p.name
       ? `<p class="muted">This trainee is no longer on the roster.</p>`
-      : view.mode === "speed" ? speedBody(cc.traineeSpeed(traineeId)) : qaBody(p);
+      : view.mode === "speed" ? speedBody(cc.traineeSpeed(traineeId)) : view.mode === "quiz" ? quizBody() : qaBody(p);
     card.innerHTML = `
       <div class="perf-title"><h3 data-crumb="${modeLabel()}">Performance${p.name ? ` · ${escapeHtml(p.name)}` : ""}</h3>
+        <span class="sheet-status" data-copy-msg role="status">${escapeHtml(view.copyMsg)}</span>
+        <button type="button" class="btn" data-copy-view title="Copy this view as rows to paste into a sheet">Copy</button>
         <button type="button" class="btn" data-cancel>← Back</button></div>
       <div class="perf-modes" role="tablist" aria-label="Performance view">
         <button type="button" role="tab" class="pill${view.mode === "qa" ? " on" : ""}" aria-selected="${view.mode === "qa"}" data-mode="qa">QA</button>
         <button type="button" role="tab" class="pill${view.mode === "speed" ? " on" : ""}" aria-selected="${view.mode === "speed"}" data-mode="speed">Speed</button>
+        <button type="button" role="tab" class="pill${view.mode === "quiz" ? " on" : ""}" aria-selected="${view.mode === "quiz"}" data-mode="quiz">Quiz</button>
       </div>
       ${body}`;
     // The cohort, the trainee and the page are crumbs ahead of the QA / Speed view.
@@ -1248,7 +1351,14 @@ function openPerformance(content, traineeId) {
     if (!b) return;
     if (b.dataset.week) view.week = b.dataset.week;
     else if (b.dataset.tab) view.tab = b.dataset.tab;
-    else if (b.dataset.mode) view.mode = b.dataset.mode;
+    else if (b.dataset.mode) {
+      view.mode = b.dataset.mode;
+      if (view.mode === "quiz" && !view.quiz) loadQuiz();
+    } else if ("copyView" in b.dataset) return void copyView();
+    else if ("quizRefresh" in b.dataset) {
+      view.quiz = null;
+      loadQuiz();
+    }
     else if (b.dataset.sweek) view.sweek = b.dataset.sweek;
     else if ("cancel" in b.dataset) return close();
     else return;
@@ -1298,6 +1408,7 @@ function openNotes(content, traineeId) {
       ).join("")}</div>
       <div class="sheet-actions notes-actions">
         <button type="button" class="btn" data-export-doc>Export to Google Docs</button>
+        <button type="button" class="btn" data-copy-notes title="Copy all notes as rows to paste into a sheet">Copy</button>
         <span class="sheet-status" data-export-status role="status"></span>
         <button type="button" class="btn" data-cancel>Close</button>
       </div>
@@ -1584,6 +1695,23 @@ function openNotes(content, traineeId) {
         if (sheet.isConnected) drawExport();
       });
   };
+  // Copy: every note as a row (Type, Date, Edited, Note) for pasting into a sheet.
+  sheet.querySelector("[data-copy-notes]").addEventListener("click", async () => {
+    if (!notes) {
+      exportMsg = escapeHtml(notes === null ? "Notes didn't load, so there's nothing to copy." : "Still loading notes…");
+      return drawExport();
+    }
+    const rows = [["Trainee", "Type", "Date", "Edited", "Note"]];
+    NOTE_SPACES.forEach((sp) =>
+      notes.filter((n) => n.category === sp.key).forEach((n) => rows.push([t.name, sp.title.replace(" Notes", ""), fmtStamp(n.created_at), n.updated_at ? fmtStamp(n.updated_at) : "", n.text]))
+    );
+    exportMsg = escapeHtml(rows.length < 2 ? "No notes to copy yet." : (await copyText(toTsv(rows))) ? `Copied ${rows.length - 1} note${rows.length === 2 ? "" : "s"}. Paste into a sheet.` : "Couldn't copy. Your browser blocked the clipboard.");
+    drawExport();
+    setTimeout(() => {
+      exportMsg = "";
+      if (sheet.isConnected) drawExport();
+    }, 5000);
+  });
   // Keep the button and "not in the doc" count current as notes and the trainee record change.
   const offChange = cc.onChange(() => sheet.isConnected && drawExport());
   refreshExport = drawExport;

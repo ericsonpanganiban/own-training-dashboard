@@ -616,5 +616,21 @@
 
   :is(.cc-root, .cc-ui) .speed-table td:not(:first-child){min-width:74px;}
   :is(.cc-root, .cc-ui) .speed-table .sp-v{display:block;font-weight:600;}
-  :is(.cc-root, .cc-ui) .speed-table .sp-h{width:64px;margin-top:3px;padding:3px 5px;font-size:11.5px;text-align:right;border:1px solid var(--line);border-radius:6px;background:transparent;color:inherit;}
-  :is(.cc-root, .cc-ui) .speed-table .sp-h.manual{border-color:var(--accent,currentColor);}
+  :is(.cc-root, .cc-ui) .speed-table .sp-in{display:block;width:70px;margin:3px 0 0 auto;padding:3px 5px;font-size:11.5px;text-align:right;border:1px solid var(--line);border-radius:6px;background:transparent;color:inherit;}
+  :is(.cc-root, .cc-ui) .speed-table .sp-in.manual{border-color:var(--accent,currentColor);}
+
+  :is(.cc-root, .cc-ui) .speed-wrap{max-height:70vh;}
+  :is(.cc-root, .cc-ui) .speed-table{border-collapse:separate;border-spacing:0;}
+  :is(.cc-root, .cc-ui) .speed-table th.sk, :is(.cc-root, .cc-ui) .speed-table td.sk{position:sticky;z-index:2;background:var(--surface,var(--card,#fff));box-sizing:border-box;}
+  :is(.cc-root, .cc-ui) .speed-table th.sk{z-index:3;}
+  :is(.cc-root, .cc-ui) .speed-table .sk1{left:0;min-width:150px;max-width:150px;}
+  :is(.cc-root, .cc-ui) .speed-table .sk2{left:150px;min-width:84px;max-width:84px;}
+  :is(.cc-root, .cc-ui) .speed-table .sk3{left:234px;min-width:74px;max-width:74px;border-right:2px solid var(--line);}
+  :is(.cc-root, .cc-ui) .speed-table thead th{position:sticky;top:0;}
+  :is(.cc-root, .cc-ui) .speed-table thead th.sk{top:0;}
+  :is(.cc-root, .cc-ui) .speed-table .sp-need{display:block;margin-top:3px;font-size:11px;}
+  :is(.cc-root, .cc-ui) .speed-table .sp-need.ok{color:var(--success-ink,#1a7f3c);}
+  :is(.cc-root, .cc-ui) .speed-table .sp-need.short, :is(.cc-root, .cc-ui) .speed-table td.sp-short{color:var(--danger-ink,#b42318);}
+  :is(.cc-root, .cc-ui) .speed-table thead th{background:var(--surface,var(--card,#fff));}
+  :is(.cc-root, .cc-ui) .speed-table{width:max-content;min-width:100%;}
+  :is(.cc-root, .cc-ui) .speed-table .sk1{width:150px;} :is(.cc-root, .cc-ui) .speed-table .sk2{width:84px;} :is(.cc-root, .cc-ui) .speed-table .sk3{width:74px;}

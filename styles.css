@@ -212,18 +212,18 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   border-radius: 26px;
   /* Liquid glass: almost no fill, so the wallpaper shows through, bent and brightened by the blur;
      light catches the rim (inset highlights) and a soft sheen runs across the top. */
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.176), rgba(255, 255, 255, 0.048) 55%, rgba(255, 255, 255, 0.096));
-  border: 1px solid rgba(255, 255, 255, 0.304);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01) 55%, rgba(255, 255, 255, 0.019));
+  border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow:
-    inset 0 1px 0.5px rgba(255, 255, 255, 0.6),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.224),
-    inset 1px 0 1px rgba(255, 255, 255, 0.176),
-    inset -1px 0 1px rgba(255, 255, 255, 0.176),
-    inset 0 14px 22px -12px rgba(255, 255, 255, 0.28),
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.12),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.045),
+    inset 1px 0 1px rgba(255, 255, 255, 0.035),
+    inset -1px 0 1px rgba(255, 255, 255, 0.035),
+    inset 0 14px 22px -12px rgba(255, 255, 255, 0.056),
     0 12px 32px rgba(0, 0, 0, 0.28),
     0 2px 6px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(22px) saturate(190%) brightness(1.1) contrast(1.02);
-  -webkit-backdrop-filter: blur(22px) saturate(190%) brightness(1.1) contrast(1.02);
+  backdrop-filter: blur(22px) saturate(150%) brightness(1.02);
+  -webkit-backdrop-filter: blur(22px) saturate(150%) brightness(1.02);
   z-index: 9999;
 }
 /* A faint diagonal glint, like light sliding across the glass. */
@@ -233,11 +233,11 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: linear-gradient(115deg, rgba(255, 255, 255, 0.224) 0%, rgba(255, 255, 255, 0) 32%, rgba(255, 255, 255, 0) 68%, rgba(255, 255, 255, 0.128) 100%);
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.045) 0%, rgba(255, 255, 255, 0) 32%, rgba(255, 255, 255, 0) 68%, rgba(255, 255, 255, 0.026) 100%);
   mix-blend-mode: soft-light;
 }
 @media (prefers-color-scheme: dark) {
-  #dock { border-color: rgba(255, 255, 255, 0.208); background: linear-gradient(180deg, rgba(255, 255, 255, 0.128), rgba(255, 255, 255, 0.032) 55%, rgba(255, 255, 255, 0.064)); }
+  #dock { border-color: rgba(255, 255, 255, 0.12); background: linear-gradient(180deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.006) 55%, rgba(255, 255, 255, 0.013)); }
 }
 
 .dock-item {

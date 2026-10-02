@@ -644,3 +644,8 @@
   :is(.cc-root, .cc-ui) .spot-analysis{background:var(--surface-2);border-radius:12px;padding:12px 14px;margin:8px 0 12px;font-size:13.5px;}
   :is(.cc-root, .cc-ui) .spot-analysis h4{margin:10px 0 2px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3,var(--muted));}
   :is(.cc-root, .cc-ui) .spot-analysis ul{margin:4px 0;padding-left:20px;} :is(.cc-root, .cc-ui) .spot-analysis p{margin:4px 0;}
+  :is(.cc-root, .cc-ui) table.spot-table.spot-by td:first-child{min-width:340px;}
+  :is(.cc-root, .cc-ui) table.spot-table td{min-width:90px;}
+  :is(.cc-root, .cc-ui) table.spot-table td a{word-break:break-all;}
+  :is(.cc-root, .cc-ui) table.spot-table .spot-analysis, :is(.cc-root, .cc-ui) table.spot-table .spot-item{white-space:normal;}
+  :is(.cc-root, .cc-ui) table.spot-table summary{cursor:pointer;}

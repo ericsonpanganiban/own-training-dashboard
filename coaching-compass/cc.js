@@ -4982,13 +4982,13 @@
       var rows = spotCohortRows(list);
       var avg = spotAvg(rows.map(function(r){ return r.c; }));
       body = "<h3 class=\"card-title\">" + esc(cohort ? cohort.name : "All cohort trainees") + " <small class=\"muted\">" + rows.length + " spot check" + (rows.length === 1 ? "" : "s") + (avg != null ? " · average " + spotFmt(avg) + "%" : "") + "</small></h3>" +
-        (rows.length ? "<div class=\"speed-wrap\"><table class=\"preview\"><thead><tr><th>Trainee</th><th>Date</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th><th></th></tr></thead><tbody>" +
+        (rows.length ? "<div class=\"speed-wrap\"><table class=\"preview full-text spot-table\"><thead><tr><th>Trainee</th><th>Date</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th><th></th></tr></thead><tbody>" +
           rows.map(function(r){
             var c = r.c;
             return "<tr><td>" + esc(r.t.name) + "</td><td>" + esc(spotDate(c.created_at)) + (c.edited_at ? " <small class=\"muted\">edited</small>" : "") + "</td><td><b>" + spotFmt(spotScore(c.score)) + "%</b></td><td>" + spotLink(c.ticket) + "</td><td>" + esc(c.comms) + "</td><td>" + esc(c.resolution) + "</td><td>" + (c.reply ? esc(c.reply).replace(/\n/g, "<br>") : "<span class=\"muted\">" + (c.slack_sent_at ? "No reply yet" : "Not sent") + "</span>") + "</td><td><button class=\"link-btn\" type=\"button\" data-spot-edit=\"" + esc(c.id) + "\">Edit</button></td></tr>";
           }).join("") + "</tbody></table></div>" : "<p class=\"hint\">No spot checks recorded for this cohort yet.</p>");
     }
-    else body = "<div class=\"speed-wrap\"><table class=\"preview\"><thead><tr><th>Trainee</th><th>Spot checks</th><th>Average score</th><th>Latest</th></tr></thead><tbody>" +
+    else body = "<div class=\"speed-wrap\"><table class=\"preview full-text spot-table spot-by\"><thead><tr><th>Trainee</th><th>Spot checks</th><th>Average score</th><th>Latest</th></tr></thead><tbody>" +
       list.map(function(t){
         var cs = spotFor(t.id);
         return "<tr" + (t.cohort_status === "inactive" ? " class=\"is-inactive\"" : "") + "><td>" + (cs.length ? "<details data-spot-open=\"" + esc(t.id) + "\"" + (spot.open[t.id] ? " open" : "") + "><summary><b>" + esc(t.name) + "</b></summary>" + spotAnalysisHtml(t.id, cs.length) + cs.map(spotCheckHtml).join("") + "</details>" : esc(t.name)) + "</td><td>" + cs.length + "</td><td><b>" + (cs.length ? spotFmt(spotAvg(cs)) + "%" : "—") + "</b></td><td>" + (cs[0] ? spotFmt(spotScore(cs[0].score)) + "% · " + esc(spotDate(cs[0].created_at)) : "—") + "</td></tr>";

@@ -526,6 +526,78 @@ function drawProfile(card) {
   });
 }
 
+// The avatar at the far right of the menu bar: who you are, and a list of Trainers to view (read-only).
+function buildAvatarMenu() {
+  const WS = window.TrainerWS;
+  const TM = window.TrainerManager;
+  const right = document.querySelector(".menubar-right");
+  if (!WS || !right || document.getElementById("avatar-btn")) return;
+  TM?.start();
+  const me = WS.ws;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = "avatar-btn";
+  btn.setAttribute("aria-haspopup", "true");
+  btn.setAttribute("aria-label", "Your profile and Trainers");
+  const initial = (me.name || "You").trim()[0].toUpperCase();
+  btn.innerHTML = me.avatar ? `<img src="${escapeHtml(me.avatar)}" alt="" />` : `<span style="background:${escapeHtml(me.color || "#7aa2ff")}">${escapeHtml(initial)}</span>`;
+  document.getElementById("clock")?.after(btn);
+  let pop = null;
+  const close = () => {
+    pop?.remove();
+    pop = null;
+    btn.setAttribute("aria-expanded", "false");
+    document.removeEventListener("pointerdown", outside, true);
+    document.removeEventListener("keydown", onKey, true);
+  };
+  const outside = (e) => pop && !pop.contains(e.target) && !btn.contains(e.target) && close();
+  const onKey = (e) => e.key === "Escape" && close();
+  const draw = () => {
+    if (!pop) return;
+    const trainers = (TM?.trainers() || []).filter((t) => t.id !== me.id);
+    const role = WS.viewing ? "Viewing another Trainer" : WS.role === "manager" ? "Training Manager" : "Trainer";
+    const av = (t) => (t.avatar ? `<img class="ap-av" src="${escapeHtml(t.avatar)}" alt="" />` : `<span class="ap-av" style="background:${escapeHtml(t.color || "#c7d7ff")}">${escapeHtml(((t.name || "T")[0] || "T").toUpperCase())}</span>`);
+    pop.innerHTML = `
+      <div class="ap-me">${me.avatar ? `<img class="ap-av" src="${escapeHtml(me.avatar)}" alt="" />` : `<span class="ap-av" style="background:${escapeHtml(me.color || "#7aa2ff")}">${escapeHtml(initial)}</span>`}
+        <div><b class="ap-name"></b><small>${escapeHtml(role)}</small></div></div>
+      ${WS.viewing ? `<button type="button" class="ap-item ap-back" data-ap-back>← Back to my dashboard</button>` : ""}
+      <h6>View another Trainer <small>read-only</small></h6>
+      ${
+        trainers.length
+          ? `<ul class="ap-list">${trainers.map((t) => `<li><button type="button" class="ap-item${WS.viewing?.id === t.id ? " is-on" : ""}" data-ap-view="${escapeHtml(t.id)}" data-ap-base="${escapeHtml(t.base || "own")}">${av(t)}<span class="ap-tn"></span>${WS.viewing?.id === t.id ? `<small>viewing</small>` : ""}</button></li>`).join("")}</ul>`
+          : `<p class="ap-empty">Other Trainers appear here once they've opened the dashboard.</p>`
+      }
+      <button type="button" class="ap-item ap-settings" data-ap-settings>Profile &amp; appearance settings…</button>`;
+    pop.querySelector(".ap-name").textContent = me.name || "You";
+    pop.querySelectorAll(".ap-tn").forEach((el, i) => (el.textContent = trainers[i].name || "Trainer"));
+  };
+  btn.addEventListener("click", () => {
+    if (pop) return close();
+    pop = document.createElement("div");
+    pop.className = "avatar-pop";
+    pop.setAttribute("role", "menu");
+    document.body.appendChild(pop);
+    btn.setAttribute("aria-expanded", "true");
+    draw();
+    pop.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if ("apBack" in b.dataset) return WS.stopViewing();
+      if (b.dataset.apView) return WS.viewAs({ id: b.dataset.apView, base: b.dataset.apBase });
+      if ("apSettings" in b.dataset) {
+        close();
+        settings.settingsPage = "appearance";
+        saveSettings();
+        openApp("settings");
+        openWindows.get("settings")?.querySelector('[data-page="appearance"]')?.click();
+      }
+    });
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", onKey, true);
+  });
+  TM?.onChange(draw);
+}
+
 // ---------- Settings pages ----------
 const settingsPages = () => SETTINGS_PAGES.filter((p) => (!p.roles || p.roles.includes(appRole())) && (!p.ownerOnly || window.TrainerWS?.isOwner));
 const SETTINGS_PAGES = [
@@ -2968,6 +3040,9 @@ applySettings();
     const brand = document.querySelector(".brand");
     if (brand && appRole() === "manager") brand.textContent = "Training Manager";
     buildDock();
+    // The Manager's script loads after this one, so wait for the whole page.
+    if (document.readyState === "complete") buildAvatarMenu();
+    else window.addEventListener("load", buildAvatarMenu, { once: true });
   };
   (window.TrainerWS ? window.TrainerWS.ready : Promise.resolve()).then(start, start);
 }

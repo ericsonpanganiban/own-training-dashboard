@@ -70,9 +70,9 @@
       count: cs.length,
       trainees,
       passed,
-      passRate: rate(passed, trainees), // trainees who passed nesting, of everyone in the cohorts
-      passRateC: rate(passed - cpP, trainees - cpT),
-      passRateCp: rate(cpP, cpT),
+      passRate: rate(sum(cs, (c) => c.active), sum(cs, (c) => c.active + c.inactive)), // active trainees over active + inactive
+      passRateC: cs.every((c) => c.cpActive != null) ? rate(sum(cs, (c) => c.active - c.cpActive), sum(cs, (c) => c.active + c.inactive - c.cpTrainees)) : null,
+      passRateCp: cs.every((c) => c.cpActive != null) ? rate(sum(cs, (c) => c.cpActive), cpT) : null,
       active: sum(cs, (c) => c.active),
       inactive: sum(cs, (c) => c.inactive),
       pass: sum(cs, (c) => c.pass),
@@ -171,7 +171,7 @@
       : !list.length
         ? `<p class="muted">No Trainers yet. Use + Add Trainer, or wait for Trainers to open the dashboard.</p>`
         : "";
-  const passHint = (r) => (r.trainees ? `${r.passed} of ${r.trainees} passed nesting${r.passRateC != null && r.passRateCp != null ? ` · C ${r.passRateC}% · CP ${r.passRateCp}%` : ""}` : "");
+  const passHint = (r) => (r.trainees ? `${r.active} of ${r.active + r.inactive} still active${r.passRateC != null && r.passRateCp != null ? ` · C ${r.passRateC}% · CP ${r.passRateCp}%` : ""}` : "");
   const tabs = (current, attr) => `<div class="mg-tabs">${Object.entries(METRICS).map(([k, l]) => `<button type="button" class="${k === current ? "on" : ""}" ${attr}="${k}">${l}</button>`).join("")}</div>`;
 
   function overview(list) {
@@ -270,7 +270,7 @@
       const status = c.pending ? `<span class="mg-pill warn">Waiting for Trainer</span>` : `<span class="mg-pill">${esc(c.status || "")}</span>`;
       const tail = c.pending
         ? `<td>${(a?.trainees || []).length ? `${a.trainees.length} queued` : "—"}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>`
-        : `<td>${c.active}${c.inactive ? ` <small class="muted">+${c.inactive} inactive</small>` : ""}</td><td>${fmt(rate(c.passed, c.trainees), "%")}</td><td>${fmt(pct(c.qa), "%")}</td><td>${fmt(mean(c.speed))}</td><td>${fmt(mean(c.quiz), "%")}</td><td>${c.pass}</td><td class="${c.fail ? "bad" : ""}">${c.fail}</td>`;
+        : `<td>${c.active}${c.inactive ? ` <small class="muted">+${c.inactive} inactive</small>` : ""}</td><td>${fmt(rate(c.active, c.active + c.inactive), "%")}</td><td>${fmt(pct(c.qa), "%")}</td><td>${fmt(mean(c.speed))}</td><td>${fmt(mean(c.quiz), "%")}</td><td>${c.pass}</td><td class="${c.fail ? "bad" : ""}">${c.fail}</td>`;
       return `<tr><td class="mg-cohort-cell"><b>${esc(c.name)}</b>${managed ? ` <small class="muted">assigned · ${(managed.trainees || []).length} trainee${(managed.trainees || []).length === 1 ? "" : "s"} picked</small>` : ""}${scheduleHtml(c, managed || a, true)}</td><td>${esc(nameOf(t))}</td><td>${esc(c.department || "—")}</td><td>${esc(c.start || "—")}</td><td>${status}</td>${tail}<td>${managed ? dots(`data-mg-class-menu="${esc(managed.id)}"`) : ""}</td></tr>`;
     };
     const head = `<thead><tr><th>Cohort</th><th>Trainer</th><th>Department</th><th>Starts</th><th>Status</th><th>Active</th><th>Pass rate</th><th>QA</th><th>Speed</th><th>Quiz</th><th>Projected pass</th><th>Projected fail</th><th></th></tr></thead>`;
@@ -294,7 +294,7 @@
   function performance(list) {
     const metric = ui.metric;
     const label = { qa: "QA", speed: "Speed (min/ticket)", quiz: "Quiz", passRate: "Pass rate" }[metric];
-    const value = (c) => (metric === "qa" ? pct(c.qa) : metric === "speed" ? mean(c.speed) : metric === "quiz" ? mean(c.quiz) : rate(c.passed, c.trainees));
+    const value = (c) => (metric === "qa" ? pct(c.qa) : metric === "speed" ? mean(c.speed) : metric === "quiz" ? mean(c.quiz) : rate(c.active, c.active + c.inactive));
     const rows = list.flatMap((t) => t.cohorts.map((c) => ({ t, c, v: value(c) }))).filter((x) => x.v != null).sort((a, b) => (metric === "speed" ? a.v - b.v : b.v - a.v));
     const max = Math.max(...rows.map((x) => x.v), 1);
     return `${tabs(metric, "data-mg-metric").replace("mg-tabs", "mg-tabs mg-tabs-big")}
@@ -321,7 +321,7 @@
   const tableRows = (kind, list) =>
     kind === "trainers"
       ? [["Trainer", "Cohorts", "Active trainees", "Inactive", "Pass rate %", "QA %", "Speed (min/ticket)", "Quiz %", "Projected pass", "No projection", "Projected fail", "Overdue reminders", "Updated"], ...list.map((t) => [nameOf(t), t.cohorts.length, t.active, t.inactive, t.passRate ?? "", t.qa ?? "", t.speed ?? "", t.quiz ?? "", t.pass, t.none, t.fail, t.overdue, t.at])]
-      : [["Cohort", "Trainer", "Department", "Start date", "Status", "Active", "Inactive", "Pass rate %", "QA %", "Speed (min/ticket)", "Quiz %", "Projected pass", "No projection", "Projected fail"], ...cohortRows(list).filter((r) => !r.c.pending).map(({ t, c }) => [c.name, nameOf(t), c.department || "", c.start || "", c.status || "", c.active, c.inactive, rate(c.passed, c.trainees) ?? "", pct(c.qa) ?? "", mean(c.speed) ?? "", mean(c.quiz) ?? "", c.pass, c.none, c.fail])];
+      : [["Cohort", "Trainer", "Department", "Start date", "Status", "Active", "Inactive", "Pass rate %", "QA %", "Speed (min/ticket)", "Quiz %", "Projected pass", "No projection", "Projected fail"], ...cohortRows(list).filter((r) => !r.c.pending).map(({ t, c }) => [c.name, nameOf(t), c.department || "", c.start || "", c.status || "", c.active, c.inactive, rate(c.active, c.active + c.inactive) ?? "", pct(c.qa) ?? "", mean(c.speed) ?? "", mean(c.quiz) ?? "", c.pass, c.none, c.fail])];
   const toCsvM = (rows) => rows.map((r) => r.map(csvCellM).join(",")).join("\n");
   const toTsvM = (rows) => rows.map((r) => r.map((v) => String(v ?? "").replace(/[\t\n\r]+/g, " ")).join("\t")).join("\n");
   function reports() {
@@ -356,7 +356,7 @@
         })
         .join("");
       return `<section class="mg-panel">${scheduleHtml(c)}
-        <div class="mg-chips"><span class="mg-chip">Pass rate ${fmt(rate(c.passed, c.trainees), "%")}</span>${chip("QA", pct(c.qa), g.qa, "min", "%")}${chip("Speed", mean(c.speed), g.speed, "max", "")}${chip("Quiz", mean(c.quiz), g.quiz, "min", "%")}</div>
+        <div class="mg-chips"><span class="mg-chip">Pass rate ${fmt(rate(c.active, c.active + c.inactive), "%")}</span>${chip("QA", pct(c.qa), g.qa, "min", "%")}${chip("Speed", mean(c.speed), g.speed, "max", "")}${chip("Quiz", mean(c.quiz), g.quiz, "min", "%")}</div>
         ${rows ? `<div class="mg-table-wrap"><table class="mg-table"><thead><tr><th>Trainee</th><th>Status</th><th>Projection</th><th>Nesting</th><th>QA</th><th>Speed</th><th>Quiz</th><th>Attendance pts</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p class="muted">No trainees in this cohort.</p>`}</section>`;
     };
     return `${head}${kp}${t.cohorts.length ? t.cohorts.map(cohort).join("") : `<p class="muted">No cohorts yet.</p>`}`;

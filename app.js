@@ -1202,6 +1202,7 @@ async function buildSummary() {
       passed: members.filter((t) => t.nesting_status === "passed").length,
       cpTrainees: members.filter((t) => /\bcp\b/i.test(t.department || "")).length,
       cpPassed: members.filter((t) => /\bcp\b/i.test(t.department || "") && t.nesting_status === "passed").length,
+      cpActive: members.filter((t) => /\bcp\b/i.test(t.department || "") && !isInactive(t)).length,
       active: members.filter((t) => !isInactive(t)).length,
       inactive: members.filter(isInactive).length,
       ...tally,

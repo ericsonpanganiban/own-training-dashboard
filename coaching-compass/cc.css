@@ -634,3 +634,6 @@
   :is(.cc-root, .cc-ui) .speed-table thead th{background:var(--surface,var(--card,#fff));}
   :is(.cc-root, .cc-ui) .speed-table{width:max-content;min-width:100%;}
   :is(.cc-root, .cc-ui) .speed-table .sk1{width:150px;} :is(.cc-root, .cc-ui) .speed-table .sk2{width:84px;} :is(.cc-root, .cc-ui) .speed-table .sk3{width:74px;}
+  :is(.cc-root, .cc-ui) .spot-form{margin-bottom:16px;}
+  :is(.cc-root, .cc-ui) .spot-item{border-top:1px solid var(--line);padding:10px 0;font-size:13.5px;}
+  :is(.cc-root, .cc-ui) .spot-item p{margin:4px 0;}

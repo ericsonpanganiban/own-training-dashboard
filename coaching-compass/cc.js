@@ -15,6 +15,7 @@
     arrowLeft: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>',
     roster: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10.5" r="2"></circle><path d="M6 15c.5-1.6 1.8-2.5 3-2.5s2.5.9 3 2.5"></path><line x1="14.5" y1="9" x2="18" y2="9"></line><line x1="14.5" y1="12" x2="18" y2="12"></line></svg>',
     empty: '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M9 10.5c.5-1.2 1.6-2 3-2s2.5.8 3 2"></path><line x1="9" y1="15" x2="15" y2="15"></line></svg>',
+    check: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"></path><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"></path></svg>',
     palette: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3C7 3 3 7 3 12c0 4 2.5 6 5 6 1 0 1-1 .6-1.8-.4-.8.1-1.7 1-1.7H11c3.9 0 7-2.6 7-6.5C18 5.3 15.3 3 12 3Z"></path><circle cx="7.5" cy="10.5" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="11" cy="7.3" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="15" cy="8.3" r="1.1" fill="currentColor" stroke="none"></circle><circle cx="15.8" cy="12.3" r="1.1" fill="currentColor" stroke="none"></circle></svg>'
   };
 
@@ -22,6 +23,7 @@
     { key: "data", label: "QA Data Request", icon: "table", countKey: "rows" },
     { key: "cohorts", label: "QA Data", icon: "roster", countKey: "cohorts" },
     { key: "speed", label: "Speed", icon: "trend" },
+    { key: "spot", label: "Spot Check", icon: "check" },
     { key: "team", label: "Team coaching", icon: "users", countKey: "themes" },
     { key: "individual", label: "Individual coaching", icon: "user" }
   ];
@@ -40,6 +42,7 @@
     team: { eyebrow: "Team coaching", title: "Team coaching", sub: "Recurring themes across every trainee, ranked by impact." },
     individual: { eyebrow: "Individual coaching", title: "Individual coaching", sub: "A coaching brief for each trainee, ready for your next 1:1." },
     cohorts: { eyebrow: "QA Data", title: "QA Data", sub: "Each cohort's saved QA weeks and coaching data. Cohorts themselves are managed in the Cohorts app." },
+    spot: { eyebrow: "Spot Check", title: "Spot Check", sub: "Record spot checks of a trainee's tickets: comms, resolution and a score. Each one is sent to the trainee on Slack." },
     speed: { eyebrow: "Speed", title: "Speed", sub: "Daily Speed and hours per trainee, summarised per week, read from the Speed Productivity Sheet." },
     settings: { eyebrow: "Settings", title: "Settings", sub: "Configure where Coaching reads its QA audits from." }
   };
@@ -4083,6 +4086,7 @@
     renderQaSheetPanel();
     renderSpeedPanel();
     renderSpeedSettings();
+    renderSpotPanel();
     updateReportActions();
     changeListeners.forEach(function(fn){ try { fn(); } catch (e){ /* one app's error shouldn't stop the rest */ } });
   }
@@ -4320,6 +4324,7 @@
         }), function(){ /* leave the last-known list in place */ });
 
         startSpeedDb();
+        startSpotDb();
 
         SIMPLE_LISTS.forEach(function(cfg){
           dbFn.collection(cfg.collection).orderBy("name", "asc").onSnapshot(onChangedSnapshot(function(snap){
@@ -4679,6 +4684,160 @@
     else if (t.classList && t.classList.contains("sp-in")) setSpeedField(t.getAttribute("data-sp-week"), t.getAttribute("data-sp-crm"), t.getAttribute("data-sp-date"), t.getAttribute("data-sp-field"), t.value);
   });
 
+  // ---- Spot Check: a spot check of one ticket per record (link, comms feedback, resolution feedback, score) ----
+  // Stored in spot_checks/{id}; the trainee is sent a copy on Slack asking for an acknowledgement and an action plan.
+  var spot = { checks: [], cohort: "", form: false, trainee: "", busy: false, msg: "", err: false, draft: { ticket: "", comms: "", resolution: "", score: "" } };
+  function spotScore(v){
+    var n = parseFloat(String(v == null ? "" : v).replace("%", "").trim());
+    return isNaN(n) ? null : n;
+  }
+  function spotAvg(list){
+    var v = list.map(function(c){ return spotScore(c.score); }).filter(function(x){ return x != null; });
+    return v.length ? v.reduce(function(a, b){ return a + b; }, 0) / v.length : null;
+  }
+  function spotFor(traineeId){
+    return spot.checks.filter(function(c){ return c.trainee_id === traineeId; }).sort(function(a, b){ return String(b.created_at).localeCompare(String(a.created_at)); });
+  }
+  function traineeSpot(traineeId){
+    var t = state.trainees.filter(function(x){ return x.id === traineeId; })[0];
+    var checks = spotFor(traineeId);
+    return { name: t ? t.name : "", checks: checks, count: checks.length, avg: spotAvg(checks) };
+  }
+  function startSpotDb(){
+    dbFn.collection("spot_checks").onSnapshot(onChangedSnapshot(function(snap){
+      spot.checks = snap.docs.map(function(d){ return Object.assign({ id: d.id }, thawed(d.data())); });
+      renderAll();
+    }), function(){});
+  }
+  function spotMessage(t, c, cohortName){
+    var first = String(t.name || "").split(/\s+/)[0] || "there";
+    return "Hi " + first + ", I did a spot check on one of your tickets" + (cohortName ? " (" + cohortName + ")" : "") + ".\n\n" +
+      "*Ticket:* " + c.ticket + "\n" +
+      "*Feedback on Comms:* " + c.comms + "\n" +
+      "*Feedback on Resolution:* " + c.resolution + "\n" +
+      "*Score:* " + spotFmt(spotScore(c.score)) + "%\n\n" +
+      "Please reply to this message with:\n1. Your *acknowledgement* of this feedback\n2. Your *action plan*: what you'll do differently from now on\n\nThank you!";
+  }
+  function spotFmt(v){ return v == null ? "—" : String(Math.round(v * 10) / 10); }
+  function cohortOfTrainee(id){
+    return state.cohorts.filter(function(c){ return (c.trainee_ids || []).indexOf(id) !== -1; })[0] || null;
+  }
+  // Send the saved check to the trainee. Records slack_sent_at or the reason it failed; the check itself is already saved.
+  function sendSpot(check){
+    var t = state.trainees.filter(function(x){ return x.id === check.trainee_id; })[0];
+    var slack = window.TrainerSlack;
+    var mark = function(fields){ return dbFn.doc("spot_checks/" + check.id).update(fields).catch(function(){}); };
+    if (!t) return Promise.resolve("The trainee is no longer on the roster.");
+    if (!slack) return mark({ slack_error: "Slack isn't available right now." }).then(function(){ return "Slack isn't available right now."; });
+    if (!t.slack_user_id && !t.email){
+      var m = "Add " + t.name + "'s work email in Settings → Roster so they can be found on Slack.";
+      return mark({ slack_error: m }).then(function(){ return m; });
+    }
+    var co = cohortOfTrainee(t.id);
+    return slack.userIdFor(t).then(function(uid){
+      if (!uid) throw { plain: "Couldn't find a Slack account for " + (t.email || t.name) + ". Check the work email in Settings → Roster." };
+      return slack.sendDirect(uid, spotMessage(t, check, co ? co.name : ""));
+    }).then(function(){
+      return mark({ slack_sent_at: new Date().toISOString(), slack_error: "" }).then(function(){ return ""; });
+    }, function(err){
+      var m = err && err.plain ? err.plain : slack.errorText(err);
+      return mark({ slack_error: m }).then(function(){ return m; });
+    });
+  }
+  function saveSpot(){
+    var d = spot.draft, t = spot.trainee;
+    var sc = spotScore(d.score);
+    if (!t) return setSpotMsg("Pick the trainee.", true);
+    if (!d.ticket.trim()) return setSpotMsg("Add the ticket link.", true);
+    if (!d.comms.trim()) return setSpotMsg("Add your feedback on comms.", true);
+    if (!d.resolution.trim()) return setSpotMsg("Add your feedback on resolution.", true);
+    if (sc == null || sc < 0 || sc > 100) return setSpotMsg("The score is a percentage from 0 to 100.", true);
+    if (!dbFn) return setSpotMsg("Saving isn't available in this view.", true);
+    var co = cohortOfTrainee(t);
+    var id = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    var check = { id: id, trainee_id: t, cohort_id: co ? co.id : "", ticket: d.ticket.trim(), comms: d.comms.trim(), resolution: d.resolution.trim(), score: sc, created_at: new Date().toISOString(), slack_sent_at: "", slack_error: "" };
+    spot.busy = true; setSpotMsg("Saving…", false);
+    dbFn.doc("spot_checks/" + id).set(check).then(function(){
+      spot.checks = spot.checks.concat([check]);
+      spot.draft = { ticket: "", comms: "", resolution: "", score: "" };
+      spot.form = false;
+      setSpotMsg("Saved. Sending to the trainee on Slack…", false);
+      return sendSpot(check);
+    }, function(){ spot.busy = false; setSpotMsg("Couldn't save. Try again.", true); throw null; }).then(function(err){
+      spot.busy = false;
+      var tn = (state.trainees.filter(function(x){ return x.id === t; })[0] || {}).name || "the trainee";
+      setSpotMsg(err ? "Saved, but it wasn't sent: " + err : "Saved and sent to " + tn + " on Slack ✓", !!err);
+    }, function(){});
+  }
+  function setSpotMsg(m, err){ spot.msg = m; spot.err = !!err; renderSpotPanel(true); }
+  function resendSpot(id){
+    var c = spot.checks.filter(function(x){ return x.id === id; })[0];
+    if (!c) return;
+    setSpotMsg("Sending…", false);
+    sendSpot(c).then(function(err){ setSpotMsg(err ? "Not sent: " + err : "Sent on Slack ✓", !!err); });
+  }
+  function spotDate(iso){ return iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : ""; }
+  function spotCheckHtml(c){
+    var link = /^https?:\/\//i.test(c.ticket) ? "<a href=\"" + esc(c.ticket) + "\" target=\"_blank\" rel=\"noopener\">" + esc(c.ticket) + "</a>" : esc(c.ticket);
+    var status = c.slack_sent_at ? "<span class=\"hint\" style=\"margin:0;\">Sent on Slack " + esc(spotDate(c.slack_sent_at)) + "</span>" : "<span class=\"save-status err\">Not sent" + (c.slack_error ? ": " + esc(c.slack_error) : "") + "</span> <button class=\"link-btn\" type=\"button\" data-spot-resend=\"" + esc(c.id) + "\">Send again</button>";
+    return "<div class=\"spot-item\"><div><b>" + spotFmt(spotScore(c.score)) + "%</b> · " + esc(spotDate(c.created_at)) + " · " + link + "</div>" +
+      "<p><b>Comms:</b> " + esc(c.comms) + "</p><p><b>Resolution:</b> " + esc(c.resolution) + "</p><div>" + status + "</div></div>";
+  }
+  function renderSpotPanel(force){
+    var host = document.getElementById("spotBody");
+    if (!host) return;
+    if (!force && host.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+    var inAny = {};
+    state.cohorts.forEach(function(c){ (c.trainee_ids || []).forEach(function(id){ inAny[id] = true; }); });
+    var cohort = state.cohorts.filter(function(c){ return c.id === spot.cohort; })[0];
+    var byId = function(id){ return state.trainees.filter(function(t){ return t.id === id; })[0]; };
+    var list = cohort ? (cohort.trainee_ids || []).map(byId).filter(Boolean) : state.trainees.filter(function(t){ return inAny[t.id]; });
+    var cohortOpts = "<option value=\"\">All cohort trainees</option>" + state.cohorts.map(function(c){ return "<option value=\"" + esc(c.id) + "\"" + (c.id === spot.cohort ? " selected" : "") + ">" + esc(c.name) + "</option>"; }).join("");
+    var head = "<div class=\"speed-bar\"><div class=\"field\"><label for=\"spotCohort\">Cohort</label><select id=\"spotCohort\">" + cohortOpts + "</select></div>" +
+      "<button class=\"primary small\" id=\"spotNewBtn\" type=\"button\">" + (spot.form ? "Cancel" : "+ New spot check") + "</button>" +
+      (spot.msg ? "<span class=\"save-status " + (spot.err ? "err" : "ok") + "\">" + esc(spot.msg) + "</span>" : "") + "</div>";
+    var form = "";
+    if (spot.form){
+      var traineeOpts = "<option value=\"\">Pick a trainee…</option>" + list.map(function(t){ return "<option value=\"" + esc(t.id) + "\"" + (t.id === spot.trainee ? " selected" : "") + ">" + esc(t.name) + "</option>"; }).join("");
+      var d = spot.draft;
+      form = "<div class=\"card spot-form\"><h3 class=\"card-title\">New spot check</h3>" +
+        "<div class=\"field\"><label for=\"spotTrainee\">Trainee</label><select id=\"spotTrainee\">" + traineeOpts + "</select></div>" +
+        "<div class=\"field\"><label for=\"spotTicket\">Ticket link</label><input id=\"spotTicket\" type=\"url\" placeholder=\"https://…\" value=\"" + esc(d.ticket) + "\" /></div>" +
+        "<div class=\"field\"><label for=\"spotComms\">Feedback on Comms</label><textarea id=\"spotComms\" rows=\"3\">" + esc(d.comms) + "</textarea></div>" +
+        "<div class=\"field\"><label for=\"spotRes\">Feedback on Resolution</label><textarea id=\"spotRes\" rows=\"3\">" + esc(d.resolution) + "</textarea></div>" +
+        "<div class=\"field\"><label for=\"spotScore\">Score (%)</label><input id=\"spotScore\" type=\"text\" inputmode=\"decimal\" placeholder=\"0–100\" value=\"" + esc(d.score) + "\" style=\"width:100px\" /></div>" +
+        "<p class=\"hint\">Saving sends a copy to the trainee on Slack and asks for their acknowledgement and action plan.</p>" +
+        "<div class=\"card-actions\"><button class=\"primary small\" id=\"spotSaveBtn\" type=\"button\"" + (spot.busy ? " disabled" : "") + ">Save and send</button></div></div>";
+    }
+    var body;
+    if (!list.length) body = "<p class=\"hint\">No cohort trainees here yet.</p>";
+    else body = "<div class=\"speed-wrap\"><table class=\"preview\"><thead><tr><th>Trainee</th><th>Spot checks</th><th>Average score</th><th>Latest</th></tr></thead><tbody>" +
+      list.map(function(t){
+        var cs = spotFor(t.id);
+        return "<tr" + (t.cohort_status === "inactive" ? " class=\"is-inactive\"" : "") + "><td>" + (cs.length ? "<details><summary><b>" + esc(t.name) + "</b></summary>" + cs.map(spotCheckHtml).join("") + "</details>" : esc(t.name)) + "</td><td>" + cs.length + "</td><td><b>" + (cs.length ? spotFmt(spotAvg(cs)) + "%" : "—") + "</b></td><td>" + (cs[0] ? spotFmt(spotScore(cs[0].score)) + "% · " + esc(spotDate(cs[0].created_at)) : "—") + "</td></tr>";
+      }).join("") + "</tbody></table></div><p class=\"hint\">Open a trainee to see each spot check. There's no fixed number of spot checks per trainee.</p>";
+    host.innerHTML = head + form + body;
+  }
+  document.addEventListener("click", function(e){
+    var t = e.target.closest && e.target.closest("#spotNewBtn, #spotSaveBtn, [data-spot-resend]");
+    if (!t) return;
+    if (t.id === "spotNewBtn"){ spot.form = !spot.form; spot.msg = ""; if (spot.form && !spot.trainee) spot.trainee = ""; renderSpotPanel(true); }
+    else if (t.id === "spotSaveBtn") saveSpot();
+    else resendSpot(t.getAttribute("data-spot-resend"));
+  });
+  document.addEventListener("input", function(e){
+    var id = e.target && e.target.id;
+    if (id === "spotTicket") spot.draft.ticket = e.target.value;
+    else if (id === "spotComms") spot.draft.comms = e.target.value;
+    else if (id === "spotRes") spot.draft.resolution = e.target.value;
+    else if (id === "spotScore") spot.draft.score = e.target.value;
+  });
+  document.addEventListener("change", function(e){
+    var id = e.target && e.target.id;
+    if (id === "spotCohort"){ spot.cohort = e.target.value; spot.trainee = ""; renderSpotPanel(true); }
+    else if (id === "spotTrainee") spot.trainee = e.target.value;
+  });
+
   // ---- Shared data for other Trainer Desk apps (Settings → Roster is the one list) ----
   var changeListeners = [];
   var localNotes = {}, localNoteListeners = {}; // notes kept in memory when there is no db
@@ -4747,6 +4906,7 @@
     },
     // Speed: weekly numbers pulled from the Speed Productivity Sheet.
     traineeSpeed: traineeSpeed,
+    traineeSpot: traineeSpot,
     mountSpeedSettings: function(host){
       speedSettingsHost = host;
       if (state.themeKey && state.themeKey !== "default") host.parentElement.setAttribute("data-cc-theme", state.themeKey);

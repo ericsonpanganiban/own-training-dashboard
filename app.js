@@ -1789,7 +1789,7 @@ function openPerformance(content, traineeId) {
   const num = (v) => String(Math.round(v * 100) / 100);
   const cohortOf = () => cc.data().cohorts.find((c) => (c.trainee_ids || []).includes(traineeId));
   const savedCrumbs = crumbState[appId]?.items || [];
-  const modeLabel = () => (view.mode === "speed" ? "Speed" : view.mode === "quiz" ? "Quiz" : "QA");
+  const modeLabel = () => (view.mode === "speed" ? "Speed" : view.mode === "quiz" ? "Quiz" : view.mode === "spot" ? "Spot Check" : "QA");
 
   const qaBody = (p) => {
     const weeks = p.weeks;
@@ -1845,6 +1845,21 @@ function openPerformance(content, traineeId) {
       </div>
       <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Day</th><th>Speed</th><th>Hours</th><th>Cleared</th>${sp.goal ? "<th>Still needed</th>" : ""}<th aria-hidden="true"></th></tr></thead><tbody>${w.days
         .map((x) => `<tr><td>${escapeHtml(day(x.date))}</td><td><b>${x.speed == null ? "—" : num(x.speed)}</b></td><td>${x.hours == null ? "—" : num(x.hours)}${x.manual ? " <small class=\"muted\">edited</small>" : ""}</td><td>${x.tickets == null ? "—" : num(x.tickets)}</td>${sp.goal ? `<td class="${x.left > 0 ? "need-short" : ""}">${x.left == null ? "—" : x.left === 0 ? "Met" : x.left}</td>` : ""}<td><span class="speed-bar-fill" style="width:${Math.max(2, Math.round(((x.speed || 0) / max) * 100))}%"></span></td></tr>`)
+        .join("")}</tbody></table></div>`;
+  };
+
+  const spotBody = () => {
+    const sc = cc.traineeSpot(traineeId);
+    if (!sc.count) return `<p class="muted">No spot checks recorded for ${escapeHtml(sc.name)} yet. Record one in Metrics and Coaching → Spot Check.</p>`;
+    const d = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+    const link = (u) => (/^https?:\/\//i.test(u) ? `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">Open ticket</a>` : escapeHtml(u));
+    return `
+      <div class="perf-head"><div class="perf-summary">
+        <div class="stat"><div class="value">${sc.avg == null ? "—" : `${num(sc.avg)}%`}</div><div class="label">Average score</div><div class="hint">${sc.count} spot check${sc.count === 1 ? "" : "s"}</div></div>
+        <div class="stat"><div class="value">${num(Number(sc.checks[0].score))}%</div><div class="label">Latest score</div><div class="hint">${escapeHtml(d(sc.checks[0].created_at))}</div></div>
+      </div></div>
+      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Date</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th></tr></thead><tbody>${sc.checks
+        .map((x) => `<tr><td>${escapeHtml(d(x.created_at))}</td><td><b>${num(Number(x.score))}%</b></td><td>${link(x.ticket)}</td><td>${escapeHtml(x.comms)}</td><td>${escapeHtml(x.resolution)}</td></tr>`)
         .join("")}</tbody></table></div>`;
   };
 
@@ -1919,6 +1934,11 @@ function openPerformance(content, traineeId) {
       sp.weeks.slice().reverse().forEach((w) => w.days.forEach((x) => rows.push([name, w.week, x.date, x.speed == null ? "" : num(x.speed), x.hours ?? "", x.tickets ?? "", x.need ?? "", x.left ?? ""])));
       return rows;
     }
+    if (view.mode === "spot") {
+      const rows = [["Trainee", "Date", "Ticket", "Feedback on Comms", "Feedback on Resolution", "Score %"]];
+      cc.traineeSpot(traineeId).checks.slice().reverse().forEach((x) => rows.push([name, (x.created_at || "").slice(0, 10), x.ticket, x.comms, x.resolution, x.score]));
+      return rows;
+    }
     if (view.mode === "quiz") {
       const d = view.quiz?.data;
       const rows = [["Trainee", "Quiz", "Type", "Sent", "Status", "Score %", "Points", "Opportunities (missed questions)"]];
@@ -1946,7 +1966,7 @@ function openPerformance(content, traineeId) {
     const p = cc.traineePerformance(traineeId);
     const body = !p.name
       ? `<p class="muted">This trainee is no longer on the roster.</p>`
-      : view.mode === "speed" ? speedBody(cc.traineeSpeed(traineeId)) : view.mode === "quiz" ? quizBody() : qaBody(p);
+      : view.mode === "speed" ? speedBody(cc.traineeSpeed(traineeId)) : view.mode === "quiz" ? quizBody() : view.mode === "spot" ? spotBody() : qaBody(p);
     card.innerHTML = `
       <div class="perf-title"><h3 data-crumb="${modeLabel()}">Performance${p.name ? ` · ${escapeHtml(p.name)}` : ""}</h3>
         <span class="sheet-status" data-copy-msg role="status">${escapeHtml(view.copyMsg)}</span>
@@ -1956,6 +1976,7 @@ function openPerformance(content, traineeId) {
         <button type="button" role="tab" class="pill${view.mode === "qa" ? " on" : ""}" aria-selected="${view.mode === "qa"}" data-mode="qa">QA</button>
         <button type="button" role="tab" class="pill${view.mode === "speed" ? " on" : ""}" aria-selected="${view.mode === "speed"}" data-mode="speed">Speed</button>
         <button type="button" role="tab" class="pill${view.mode === "quiz" ? " on" : ""}" aria-selected="${view.mode === "quiz"}" data-mode="quiz">Quiz</button>
+        <button type="button" role="tab" class="pill${view.mode === "spot" ? " on" : ""}" aria-selected="${view.mode === "spot"}" data-mode="spot">Spot Check</button>
       </div>
       ${body}`;
     // The cohort, the trainee and the page are crumbs ahead of the QA / Speed view.

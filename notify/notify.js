@@ -543,8 +543,10 @@
     const group = (title, items, kind) => (items.length ? `<div class="nt-feed-head"><h4>${title} <span class="muted">${items.length}</span></h4></div><ul class="nt-feed">${items.map((r) => item(r, kind)).join("")}</ul>` : "");
     el.innerHTML = `
       <div class="nt-root">
-        <div class="nt-top"><div class="nt-heading"><h3>Ops Updates</h3><span class="muted">Personal reminders, only you see them</span></div></div>
-        <div class="quiz-tabs nt-tabs" role="tablist" aria-label="Ops Updates pages">${tabsHtml("reminders")}</div>
+        <div class="nt-sticky">
+          <div class="nt-top"><div class="nt-heading"><h3>Ops Updates</h3><span class="muted">Personal reminders, only you see them</span></div></div>
+          <div class="quiz-tabs nt-tabs" role="tablist" aria-label="Ops Updates pages">${tabsHtml("reminders")}</div>
+        </div>
         ${dueNow.length ? `<div class="overdue-banner" role="alert"><span aria-hidden="true">⚠</span> ${dueNow.length} overdue reminder${dueNow.length === 1 ? "" : "s"}. Mark ${dueNow.length === 1 ? "it" : "them"} done once handled.</div>` : ""}
         ${group("Overdue", dueNow, "due")}
         <section class="nt-setup">
@@ -579,11 +581,13 @@
     const tabs = tabsHtml(pg.key);
     el.innerHTML = `
       <div class="nt-root">
+        <div class="nt-sticky">
         <div class="nt-top">
           <div class="nt-heading"><h3>Ops Updates</h3><span class="muted">Slack updates, checked every 30 minutes</span></div>
           <button type="button" class="btn" data-nt-check${checking ? " disabled" : ""}>${checking ? "Checking…" : "↻ Check now"}</button>
         </div>
         <div class="quiz-tabs nt-tabs" role="tablist" aria-label="Ops Updates pages">${tabs}</div>
+        </div>
         <section class="nt-setup">
           ${
             setup

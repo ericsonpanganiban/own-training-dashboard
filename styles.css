@@ -1580,3 +1580,8 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .quiz-summary td.q-bad { background: var(--danger-bg); color: var(--danger-ink); }
 .quiz-summary td.q-avg { font-weight: 700; }
 .quiz-summary-foot { margin: 0; font-size: 12px; }
+
+/* Ops Updates: the title and tabs stay put while the page scrolls. */
+.nt-root .nt-sticky { position: sticky; top: -16px; z-index: 4; margin: -16px -20px 12px; padding: 16px 20px 0; background: var(--window-bg); box-shadow: 0 1px 0 var(--line); }
+.nt-root .nt-sticky .nt-top { margin-bottom: 10px; }
+.nt-root .nt-sticky .nt-tabs { margin-bottom: 10px; }

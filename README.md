@@ -20,6 +20,8 @@ its tile stays on Coaching's Home. QA Sheets has a C side and a CP side sheet, r
 
 **Personal Reminders.** A fourth tab in Ops Updates: add a reminder with a title, date, time and details. Reminders are stored in `reminders/{id}` with the viewer's id as `owner`, so each viewer only sees their own. When one comes due (checked every 30 seconds while the dashboard is open) it pops up as a toast with a short chime (the chime needs one click on the page first, a browser rule), lands once in the bell and badges Ops Updates on the dock; until it is marked done it stays flagged OVERDUE (a red hazard icon beside the bell plus a banner and flag on the tab). Each reminder has a ⋮ menu to edit, mark done or delete.
 
+**Trainee status and team goals.** The Coaching app is now **Metrics and Coaching**. In Cohorts and My Class, a cohort's ⋮ menu has **Set Team Goals** (Quiz average %, QA %, Speed min/ticket, Attendance points; stored on the cohort as `team_goals`, blank means unused) and a trainee's ⋮ menu has **Set Trainee Status**: Auto, or by hand Projected to pass / Projected to fail / Resigned / Terminated (stored on the trainee as `trainee_status`). Auto compares each trainee with the goals that have data (quiz weighted average, overall QA, average weekly speed, attendance points): all met projects a pass, any miss a fail, no data shows nothing. The cohort details also show the active percentage.
+
 Every window has a breadcrumb bar under its title (Trainer Desk › App › …). An app reports its deeper levels with
 `TrainerDesk.setCrumbs(appId, [{ label, go }], home)`; an open dialog adds its title as the last step, and clicking
 an earlier step closes the dialog first. "Trainer Desk" shows the desktop.

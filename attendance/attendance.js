@@ -870,6 +870,18 @@
   };
 
   window.TrainerAttendance = {
+    // A trainee's attendance points in their cohort (lower is better); null when none have been recorded.
+    points(cohortId, traineeId) {
+      const api = cc();
+      if (!api) return null;
+      const { cohorts, trainees } = api.data();
+      const cohort = cohorts.find((c) => c.id === cohortId);
+      const t = trainees.find((x) => x.id === traineeId);
+      const days = cohort?.attendance_days?.[traineeId];
+      if (!cohort || !t || !days || !Object.values(days).some(Boolean)) return null;
+      const today = typeof localToday === "function" ? localToday() : "";
+      return totalPoints(t, days, trainingDays(cohort), today);
+    },
     render(el) {
       if (!cc()) {
         el.innerHTML = `<p class="muted">Attendance isn't available right now.</p>`;

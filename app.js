@@ -213,8 +213,9 @@ const APPS = {
   },
 
   coaching: {
-    title: "Coaching",
-    icon: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
+    title: "Metrics and Coaching",
+    dockLabel: "Metrics & Coaching",
+    icon: '<path d="M3 20h18"/><rect x="5" y="12" width="3.5" height="8" rx="0.8"/><rect x="10.25" y="7" width="3.5" height="13" rx="0.8"/><rect x="15.5" y="3" width="3.5" height="17" rx="0.8"/>',
     color: "#10b981",
     custom: true,
     // Coaching boots once with the page (coaching-compass/), so its state
@@ -817,7 +818,7 @@ function cohortDetailHtml(c, s, members) {
              <p class="cd-endorse">Production Endorsement Date: ${fmtShort(s.endorsement)}</p>`
           : `<p class="cd-lines muted">No start date yet, so there's no schedule.</p>`
       }
-      <p class="cd-lines">Current number of trainees: ${members.length - inactive}${inactive ? ` active · ${inactive} inactive` : ""}</p>
+      <p class="cd-lines">Current number of trainees: ${members.length - inactive} active${members.length ? ` (${Math.round(((members.length - inactive) / members.length) * 100)}%)` : ""}${inactive ? ` · ${inactive} inactive` : ""}</p>
     </div>`;
 }
 
@@ -825,11 +826,193 @@ function cohortDetailHtml(c, s, members) {
 // belongs to one cohort). Active is the default.
 const isInactive = (t) => t.cohort_status === "inactive";
 
+// ---- Trainee status: set by hand, or projected automatically from the cohort's team goals ----
+const TRAINEE_STATUSES = [
+  { key: "pass", label: "Projected to pass" },
+  { key: "fail", label: "Projected to fail" },
+  { key: "resigned", label: "Resigned" },
+  { key: "terminated", label: "Terminated" },
+];
+const statusLabel = (k) => TRAINEE_STATUSES.find((x) => x.key === k)?.label || "";
+const GOAL_DEFS = [
+  { key: "quiz", label: "Quiz average", unit: "%", hint: "Weighted quiz average, at or above", dir: "min" },
+  { key: "qa", label: "QA", unit: "%", hint: "Overall QA score, at or above", dir: "min" },
+  { key: "speed", label: "Speed", unit: "min/ticket", hint: "Average minutes per ticket, at or below (lower is faster)", dir: "max" },
+  { key: "attendance", label: "Attendance", unit: "points", hint: "Total attendance points, at or below (lower is better)", dir: "max" },
+];
+const hasGoals = (c) => GOAL_DEFS.some((g) => Number(c?.team_goals?.[g.key]) > 0 || c?.team_goals?.[g.key] === 0);
+const autoCache = {}; // traineeId -> { status: "pass"|"fail"|null, checks: [...] }
+let autoRunning = false;
+let autoAgain = false;
+let autoSig = "";
+let autoLast = 0;
+const fmtNum = (v) => String(Math.round(v * 100) / 100);
+
+// What a trainee shows beside their name: their manual status, else the automatic projection.
+function traineeStatusOf(t) {
+  const m = t.trainee_status;
+  if (m?.mode === "manual" && m.value) return { key: m.value, auto: false };
+  const a = autoCache[t.id];
+  return a?.status ? { key: a.status, auto: true, checks: a.checks } : null;
+}
+function statusBadgeHtml(t) {
+  const st = traineeStatusOf(t);
+  if (!st) return "";
+  const tip = st.auto ? `Automatic, from the team goals: ${st.checks.map((c) => `${c.label} ${fmtNum(c.value)}${c.unit === "%" ? "%" : ""} vs goal ${c.dir === "min" ? "≥" : "≤"} ${fmtNum(c.goal)} ${c.met ? "✓" : "✗"}`).join(" · ")}` : "Set by hand";
+  return `<span class="tstatus ts-${st.key}" title="${escapeHtml(tip)}">${escapeHtml(statusLabel(st.key))}${st.auto ? ` <small>auto</small>` : ""}</span>`;
+}
+// Checks one trainee against the cohort's goals. A goal counts only when there's data for it.
+function evaluateTrainee(cohort, t, quiz) {
+  const cc = window.CoachingCompass;
+  const goals = cohort.team_goals || {};
+  const checks = [];
+  const add = (def, value) => {
+    const goal = Number(goals[def.key]);
+    if (!(goals[def.key] !== "" && goals[def.key] != null) || isNaN(goal) || value == null || isNaN(value)) return;
+    checks.push({ key: def.key, label: def.label, unit: def.unit, dir: def.dir, goal, value, met: def.dir === "min" ? value >= goal : value <= goal });
+  };
+  const q = quiz?.[t.id];
+  add(GOAL_DEFS[0], q && q.taken ? (q.weighted ?? q.avg) : null);
+  const qa = t.crm_name ? cc.qaSummary([t.crm_name]) : null;
+  add(GOAL_DEFS[1], qa && qa.total ? (qa.pass / qa.total) * 100 : null);
+  const vals = cc.traineeSpeed(t.id).weeks.map((w) => w.value).filter((v) => v != null);
+  add(GOAL_DEFS[2], vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
+  add(GOAL_DEFS[3], window.TrainerAttendance?.points ? window.TrainerAttendance.points(cohort.id, t.id) : null);
+  return { status: checks.length ? (checks.every((c) => c.met) ? "pass" : "fail") : null, checks };
+}
+// Recomputes every automatic projection (at most every 15 s unless forced) and asks the apps to redraw when something changed.
+async function refreshAutoStatuses(force) {
+  const cc = window.CoachingCompass;
+  if (!cc) return;
+  if (autoRunning) {
+    if (force) autoAgain = true; // a save landed mid-run: go again when this one ends
+    return;
+  }
+  const { cohorts: cs, trainees: ts } = cc.data();
+  // Goals, manual statuses and attendance changing re-run it at once; other data is picked up within 15 s.
+  const sig = JSON.stringify([cs.map((c) => [c.id, c.team_goals, c.trainee_ids, c.attendance_days]), ts.map((t) => [t.id, t.trainee_status, t.cohort_status, t.crm_name])]);
+  if (!force && sig === autoSig && Date.now() - autoLast < 15000) return;
+  autoSig = sig;
+  autoRunning = true;
+  autoLast = Date.now();
+  try {
+    const { cohorts, trainees } = cc.data();
+    const byId = new Map(trainees.map((t) => [t.id, t]));
+    const next = {};
+    for (const c of cohorts) {
+      if (!hasGoals(c)) continue;
+      const members = (c.trainee_ids || []).map((id) => byId.get(id)).filter((t) => t && t.trainee_status?.mode !== "manual");
+      if (!members.length) continue;
+      let quiz = null;
+      if (c.team_goals?.quiz !== "" && c.team_goals?.quiz != null && window.TrainerQuiz?.cohortScores) quiz = await window.TrainerQuiz.cohortScores(members.map((t) => t.id)).catch(() => null);
+      members.forEach((t) => (next[t.id] = evaluateTrainee(c, t, quiz)));
+    }
+    const before = JSON.stringify(autoCache);
+    Object.keys(autoCache).forEach((k) => delete autoCache[k]);
+    Object.assign(autoCache, next);
+    if (JSON.stringify(autoCache) !== before) cc.notify();
+  } finally {
+    autoRunning = false;
+    if (autoAgain) {
+      autoAgain = false;
+      refreshAutoStatuses(true);
+    }
+  }
+}
+
+// "Set Trainee Status" (trainee ⋮ menu): choose Auto, or set the status by hand.
+function openTraineeStatus(content, traineeId) {
+  const win = content.closest(".window");
+  if (win.querySelector(".sheet")) return;
+  const cc = window.CoachingCompass;
+  const { trainees, cohorts } = cc.data();
+  const t = trainees.find((x) => x.id === traineeId);
+  if (!t) return;
+  const cohort = cohorts.find((c) => (c.trainee_ids || []).includes(traineeId));
+  const cur = t.trainee_status?.mode === "manual" && t.trainee_status.value ? t.trainee_status.value : "auto";
+  const a = autoCache[t.id];
+  const autoNote = !cohort || !hasGoals(cohort)
+    ? "Set Team Goals on the cohort (its ⋮ menu) to turn this on."
+    : a?.status
+      ? `Right now: <b>${escapeHtml(statusLabel(a.status))}</b>. ${a.checks.map((c) => `${escapeHtml(c.label)} ${fmtNum(c.value)}${c.unit === "%" ? "%" : ""} (goal ${c.dir === "min" ? "at least" : "at most"} ${fmtNum(c.goal)}) ${c.met ? "✓" : "✗"}`).join(" · ")}`
+      : "Not enough data yet for any of the goals that are set.";
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML = `
+    <form class="sheet-card" novalidate>
+      <h3>Set Trainee Status · ${escapeHtml(t.name)}</h3>
+      <div class="pick-list">
+        <label class="pick"><input type="radio" name="ts" value="auto"${cur === "auto" ? " checked" : ""} /><span>Auto<small>${autoNote}</small></span></label>
+        ${TRAINEE_STATUSES.map((o) => `<label class="pick"><input type="radio" name="ts" value="${o.key}"${cur === o.key ? " checked" : ""} /><span>${escapeHtml(o.label)}<small>Set by hand</small></span></label>`).join("")}
+      </div>
+      <p class="sheet-status" role="status"></p>
+      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="submit" class="btn-primary">Save</button></div>
+    </form>`;
+  win.appendChild(sheet);
+  const close = () => sheet.remove();
+  sheet.querySelector("[data-cancel]").addEventListener("click", close);
+  sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  sheet.querySelector("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = sheet.querySelector("input[name=ts]:checked")?.value || "auto";
+    const status = sheet.querySelector(".sheet-status");
+    status.textContent = "Saving…";
+    cc.updateTrainee(t.id, { trainee_status: v === "auto" ? { mode: "auto", value: "" } : { mode: "manual", value: v } })
+      .then(() => {
+        close();
+        refreshAutoStatuses(true);
+      })
+      .catch(() => (status.textContent = "Couldn't save. Try again."));
+  });
+  sheet.querySelector("input:checked")?.focus();
+}
+
+// "Set Team Goals" (cohort ⋮ menu): the goals the automatic status measures trainees against. Blank means not used.
+function openTeamGoals(content, cohortId) {
+  const win = content.closest(".window");
+  if (win.querySelector(".sheet")) return;
+  const cc = window.CoachingCompass;
+  const c = cc.data().cohorts.find((x) => x.id === cohortId);
+  if (!c) return;
+  const g = c.team_goals || {};
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML = `
+    <form class="sheet-card" novalidate>
+      <h3>Set Team Goals · ${escapeHtml(c.name)}</h3>
+      <p class="muted goals-help">Trainees are projected to pass when they meet every goal below that has data; one miss projects a fail. Leave a goal blank to skip it.</p>
+      ${GOAL_DEFS.map((d) => `<label class="field"><span>${escapeHtml(d.label)} <small class="muted">${escapeHtml(d.unit)}</small></span><input type="number" step="any" min="0" name="${d.key}" value="${g[d.key] === "" || g[d.key] == null ? "" : escapeHtml(g[d.key])}" placeholder="${escapeHtml(d.hint)}" /></label>`).join("")}
+      <p class="sheet-status" role="status"></p>
+      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="submit" class="btn-primary">Save goals</button></div>
+    </form>`;
+  win.appendChild(sheet);
+  const close = () => sheet.remove();
+  sheet.querySelector("[data-cancel]").addEventListener("click", close);
+  sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  sheet.querySelector("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const goals = {};
+    GOAL_DEFS.forEach((d) => {
+      const raw = sheet.querySelector(`[name=${d.key}]`).value.trim();
+      goals[d.key] = raw === "" || isNaN(Number(raw)) ? "" : Number(raw);
+    });
+    const status = sheet.querySelector(".sheet-status");
+    status.textContent = "Saving…";
+    cc.updateCohort(c.id, { team_goals: goals })
+      .then(() => {
+        close();
+        refreshAutoStatuses(true);
+      })
+      .catch(() => (status.textContent = "Couldn't save. Try again."));
+  });
+  sheet.querySelector("input")?.focus();
+}
+
 function traineeGroupsHtml(c, members) {
   const item = (t) => {
     const active = !isInactive(t);
     return `<li class="${active ? "" : "is-inactive"}">
-      <span>${escapeHtml(t.name)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span>
+      <span>${escapeHtml(t.name)} ${statusBadgeHtml(t)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span>
       <span class="member-actions">
         <button type="button" class="status-pill${active ? " on" : ""}" data-toggle-active="${escapeHtml(t.id)}" aria-pressed="${active}" title="${active ? "Click to set Inactive" : "Click to set Active"}">${active ? "Active" : "Inactive"}</button>
         <button type="button" class="outline-btn" data-performance="${escapeHtml(t.id)}">Performance</button>
@@ -1017,6 +1200,7 @@ function cohortRowHtml(c, byId, today, open) {
 // trainee's Active, Performance, Notes & Feedback and ⋮ menu.
 function wireCohortRows(el, onToggle) {
   const cc = window.CoachingCompass;
+  refreshAutoStatuses();
   el.querySelectorAll("[data-toggle-row]").forEach((b) => b.addEventListener("click", () => onToggle(b.dataset.toggleRow)));
   el.querySelectorAll("[data-add-trainee]").forEach((b) => b.addEventListener("click", () => openAddTrainee(el, b.dataset.addTrainee)));
   el.querySelectorAll("[data-toggle-active]").forEach((btn) =>
@@ -1041,6 +1225,7 @@ function wireCohortRows(el, onToggle) {
       const [cohortId, traineeId] = b.dataset.traineeMenu.split("|");
       openMenu(b, [
         { label: "Edit", run: () => openEditTrainee(el, traineeId) },
+        { label: "Set Trainee Status", run: () => openTraineeStatus(el, traineeId) },
         {
           label: "Remove from cohort",
           danger: true,
@@ -1058,6 +1243,7 @@ function wireCohortRows(el, onToggle) {
       const id = b.dataset.cohortMenu;
       openMenu(b, [
         { label: "Edit", run: () => openEditCohort(el, id) },
+        { label: "Set Team Goals", run: () => openTeamGoals(el, id) },
         { label: "Delete", danger: true, run: () => openDeleteCohort(el, id) },
       ]);
     })
@@ -1194,7 +1380,7 @@ function openPerformance(content, traineeId) {
     const all = weeks.reduce((a, x) => ({ pass: a.pass + x.pass, total: a.total + x.total }), { pass: 0, total: 0 });
     if (!weeks.length && !p.loaded) return `<p class="muted">Loading saved QA weeks…</p>`;
     if (!weeks.length)
-      return `<p class="muted">No saved QA weeks for ${escapeHtml(p.name)} yet${p.crm ? ` (CRM name “${escapeHtml(p.crm)}”)` : ""}. In Coaching, request this trainee's cohort in QA Data Request and save the week.${p.crm ? "" : " Add their CRM name in Settings → Roster so their audits can be matched."}</p>`;
+      return `<p class="muted">No saved QA weeks for ${escapeHtml(p.name)} yet${p.crm ? ` (CRM name “${escapeHtml(p.crm)}”)` : ""}. In Metrics and Coaching, request this trainee's cohort in QA Data Request and save the week.${p.crm ? "" : " Add their CRM name in Settings → Roster so their audits can be matched."}</p>`;
     return `
       <div class="perf-head">
         <div class="perf-summary">
@@ -1218,7 +1404,7 @@ function openPerformance(content, traineeId) {
     if (!sp.configured)
       return `<p class="muted">No Speed sheet is set up yet. Add its Google Sheet link in Settings → Speed Productivity Sheet.</p>`;
     if (!sp.weeks.length)
-      return `<p class="muted">${sp.pulled ? `No Speed days for ${escapeHtml(sp.name)} in the weeks pulled so far${sp.crm ? ` (CRM name “${escapeHtml(sp.crm)}”)` : ""}.${sp.crm ? "" : " Add their CRM name in Settings → Roster so their rows can be matched."}` : "No Speed weeks pulled yet. Pull a week in Coaching → Speed."}</p>`;
+      return `<p class="muted">${sp.pulled ? `No Speed days for ${escapeHtml(sp.name)} in the weeks pulled so far${sp.crm ? ` (CRM name “${escapeHtml(sp.crm)}”)` : ""}.${sp.crm ? "" : " Add their CRM name in Settings → Roster so their rows can be matched."}` : "No Speed weeks pulled yet. Pull a week in Metrics and Coaching → Speed."}</p>`;
     if (!sp.weeks.some((x) => x.week === view.sweek)) view.sweek = sp.weeks[0].week;
     const w = sp.weeks.find((x) => x.week === view.sweek);
     const vals = sp.weeks.map((x) => x.value).filter((v) => v != null);
@@ -1233,7 +1419,7 @@ function openPerformance(content, traineeId) {
         <div class="perf-summary">
           <div class="stat"><div class="value">${w.value == null ? "—" : num(w.value)}</div><div class="label">Week ${escapeHtml(w.week)} speed</div><div class="hint">${num(w.hours)} hrs · ${num(w.tickets)} cleared${w.left != null ? (w.left === 0 ? " · goal met" : ` · need ${w.left} more`) : ""}</div></div>
           <div class="stat"><div class="value">${avg == null ? "—" : num(avg)}</div><div class="label">Average across weeks</div><div class="hint">${sp.weeks.length} week${sp.weeks.length === 1 ? "" : "s"} pulled</div></div>
-          <div class="stat"><div class="value">${sp.goal ? num(sp.goal) : "—"}</div><div class="label">Team goal (min/ticket)</div><div class="hint">${sp.goal ? "Lower is faster" : "Set it in Coaching → Speed"}</div></div>
+          <div class="stat"><div class="value">${sp.goal ? num(sp.goal) : "—"}</div><div class="label">Team goal (min/ticket)</div><div class="hint">${sp.goal ? "Lower is faster" : "Set it in Metrics and Coaching → Speed"}</div></div>
         </div>
         <div class="perf-weeks" role="tablist" aria-label="Weeks">${sp.weeks
           .map((x) => `<button type="button" role="tab" class="pill${x.week === view.sweek ? " on" : ""}" aria-selected="${x.week === view.sweek}" data-sweek="${escapeHtml(x.week)}">Week ${escapeHtml(x.week)} <b>${x.value == null ? "—" : num(x.value)}</b></button>`)
@@ -2438,7 +2624,7 @@ function buildDock() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${app.icon}</svg>
           <span class="dock-badge" hidden></span>
         </span>
-        <span class="dock-label">${escapeHtml(app.title)}</span>
+        <span class="dock-label${(app.dockLabel || app.title).length > 14 ? " long" : ""}">${escapeHtml(app.dockLabel || app.title)}</span>
       </span>`;
     btn.addEventListener("click", () => openApp(id));
     enableDockDrag(btn);

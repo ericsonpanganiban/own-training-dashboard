@@ -2373,6 +2373,16 @@
       ui.offCc?.();
       ui.el = null;
     },
+    // Quiz averages for several trainees with one load of the runs: { traineeId: { avg, weighted, taken } }.
+    cohortScores(traineeIds) {
+      const waitQuizzes = (n = 0) => (quizzesLoaded || n > 40 ? Promise.resolve() : new Promise((r) => setTimeout(r, 100)).then(() => waitQuizzes(n + 1)));
+      return dbReady.then(waitQuizzes).then(() => loadAllRuns()).then(() =>
+        Object.fromEntries(traineeIds.map((id) => {
+          const st = traineeQuizStats(id);
+          return [id, { avg: st.taken ? Math.round(st.sum / st.taken) : null, weighted: st.weighted, taken: st.taken }];
+        }))
+      );
+    },
     // One trainee's quiz results for Performance: every quiz they answered with its score, and the
     // questions they missed (their "opportunities"). Resolves { ready, avg, weighted, taken, sent, items }.
     traineeResults(traineeId) {

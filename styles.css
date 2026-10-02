@@ -1585,3 +1585,14 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .nt-root .nt-sticky { position: sticky; top: -16px; z-index: 4; margin: -16px -20px 12px; padding: 16px 20px 0; background: var(--window-bg); box-shadow: 0 1px 0 var(--line); }
 .nt-root .nt-sticky .nt-top { margin-bottom: 10px; }
 .nt-root .nt-sticky .nt-tabs { margin-bottom: 10px; }
+
+.tstatus { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; vertical-align: middle; }
+.tstatus small { font-weight: 500; opacity: 0.75; }
+.tstatus.ts-pass { background: var(--success-bg); color: var(--success-ink); }
+.tstatus.ts-fail { background: var(--danger-bg); color: var(--danger-ink); }
+.tstatus.ts-resigned { background: var(--warning-bg); color: var(--warning-ink); }
+.tstatus.ts-terminated { background: #4b1d1d; color: #fff; }
+.goals-help { margin: 0; font-size: 12px; }
+
+.dock-label.long { font-size: calc(9.5px * var(--dock-max)); letter-spacing: -0.01em; }
+.app-body .member-list .tstatus small { display: inline; color: inherit; font-size: inherit; }

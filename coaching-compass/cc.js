@@ -289,7 +289,7 @@
     el.homeHeader.innerHTML =
       "<div class=\"brand\">" +
         "<span class=\"mark\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"9\"></circle><polygon points=\"14.5 9.5 12 12 9.5 14.5 12 12 14.5 9.5\"></polygon></svg></span>" +
-        "<span class=\"word\">Coaching</span>" +
+        "<span class=\"word\">Metrics and Coaching</span>" +
       "</div>" +
       "<div class=\"home-greeting\"><h1>" + homeGreeting() + "</h1><p>" + subLine + "</p></div>";
 
@@ -4685,6 +4685,8 @@
   function copy(list){ return list.map(function(x){ return Object.assign({}, x); }); }
 
   window.CoachingCompass = {
+    // Ask every subscriber (Cohorts, My Class, …) to redraw.
+    notify: function(){ changeListeners.forEach(function(fn){ try { fn(); } catch (e){ /* one app's error shouldn't stop the rest */ } }); },
     data: function(){
       return { trainees: copy(state.trainees), cohorts: copy(state.cohorts), teamLeads: copy(state.teamLeads), departments: copy(state.departments) };
     },

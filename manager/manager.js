@@ -231,6 +231,21 @@
       .join("")}</tbody></table></div>`;
   }
 
+  // The cohort's schedule, as the Trainer's Cohorts shows it: classroom, nesting, endorsement date, trainee count.
+  function scheduleHtml(c, a) {
+    const s = typeof cohortSchedule === "function" ? cohortSchedule(c.start) : null;
+    const f = (d) => (typeof fmtShort === "function" ? fmtShort(d) : d);
+    const sub = [c.department, c.team_lead || a?.team_lead].filter(Boolean).join(" · ");
+    const count = c.pending
+      ? `Trainees picked: ${(a?.trainees || []).length} <small class="muted">(they join once the Trainer opens the dashboard)</small>`
+      : `Current number of trainees: ${c.active} active${c.trainees ? ` (${Math.round((c.active / c.trainees) * 100)}%)` : ""}${c.inactive ? ` · ${c.inactive} inactive` : ""}`;
+    return `<div class="mg-sched"><div class="mg-sched-h"><b>${esc(c.name)}</b></div>${sub ? `<div class="muted">${esc(sub)}</div>` : ""}${
+      s
+        ? `<div>Classroom Training: ${esc(f(s.classroom.start))} – ${esc(f(s.classroom.end))}</div><div>Nesting: ${esc(f(s.nesting.start))} – ${esc(f(s.nesting.end))}</div><div class="mg-endorse">Production Endorsement Date: ${esc(f(s.endorsement))}</div>`
+        : `<div class="muted">No start date yet, so there's no schedule.</div>`
+    }<div>${count}</div></div>`;
+  }
+
   // Cohorts from every Trainer, plus classes the manager created that the Trainer hasn't opened yet.
   function cohortRows(list) {
     const rows = list.flatMap((t) => t.cohorts.map((c) => ({ t, c })));
@@ -250,7 +265,10 @@
         const tail = c.pending
           ? `<td>${(a?.trainees || []).length ? `${a.trainees.length} queued` : "—"}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>`
           : `<td>${c.active}${c.inactive ? ` <small class="muted">+${c.inactive} inactive</small>` : ""}</td><td>${fmt(rate(c.passed, c.trainees), "%")}</td><td>${fmt(pct(c.qa), "%")}</td><td>${fmt(mean(c.speed))}</td><td>${fmt(mean(c.quiz), "%")}</td><td>${c.pass}</td><td class="${c.fail ? "bad" : ""}">${c.fail}</td>`;
-        return `<tr><td><b>${esc(c.name)}</b>${managed ? ` <small class="muted">assigned · ${(managed.trainees || []).length} trainee${(managed.trainees || []).length === 1 ? "" : "s"} picked</small>` : ""}</td><td>${esc(nameOf(t))}</td><td>${esc(c.department || "—")}</td><td>${esc(c.start || "—")}</td><td>${status}</td>${tail}<td>${managed ? dots(`data-mg-class-menu="${esc(managed.id)}"`) : ""}</td></tr>`;
+        const open = ui.open.has(c.id);
+        const toggle = `<button type="button" class="mg-toggle" data-mg-toggle="${esc(c.id)}" aria-expanded="${open}"><span class="chev" aria-hidden="true">›</span><b>${esc(c.name)}</b></button>`;
+        const detailRow = open ? `<tr class="mg-detail"><td colspan="13">${scheduleHtml(c, managed || a)}</td></tr>` : "";
+        return `<tr class="${open ? "is-open" : ""}"><td>${toggle}${managed ? ` <small class="muted">assigned · ${(managed.trainees || []).length} trainee${(managed.trainees || []).length === 1 ? "" : "s"} picked</small>` : ""}</td><td>${esc(nameOf(t))}</td><td>${esc(c.department || "—")}</td><td>${esc(c.start || "—")}</td><td>${status}</td>${tail}<td>${managed ? dots(`data-mg-class-menu="${esc(managed.id)}"`) : ""}</td></tr>${detailRow}`;
       })
       .join("")}</tbody></table></div>`;
   }
@@ -319,7 +337,7 @@
           return `<tr class="${p.active ? "" : "is-inactive"}"><td>${esc(p.name)}</td><td>${p.active ? "Active" : "Inactive"}</td><td>${st ? `<span class="tstatus ts-${esc(p.ts)}">${esc(st[0])}${p.auto ? " <small>auto</small>" : ""}</span>` : `<span class="muted">—</span>`}</td><td>${p.nest ? "Passed" : "—"}</td><td class="${goalClass(p.qa, g.qa, "min")}">${fmt(p.qa, "%")}</td><td class="${goalClass(p.speed, g.speed, "max")}">${fmt(p.speed)}</td><td class="${goalClass(p.quiz, g.quiz, "min")}">${fmt(p.quiz, "%")}</td><td class="${goalClass(p.att, g.attendance, "max")}">${fmt(p.att)}</td></tr>`;
         })
         .join("");
-      return `<section class="mg-panel"><div class="mg-cohort-h"><b>${esc(c.name)}</b><span class="muted">${esc([c.department, c.start && `starts ${c.start}`, c.status].filter(Boolean).join(" · "))}</span></div>
+      return `<section class="mg-panel">${scheduleHtml(c)}
         <div class="mg-chips"><span class="mg-chip">Pass rate ${fmt(rate(c.passed, c.trainees), "%")}</span>${chip("QA", pct(c.qa), g.qa, "min", "%")}${chip("Speed", mean(c.speed), g.speed, "max", "")}${chip("Quiz", mean(c.quiz), g.quiz, "min", "%")}</div>
         ${rows ? `<div class="mg-table-wrap"><table class="mg-table"><thead><tr><th>Trainee</th><th>Status</th><th>Projection</th><th>Nesting</th><th>QA</th><th>Speed</th><th>Quiz</th><th>Attendance pts</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p class="muted">No trainees in this cohort.</p>`}</section>`;
     };
@@ -660,7 +678,7 @@
   }
 
   // ---- The apps ----
-  const ui = { metric: "qa", msg: {} };
+  const ui = { metric: "qa", msg: {}, open: new Set() };
   const insts = {}; // one open window per Training Manager app: kind -> { el, off }
   const TITLES = { overview: "Overview", trainers: "Trainers", cohorts: "Cohorts", performance: "Performance", reports: "Reports" };
   function draw(inst) {
@@ -716,6 +734,7 @@
       el.addEventListener("click", (e) => {
         const b = e.target.closest("button");
         if (!b) return;
+        if (b.dataset.mgToggle) return void ((ui.open.has(b.dataset.mgToggle) ? ui.open.delete(b.dataset.mgToggle) : ui.open.add(b.dataset.mgToggle)), drawAll());
         if (b.dataset.mgOpen) return openTrainerWindow(b.dataset.mgOpen);
         if (b.dataset.mgMenu) return trainerMenu(b, b.dataset.mgMenu, inst);
         if (b.dataset.mgClassMenu) return classMenu(b, b.dataset.mgClassMenu, inst);

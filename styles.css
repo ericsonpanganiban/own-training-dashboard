@@ -1734,3 +1734,12 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .mg-conflict input { width: 150px; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--window-fg); }
 .sheet-card:has(#mg-ct) { width: min(540px, 100%); max-height: calc(100% - 32px); overflow: auto; }
 .mg-ct-pool .pick small { display: block; color: var(--muted); font-size: 12px; }
+
+.mg-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.mg-toggle .chev { display: inline-block; transition: transform 0.15s; color: var(--muted); font-size: 16px; line-height: 1; }
+.mg-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.mg-detail td { background: color-mix(in srgb, var(--window-fg) 4%, var(--card)); white-space: normal; }
+.mg-sched { display: flex; flex-direction: column; gap: 2px; font-size: 13px; padding: 4px 0 8px; }
+.mg-sched .mg-sched-h { font-size: 15px; }
+.mg-sched .mg-endorse { font-weight: 700; }
+.mg-sched small { font-weight: 400; }

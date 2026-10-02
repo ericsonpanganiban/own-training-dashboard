@@ -1197,6 +1197,7 @@ async function buildSummary() {
       start: c.training_start_date || "",
       status: cohortStatus(c, today),
       aid: c.assignment_id || "",
+      team_lead: c.team_lead || "",
       trainees: members.length,
       passed: members.filter((t) => t.nesting_status === "passed").length,
       cpTrainees: members.filter((t) => /\bcp\b/i.test(t.department || "")).length,

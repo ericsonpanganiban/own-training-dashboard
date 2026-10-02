@@ -1,0 +1,269 @@
+// ---------- Workspaces: one Trainer, one workspace; a Training Manager reads them all ----------
+// Loaded before every other script. Everything the apps save goes into the viewer's own workspace:
+//   the artifact owner's workspace is the database root (where all existing data already lives);
+//   anyone else's is workspaces/<their id>/…
+// Shared across everyone (never prefixed): courseware, config/ (the managers list), trainers/ (each
+// Trainer's directory entry and summary), the owner's default look, and each viewer's private data/users/.
+// The apps get their database through TrainerUse("db"), which hands back a database already pointed at the
+// workspace being shown. Viewing another Trainer's workspace is read-only: writes are refused here, and the
+// database rules refuse them as well.
+//   trainers/<id>   { id, base: "root" | "own", summary, summary_at, updated_at }   written by that Trainer
+//   config/managers { ids: [...] }                                                 written by the owner
+(function () {
+  const rawUse = (name) => Promise.resolve().then(() => (window.claude ? window.claude.use(name) : null)).catch(() => null);
+  const SHARED = [/^courseware(\/|$)/, /^config(\/|$)/, /^trainers(\/|$)/, /^workspaces(\/|$)/, /^data\/users(\/|$)/, /^settings\/dashboard_(defaults|wallpaper)$/];
+  const isShared = (p) => SHARED.some((r) => r.test(p));
+  const VIEW_KEY = "trainer.viewAs";
+  const PREVIEW_KEY = "trainer.previewManager";
+  const store = {
+    get(k) {
+      try {
+        return localStorage.getItem(k);
+      } catch {
+        return null;
+      }
+    },
+    set(k, v) {
+      try {
+        if (v == null) localStorage.removeItem(k);
+        else localStorage.setItem(k, v);
+      } catch {}
+    },
+  };
+
+  const ws = {
+    ready: null,
+    id: "", // this viewer's id, "" when the platform gives none
+    name: "",
+    avatar: "",
+    color: "",
+    isOwner: false,
+    canEdit: false,
+    base: "", // path prefix of this viewer's own workspace
+    viewing: null, // { id, base } while looking at someone else's workspace (read-only)
+    readOnly: false,
+    managerIds: [],
+    isManagerId: false,
+    previewing: false, // the owner looking at the Training Manager
+    role: "trainer", // "trainer" | "manager": what shell to show
+    db: null, // the real database
+  };
+  const listeners = new Set();
+  const changed = () => listeners.forEach((f) => { try { f(); } catch {} });
+
+  const baseFor = (id, kind) => (kind === "root" ? "" : `workspaces/${id}/`);
+  const activeBase = () => (ws.viewing ? ws.viewing.base : ws.base);
+
+  // ---- The scoped database ----
+  let lastNotice = 0;
+  const refused = () => {
+    if (Date.now() - lastNotice > 4000) {
+      lastNotice = Date.now();
+      toast("You're viewing another Trainer's dashboard, which is read-only.");
+    }
+    return Promise.reject({ code: "read_only", message: "Read-only: you're viewing another Trainer's dashboard." });
+  };
+  const guard = (fn) => (...a) => (ws.readOnly ? refused() : fn(...a));
+  function wrapDoc(r) {
+    return {
+      id: r.id,
+      path: r.path,
+      get: () => r.get(),
+      set: guard((d) => r.set(d)),
+      update: guard((d) => r.update(d)),
+      delete: guard(() => r.delete()),
+      acquire: guard((o) => r.acquire(o)),
+      onSnapshot: (...a) => r.onSnapshot(...a),
+      collection: (p) => wrapColl(r.collection(p)),
+    };
+  }
+  function wrapQuery(q) {
+    return {
+      where: (...a) => wrapQuery(q.where(...a)),
+      orderBy: (...a) => wrapQuery(q.orderBy(...a)),
+      limit: (n) => wrapQuery(q.limit(n)),
+      get: () => q.get(),
+      onSnapshot: (...a) => q.onSnapshot(...a),
+    };
+  }
+  function wrapColl(c) {
+    return { ...wrapQuery(c), doc: (id) => wrapDoc(c.doc(id)), add: guard((d) => c.add(d)) };
+  }
+  const scoped = (db) => ({
+    doc: (p) => wrapDoc(db.doc(isShared(p) ? p : activeBase() + p)),
+    collection: (p) => wrapColl(db.collection(isShared(p) ? p : activeBase() + p)),
+  });
+
+  // ---- Small on-screen notices ----
+  function toast(text) {
+    const t = document.createElement("div");
+    t.className = "ws-toast";
+    t.setAttribute("role", "status");
+    t.textContent = text;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 4500);
+  }
+
+  function setRole() {
+    ws.role = !ws.viewing && (ws.isManagerId || ws.previewing) ? "manager" : "trainer";
+  }
+
+  // ---- Starting up: who is this, which workspace, and are they a manager ----
+  ws.ready = (async () => {
+    const user = await rawUse("user");
+    let me = null;
+    try {
+      me = user ? await user.me() : null;
+    } catch {}
+    ws.id = me?.id || "";
+    ws.name = me?.name || "";
+    ws.avatar = me?.avatarUrl || "";
+    ws.color = me?.color || "";
+    ws.isOwner = !!me?.isOwner;
+    ws.canEdit = !!me?.canEdit;
+    ws.base = ws.isOwner || !ws.id ? "" : baseFor(ws.id, "own");
+    const saved = (() => {
+      try {
+        return JSON.parse(store.get(VIEW_KEY) || "null");
+      } catch {
+        return null;
+      }
+    })();
+    if (saved?.id && saved.id !== ws.id) {
+      ws.viewing = { id: String(saved.id), base: saved.kind === "root" ? "" : baseFor(saved.id, "own"), kind: saved.kind === "root" ? "root" : "own" };
+      ws.readOnly = true;
+    }
+    ws.previewing = ws.isOwner && store.get(PREVIEW_KEY) === "1";
+    const db = await rawUse("db");
+    ws.db = db;
+    if (db) {
+      // The managers list decides the shell, so wait for its first answer (but never long).
+      await new Promise((resolve) => {
+        let done = false;
+        const fin = () => !done && ((done = true), resolve());
+        setTimeout(fin, 2500);
+        try {
+          db.doc("config/managers").onSnapshot(
+            (snap) => {
+              const d = (snap.exists && snap.data()) || {};
+              ws.managerIds = Array.isArray(d.ids) ? d.ids.map(String) : [];
+              ws.isManagerId = !!ws.id && ws.managerIds.includes(ws.id);
+              setRole();
+              fin();
+              changed();
+            },
+            () => fin()
+          );
+        } catch {
+          fin();
+        }
+      });
+    }
+    setRole();
+    // A Trainer's own entry in the directory (the Training Manager lists Trainers from these).
+    if (db && ws.id && !ws.viewing) {
+      db.doc(`trainers/${ws.id}`).update({ id: ws.id, base: ws.isOwner ? "root" : "own", updated_at: new Date().toISOString() }).catch(() =>
+        db.doc(`trainers/${ws.id}`).set({ id: ws.id, base: ws.isOwner ? "root" : "own", updated_at: new Date().toISOString() }).catch(() => {})
+      );
+    }
+    drawBanner();
+    return ws;
+  })();
+
+  // ---- Banner: viewing someone else's dashboard, or previewing the Training Manager ----
+  function drawBanner() {
+    document.getElementById("ws-banner")?.remove();
+    document.body.classList.toggle("ws-readonly", ws.readOnly);
+    if (!ws.viewing && !ws.previewing) return;
+    const bar = document.createElement("div");
+    bar.id = "ws-banner";
+    bar.setAttribute("role", "status");
+    bar.innerHTML = ws.viewing
+      ? `<span class="wb-text" data-ws-who>Viewing a Trainer's dashboard · read-only</span><button type="button" data-ws-back>${ws.isManagerId || ws.previewing ? "Back to Training Manager" : "Back to my dashboard"}</button>`
+      : `<span class="wb-text">Previewing the Training Manager</span><button type="button" data-ws-exit-preview>Exit preview</button>`;
+    document.body.appendChild(bar);
+    bar.addEventListener("click", (e) => {
+      if (e.target.closest("[data-ws-back]")) api.stopViewing();
+      if (e.target.closest("[data-ws-exit-preview]")) api.setPreview(false);
+    });
+    // The name of whoever is being viewed.
+    if (ws.viewing) {
+      rawUse("user")
+        .then((u) => u?.profiles([ws.viewing.id]))
+        .then((ps) => {
+          const n = ps?.[ws.viewing.id]?.name;
+          const el = bar.querySelector("[data-ws-who]");
+          if (el) el.textContent = `Viewing ${n || "a Trainer"}'s dashboard · read-only`;
+        })
+        .catch(() => {});
+    }
+  }
+
+  const reload = () => {
+    try {
+      location.reload();
+    } catch {
+      toast("Reload the page to switch.");
+    }
+  };
+
+  const api = {
+    ws,
+    ready: ws.ready,
+    get role() {
+      return ws.role;
+    },
+    get readOnly() {
+      return ws.readOnly;
+    },
+    get viewing() {
+      return ws.viewing;
+    },
+    get isOwner() {
+      return ws.isOwner;
+    },
+    get id() {
+      return ws.id;
+    },
+    get managerIds() {
+      return ws.managerIds.slice();
+    },
+    onChange: (f) => (listeners.add(f), () => listeners.delete(f)),
+    // Open another Trainer's dashboard, read-only. `entry` is a directory record ({ id, base }).
+    viewAs(entry) {
+      if (!entry?.id || entry.id === ws.id) return api.stopViewing();
+      store.set(VIEW_KEY, JSON.stringify({ id: entry.id, kind: entry.base === "root" ? "root" : "own" }));
+      reload();
+    },
+    stopViewing() {
+      store.set(VIEW_KEY, null);
+      reload();
+    },
+    setPreview(on) {
+      store.set(PREVIEW_KEY, on ? "1" : null);
+      store.set(VIEW_KEY, null);
+      reload();
+    },
+    toast,
+  };
+  window.TrainerWS = api;
+  // What the apps call for a capability; the database comes back pointed at the workspace being shown.
+  // While viewing someone else's dashboard nothing goes out to Slack and nothing is trashed in Drive.
+  const OUTWARD = /send|schedule|reaction|create_|update_|add_|delete|trash|share/i;
+  const guardedMcp = (mcp) => {
+    if (!mcp) return mcp;
+    const wrapped = Object.assign({}, mcp);
+    if (typeof mcp.callTool === "function")
+      wrapped.callTool = (server, tool, ...rest) => {
+        const isDriveExport = /drive/i.test(server) && /^create_file$/.test(tool);
+        if (ws.readOnly && !isDriveExport && OUTWARD.test(tool)) {
+          toast("You're viewing another Trainer's dashboard, which is read-only.");
+          return Promise.reject({ code: "read_only", message: "Read-only: you're viewing another Trainer's dashboard." });
+        }
+        return mcp.callTool(server, tool, ...rest);
+      };
+    return wrapped;
+  };
+  window.TrainerUse = (name) =>
+    name === "db" ? ws.ready.then(() => (ws.db ? scoped(ws.db) : null)) : name === "mcp" ? ws.ready.then(() => rawUse("mcp")).then(guardedMcp) : rawUse(name);
+})();

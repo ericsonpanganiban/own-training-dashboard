@@ -31,7 +31,7 @@
   const SHORT = Object.fromEntries(DAY_OPTIONS.map((o) => [o.value, o.short]));
 
   // Capabilities, requested once for the page.
-  const use = (name) => Promise.resolve().then(() => (window.claude ? window.claude.use(name) : null)).catch(() => null);
+  const use = (name) => (window.TrainerUse ? window.TrainerUse(name) : Promise.resolve(null));
   const mcpReady = use("mcp");
   const dbReady = use("db");
 

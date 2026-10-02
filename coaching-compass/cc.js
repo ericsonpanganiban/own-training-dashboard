@@ -4239,7 +4239,7 @@
       .catch(function(){ return null; })
       .then(function(d){ downloadsFn = d; updateReportActions(); });
 
-    Promise.resolve().then(function(){ return window.claude ? window.claude.use("mcp") : null; })
+    Promise.resolve().then(function(){ return window.TrainerUse ? window.TrainerUse("mcp") : (window.claude ? window.claude.use("mcp") : null); })
       .catch(function(){ return null; })
       .then(function(m){ mcpFn = m; updateReportActions(); markReady("mcp"); });
 
@@ -4259,7 +4259,7 @@
         });
       });
 
-    Promise.resolve().then(function(){ return window.claude ? window.claude.use("db") : null; })
+    Promise.resolve().then(function(){ return window.TrainerUse ? window.TrainerUse("db") : (window.claude ? window.claude.use("db") : null); })
       .catch(function(){ return null; })
       .then(function(d){
         dbFn = d;

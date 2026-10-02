@@ -3,7 +3,7 @@
 // available: the file's own thumbnail (Google Drive, YouTube), the first lines of a Google Doc, or a
 // colored cover for its type. Stored in courseware/{id}: title, url, category, note, preview, created_at.
 (function () {
-  const use = (name) => Promise.resolve().then(() => (window.claude ? window.claude.use(name) : null)).catch(() => null);
+  const use = (name) => (window.TrainerUse ? window.TrainerUse(name) : Promise.resolve(null));
   const dbReady = use("db");
   const uid = () => `c${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   const esc = (s) => escapeHtml(s == null ? "" : s);

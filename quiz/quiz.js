@@ -8,7 +8,7 @@
 (function () {
   const cc = () => window.CoachingCompass;
   const slack = () => window.TrainerSlack;
-  const use = (name) => Promise.resolve().then(() => (window.claude ? window.claude.use(name) : null)).catch(() => null);
+  const use = (name) => (window.TrainerUse ? window.TrainerUse(name) : Promise.resolve(null));
   const dbReady = use("db");
   const sampleReady = use("sample");
 

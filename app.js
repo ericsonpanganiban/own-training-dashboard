@@ -126,7 +126,7 @@ const APPS = {
       el.innerHTML = `
         <div class="settings-layout">
           <nav class="settings-nav" aria-label="Settings pages">
-            ${SETTINGS_PAGES.map(
+            ${settingsPages().map(
               (p) => `<button type="button" data-page="${p.id}">
                 <span class="nav-icon" style="background:${p.color}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p.icon}</svg></span>
                 ${p.title}</button>`
@@ -136,7 +136,7 @@ const APPS = {
         </div>`;
       const slot = el.querySelector(".settings-page-slot");
       const show = (id) => {
-        const page = SETTINGS_PAGES.find((p) => p.id === id) || SETTINGS_PAGES[0];
+        const page = settingsPages().find((p) => p.id === id) || settingsPages()[0];
         settings.settingsPage = page.id;
         saveSettings();
         el.querySelectorAll(".settings-nav button").forEach((b) => {
@@ -145,7 +145,7 @@ const APPS = {
         });
         slot.replaceChildren();
         page.render(slot);
-        setCrumbs("settings", [{ label: page.title }], () => show(SETTINGS_PAGES[0].id));
+        setCrumbs("settings", [{ label: page.title }], () => show(settingsPages()[0].id));
       };
       el.querySelector(".settings-nav").addEventListener("click", (e) => {
         const btn = e.target.closest("[data-page]");
@@ -466,7 +466,68 @@ APPS.notion = {
   },
 };
 
+// ---------- Training Manager apps (a different dock for managers) ----------
+const mgApp = (kind, title, icon, color) => ({
+  title,
+  icon,
+  color,
+  custom: true,
+  render(el) {
+    if (window.TrainerManager) window.TrainerManager.render(el, kind);
+    else el.innerHTML = `<p class="muted">${title} isn't available right now.</p>`;
+  },
+  onClose() {
+    window.TrainerManager?.onClose(kind);
+  },
+});
+APPS.mgOverview = mgApp("overview", "Overview", '<rect x="3" y="3" width="7.5" height="9" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="5.5" rx="1.5"/><rect x="13.5" y="11.5" width="7.5" height="9.5" rx="1.5"/><rect x="3" y="15" width="7.5" height="6" rx="1.5"/>', "#3b82f6");
+APPS.mgTrainers = mgApp("trainers", "Trainers", '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21.5 20a6.5 6.5 0 0 0-4-6"/>', "#10b981");
+APPS.mgCohorts = mgApp("cohorts", "Cohorts", '<path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12.5V17c3.3 2.3 8.7 2.3 12 0v-4.5"/>', "#f59e0b");
+APPS.mgPerformance = mgApp("performance", "Performance", '<path d="M3 20h18"/><rect x="5" y="12" width="3.5" height="8" rx="0.8"/><rect x="10.25" y="7" width="3.5" height="13" rx="0.8"/><rect x="15.5" y="3" width="3.5" height="17" rx="0.8"/>', "#8b5cf6");
+APPS.mgReports = mgApp("reports", "Reports", '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/>', "#ef4444");
+const MANAGER_ORDER = ["mgOverview", "mgTrainers", "mgCohorts", "mgPerformance", "mgReports", "courseware", "settings"];
+const appRole = () => window.TrainerWS?.role || "trainer";
+const visibleAppIds = () => (appRole() === "manager" ? MANAGER_ORDER.filter((id) => APPS[id]) : Object.keys(APPS).filter((id) => !id.startsWith("mg")));
+
+// Your avatar, your role, and a way to look at another Trainer's dashboard (read-only).
+function drawProfile(card) {
+  const WS = window.TrainerWS;
+  const TM = window.TrainerManager;
+  if (!card || !WS) return;
+  TM?.start();
+  const draw = () => {
+    if (!card.isConnected) return;
+    const me = WS.ws;
+    const others = (TM?.trainers() || []).filter((t) => t.id !== me.id);
+    const role = WS.viewing ? "Viewing another Trainer" : WS.role === "manager" ? "Training Manager" : "Trainer";
+    const picker = others.length
+      ? `<div class="profile-view"><label for="view-as">View another Trainer's dashboard <small class="muted">(read-only)</small></label>
+          <span><select id="view-as">${others.map((t) => `<option value="${escapeHtml(t.id)}" data-base="${escapeHtml(t.base || "own")}">${escapeHtml(t.name || "Trainer")}</option>`).join("")}</select>
+          <button type="button" class="btn" id="view-open">Open</button></span></div>`
+      : `<p class="muted profile-note">Other Trainers will be listed here once they have opened the dashboard.</p>`;
+    card.innerHTML = `<div class="profile-head">
+        ${me.avatar ? `<img class="profile-av" src="${escapeHtml(me.avatar)}" alt="" />` : `<span class="profile-av" style="background:${escapeHtml(me.color || "#c7d7ff")}">${escapeHtml((me.name || "You")[0].toUpperCase())}</span>`}
+        <div><b class="profile-name"></b><small class="muted">${escapeHtml(role)}</small></div></div>
+      ${WS.viewing ? `<div class="profile-view"><span>You're viewing another Trainer's dashboard.</span><button type="button" class="btn" id="view-back">Back to my dashboard</button></div>` : picker}`;
+    card.querySelector(".profile-name").textContent = me.name || "You";
+  };
+  draw();
+  card.addEventListener("click", (e) => {
+    if (e.target.closest("#view-back")) return WS.stopViewing();
+    if (e.target.closest("#view-open")) {
+      const opt = card.querySelector("#view-as")?.selectedOptions?.[0];
+      if (opt) WS.viewAs({ id: opt.value, base: opt.dataset.base });
+    }
+  });
+  const off = TM?.onChange(() => {
+    if (!card.isConnected) return off?.();
+    if (card.contains(document.activeElement) && document.activeElement.tagName === "SELECT") return;
+    draw();
+  });
+}
+
 // ---------- Settings pages ----------
+const settingsPages = () => SETTINGS_PAGES.filter((p) => (!p.roles || p.roles.includes(appRole())) && (!p.ownerOnly || window.TrainerWS?.isOwner));
 const SETTINGS_PAGES = [
   {
     id: "appearance",
@@ -477,6 +538,7 @@ const SETTINGS_PAGES = [
       slot.innerHTML = `
         <div class="settings-page app-body">
           <h3>Appearance</h3>
+          <section class="profile-card" id="profile-card" aria-label="Your profile"></section>
           <div class="form-row">
             <label for="set-theme">Themes</label>
             <select id="set-theme">
@@ -535,6 +597,7 @@ const SETTINGS_PAGES = [
           </div>
         </div>`;
       const $ = (id) => slot.querySelector(id);
+      drawProfile(slot.querySelector("#profile-card"));
       const theme = $("#set-theme");
       const wallpaper = $("#set-wallpaper");
       const size = $("#set-size");
@@ -670,6 +733,7 @@ const SETTINGS_PAGES = [
   },
   {
     id: "roster",
+    roles: ["trainer"],
     title: "Roster",
     color: "#10b981",
     icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21.5 20a6.5 6.5 0 0 0-4-6"/>',
@@ -683,6 +747,7 @@ const SETTINGS_PAGES = [
   },
   {
     id: "speed-sheet",
+    roles: ["trainer"],
     title: "Speed Productivity Sheet",
     color: "#ef4444",
     icon: '<path d="M4 18a8 8 0 1 1 16 0"/><path d="m12 18 4-6"/>',
@@ -696,6 +761,7 @@ const SETTINGS_PAGES = [
   },
   {
     id: "qa-sheets",
+    roles: ["trainer"],
     title: "QA Sheets",
     color: "#f59e0b",
     icon: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M9 9v12"/>',
@@ -705,6 +771,72 @@ const SETTINGS_PAGES = [
       const host = slot.querySelector(".cc-ui-scroll");
       if (window.CoachingCompass) window.CoachingCompass.mountQaSheets(host);
       else host.innerHTML = `<p class="muted">QA sheet settings aren't available right now.</p>`;
+    },
+  },
+  {
+    id: "managers",
+    ownerOnly: true,
+    title: "Training Managers",
+    color: "#ef4444",
+    icon: '<path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
+    // Who gets the Training Manager instead of the Trainer dashboard. Only the artifact owner changes this.
+    render(slot) {
+      slot.innerHTML = `<div class="settings-page app-body"><h3>Training Managers</h3>
+        <p class="muted">Managers see the Training Manager (every Trainer's numbers, read-only) instead of the Trainer dashboard. Only you can change this list.</p>
+        <div id="mgr-list"></div>
+        <div class="form-row"><label for="mgr-q">Add a manager</label><input id="mgr-q" type="search" placeholder="Search by name" autocomplete="off" /></div>
+        <div id="mgr-hits"></div>
+        <p class="sheet-status" id="mgr-status" role="status"></p>
+        <div class="form-row"><label>Preview</label><span><button type="button" class="btn" id="mgr-preview">${window.TrainerWS?.ws?.previewing ? "Exit preview" : "Preview the Training Manager"}</button> <small class="muted">See what a manager sees. You come back to your own dashboard from the bar at the top.</small></span></div></div>`;
+      const WS = window.TrainerWS;
+      const list = slot.querySelector("#mgr-list");
+      const hits = slot.querySelector("#mgr-hits");
+      const status = slot.querySelector("#mgr-status");
+      let ids = WS?.managerIds || [];
+      const save = async (next) => {
+        status.textContent = "Saving…";
+        try {
+          const db = await window.TrainerUse("db");
+          await db.doc("config/managers").set({ ids: next, updated_at: new Date().toISOString() });
+          ids = next;
+          status.textContent = "Saved. Managers see the Training Manager the next time they open the dashboard.";
+          drawList();
+        } catch {
+          status.textContent = "Couldn't save the list. Try again.";
+        }
+      };
+      const drawList = async () => {
+        const user = await window.TrainerUse("user");
+        const ps = ids.length && user?.profiles ? await user.profiles(ids) : {};
+        list.innerHTML = ids.length
+          ? `<ul class="mgr-people">${ids.map((id) => `<li><span class="mgr-name"></span><button type="button" class="btn btn-small" data-mgr-remove="${escapeHtml(id)}">Remove</button></li>`).join("")}</ul>`
+          : `<p class="muted">No managers yet.</p>`;
+        list.querySelectorAll(".mgr-name").forEach((el, i) => (el.textContent = ps[ids[i]]?.name || "Someone"));
+      };
+      list.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-mgr-remove]");
+        if (b) save(ids.filter((x) => x !== b.dataset.mgrRemove));
+      });
+      let timer = null;
+      slot.querySelector("#mgr-q").addEventListener("input", (e) => {
+        clearTimeout(timer);
+        const q = e.target.value.trim();
+        timer = setTimeout(async () => {
+          if (!q) return void (hits.innerHTML = "");
+          const user = await window.TrainerUse("user");
+          const found = user?.search ? await user.search(q) : [];
+          hits.innerHTML = found.length
+            ? `<ul class="mgr-people">${found.map((h) => `<li><span class="mgr-hit"></span><button type="button" class="btn btn-small" data-mgr-add="${escapeHtml(h.id)}"${ids.includes(h.id) ? " disabled" : ""}>${ids.includes(h.id) ? "Added" : "Add as manager"}</button></li>`).join("")}</ul>`
+            : `<p class="muted">Nobody found. Names only search people who have opened this dashboard or are in your organization.</p>`;
+          hits.querySelectorAll(".mgr-hit").forEach((el, i) => (el.textContent = found[i].name || "Someone"));
+        }, 250);
+      });
+      hits.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-mgr-add]");
+        if (b && !ids.includes(b.dataset.mgrAdd)) save([...ids, b.dataset.mgrAdd]).then(() => (slot.querySelector("#mgr-q").value = "", (hits.innerHTML = "")));
+      });
+      slot.querySelector("#mgr-preview").addEventListener("click", () => WS?.setPreview(!WS.ws.previewing));
+      drawList();
     },
   },
 ];
@@ -919,6 +1051,85 @@ async function refreshAutoStatuses(force) {
     }
   }
 }
+
+// ---- The summary the Training Manager reads (trainers/<id>.summary), refreshed while this dashboard is open ----
+let summaryLast = "";
+let summaryTimer = null;
+let summaryRunning = false;
+async function buildSummary() {
+  const cc = window.CoachingCompass;
+  await refreshAutoStatuses();
+  const { cohorts, trainees } = cc.data();
+  const byId = new Map(trainees.map((t) => [t.id, t]));
+  const ids = [...new Set(cohorts.flatMap((c) => c.trainee_ids || []))];
+  const quiz = ids.length && window.TrainerQuiz?.cohortScores ? await window.TrainerQuiz.cohortScores(ids).catch(() => null) : null;
+  const today = localToday();
+  const goal = (v) => (Number(v) > 0 ? Number(v) : null);
+  const rows = cohorts.map((c) => {
+    const members = (c.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
+    const tally = { pass: 0, fail: 0, none: 0, resigned: 0, terminated: 0 };
+    let speed = { sum: 0, n: 0 };
+    let qz = { sum: 0, n: 0 };
+    members.forEach((t) => {
+      const k = traineeStatusOf(t)?.key;
+      tally[k === "pass" || k === "fail" || k === "resigned" || k === "terminated" ? k : "none"]++;
+      const vals = cc.traineeSpeed(t.id).weeks.map((w) => w.value).filter((v) => v != null);
+      if (vals.length) speed = { sum: speed.sum + vals.reduce((a, b) => a + b, 0) / vals.length, n: speed.n + 1 };
+      const q = quiz?.[t.id];
+      if (q?.taken) qz = { sum: qz.sum + (q.weighted ?? q.avg), n: qz.n + 1 };
+    });
+    const crms = members.map((t) => t.crm_name).filter(Boolean);
+    const qa = crms.length ? cc.qaSummary(crms) : null;
+    const g = c.team_goals || {};
+    return {
+      id: c.id,
+      name: c.name || "",
+      department: c.department || "",
+      start: c.training_start_date || "",
+      status: scheduleStatus(cohortSchedule(c.training_start_date), today),
+      trainees: members.length,
+      active: members.filter((t) => !isInactive(t)).length,
+      inactive: members.filter(isInactive).length,
+      ...tally,
+      qa: { pass: Math.round((qa?.pass || 0) * 100) / 100, total: qa?.total || 0 },
+      speed: { sum: Math.round(speed.sum * 100) / 100, n: speed.n },
+      quiz: { sum: Math.round(qz.sum * 100) / 100, n: qz.n },
+      goals: { qa: goal(g.qa), quiz: goal(g.quiz), speed: goal(g.speed) },
+    };
+  });
+  return { cohorts: rows, overdue: window.TrainerNotion?.overdueCount?.() || 0 };
+}
+async function publishSummary() {
+  const WS = window.TrainerWS;
+  const cc = window.CoachingCompass;
+  if (!WS?.id || WS.readOnly || !cc || summaryRunning) return;
+  summaryRunning = true;
+  try {
+    const summary = await buildSummary();
+    const json = JSON.stringify(summary);
+    if (json === summaryLast) return;
+    const db = await window.TrainerUse("db");
+    if (!db) return;
+    await db.doc(`trainers/${WS.id}`).set({ id: WS.id, base: WS.isOwner ? "root" : "own", summary, summary_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    summaryLast = json;
+  } catch {
+  } finally {
+    summaryRunning = false;
+  }
+}
+function scheduleSummary(ms = 15000) {
+  clearTimeout(summaryTimer);
+  summaryTimer = setTimeout(publishSummary, ms);
+}
+(function startSummary() {
+  const t = setInterval(() => {
+    if (!window.CoachingCompass || !window.TrainerWS) return;
+    clearInterval(t);
+    window.CoachingCompass.onChange(() => scheduleSummary());
+    window.TrainerWS.ready.then(() => scheduleSummary(20000));
+    setInterval(publishSummary, 5 * 60 * 1000);
+  }, 500);
+})();
 
 // "Set Trainee Status" (trainee ⋮ menu): choose Auto, or set the status by hand.
 function openTraineeStatus(content, traineeId) {
@@ -2509,7 +2720,7 @@ async function publishDefaults() {
 }
 
 (function loadDefaults() {
-  const use = (name) => Promise.resolve().then(() => (window.claude ? window.claude.use(name) : null)).catch(() => null);
+  const use = (name) => (window.TrainerUse ? window.TrainerUse(name) : Promise.resolve(null));
   Promise.all([use("db"), use("user")]).then(async ([db, user]) => {
     defaultsDb = db;
     if (!db) return;
@@ -2572,10 +2783,11 @@ function setRunning(appId, running) {
 
 // A thin divider separates the trainer apps from the tools (Ops Updates, Settings), wherever the icons are moved.
 const DOCK_TOOLS = new Set(["notion", "settings"]);
+const MANAGER_TOOLS = new Set(["courseware", "settings"]);
 function markDockGroups() {
   let prev = null;
   dock.querySelectorAll(".dock-item").forEach((item) => {
-    const tool = DOCK_TOOLS.has(item.dataset.app);
+    const tool = (appRole() === "manager" ? MANAGER_TOOLS : DOCK_TOOLS).has(item.dataset.app);
     item.classList.toggle("group-start", prev !== null && tool !== prev);
     prev = tool;
   });
@@ -2596,7 +2808,8 @@ function updateDockBadges(counts) {
 let dockMagnify = { reset() {} };
 
 function dockOrder() {
-  const ids = Object.keys(APPS);
+  const ids = visibleAppIds();
+  if (appRole() === "manager") return ids;
   const base = !dockIsCustom() && sharedDefaults.dockOrder ? sharedDefaults.dockOrder : settings.dockOrder;
   const saved = base.filter((id) => ids.includes(id));
   return [...saved, ...ids.filter((id) => !saved.includes(id))];
@@ -2749,6 +2962,14 @@ function tick() {
 }
 
 applySettings();
-buildDock();
+// The dock depends on who is signed in (Trainer or Training Manager), so it waits for that to be known.
+{
+  const start = () => {
+    const brand = document.querySelector(".brand");
+    if (brand && appRole() === "manager") brand.textContent = "Training Manager";
+    buildDock();
+  };
+  (window.TrainerWS ? window.TrainerWS.ready : Promise.resolve()).then(start, start);
+}
 tick();
 setInterval(tick, 15000);

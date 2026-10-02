@@ -9,7 +9,7 @@
 //   notification_settings/{notion|ops_cp_gen|ops_care}   channel_id, link_base, last_ts, last_checked, error
 //   (the Notion Update Requests page keeps the original "notion" document, so earlier updates carry over)
 (function () {
-  const use = (name) => Promise.resolve().then(() => (window.claude ? window.claude.use(name) : null)).catch(() => null);
+  const use = (name) => (window.TrainerUse ? window.TrainerUse(name) : Promise.resolve(null));
   const dbReady = use("db");
   const userReady = use("user");
   const esc = (s) => escapeHtml(s == null ? "" : s);
@@ -233,7 +233,7 @@
   const due = (src) => Date.now() - (lastRun[src.id] || 0) >= (src.every || HOUR) - 30000;
   // Checks the sources named in `only` (or all of them) regardless of schedule, or, with `onlyDue`, just the ones that are due.
   async function runAll(why, only, onlyDue) {
-    if (state.running) return;
+    if (state.running || window.TrainerWS?.readOnly) return;
     state.running = true;
     notify();
     await dbReady;
@@ -830,6 +830,7 @@
       // Opening the app checks whatever is due.
       dbReady.then(() => setTimeout(() => runAll("open-app", PAGES.map((x) => x.source), true), 300));
     },
+    overdueCount: () => myReminders().filter(isDue).length,
     showPage(key) {
       if (!PAGES.some((x) => x.key === key) && key !== "reminders") return;
       ui.page = key;

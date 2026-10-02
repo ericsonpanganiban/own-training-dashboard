@@ -70,13 +70,13 @@
       .map((d) => {
         const cs = d.summary?.cohorts || [];
         const p = people[d.id] || {};
-        return { id: d.id, base: d.base, name: p.name || "", avatar: p.avatarUrl || "", color: p.color || "", cohorts: cs, overdue: d.summary?.overdue || 0, at: d.summary_at || "", has: !!d.summary, ...rollup(cs) };
+        return { id: d.id, base: d.base, animal: d.animal || "", name: p.name || "", avatar: p.avatarUrl || "", color: p.color || "", cohorts: cs, overdue: d.summary?.overdue || 0, at: d.summary_at || "", has: !!d.summary, ...rollup(cs) };
       })
       .sort((a, b) => (a.name || "~").localeCompare(b.name || "~"));
   }
   const nameOf = (t) => t.name || "Trainer";
   const initials = (t) => (t.name || "T").split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
-  const avatar = (t) => (t.avatar ? `<img class="mg-av" src="${esc(t.avatar)}" alt="" />` : `<span class="mg-av" style="background:${esc(t.color || "#c7d7ff")}">${esc(initials(t))}</span>`);
+  const avatar = (t) => WS().avatarHtml({ animal: t.animal, photo: t.avatar, color: t.color, name: t.name }, "mg-av");
   const ago = (iso) => {
     const m = Math.round((Date.now() - new Date(iso)) / 60000);
     if (!iso || isNaN(m)) return "never";

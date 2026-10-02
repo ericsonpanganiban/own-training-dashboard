@@ -1684,3 +1684,16 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .ap-back { font-weight: 700; color: var(--accent); }
 .ap-settings { margin-top: 6px; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; padding-top: 10px; color: var(--muted); }
 .ap-empty { margin: 4px 8px 8px; color: var(--muted); font-size: 12.5px; }
+
+#avatar-btn .av-dot { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: grid; place-items: center; font-size: 13px; line-height: 1; }
+.ap-ic { width: 28px; text-align: center; font-size: 16px; }
+.profile-pick { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.animal-grid { display: flex; gap: 6px; flex-wrap: wrap; }
+.animal { width: 38px; height: 38px; border-radius: 50%; border: 2px solid transparent; font-size: 22px; line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0; }
+.animal:hover { transform: scale(1.08); }
+.animal.is-on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.animal-none { height: 38px; padding: 0 12px; border-radius: 999px; border: 2px solid var(--line); background: none; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.animal-none.is-on { border-color: var(--accent); }
+.animal:focus-visible, .animal-none:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mg-av, .ap-av { font-size: 17px; }
+.profile-av { font-size: 24px; }

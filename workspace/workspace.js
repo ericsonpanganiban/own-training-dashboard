@@ -31,7 +31,22 @@
     },
   };
 
+  // Ten animal avatars to pick from (shown instead of the profile photo when chosen).
+  const ANIMALS = [
+    { key: "dog", emoji: "🐶", label: "Dog", bg: "#ffe3b3" },
+    { key: "cat", emoji: "🐱", label: "Cat", bg: "#ffd6e0" },
+    { key: "fox", emoji: "🦊", label: "Fox", bg: "#ffd0a8" },
+    { key: "panda", emoji: "🐼", label: "Panda", bg: "#e4e4ea" },
+    { key: "koala", emoji: "🐨", label: "Koala", bg: "#d6dcf0" },
+    { key: "lion", emoji: "🦁", label: "Lion", bg: "#ffe9a8" },
+    { key: "tiger", emoji: "🐯", label: "Tiger", bg: "#ffd9a0" },
+    { key: "frog", emoji: "🐸", label: "Frog", bg: "#c9efc4" },
+    { key: "monkey", emoji: "🐵", label: "Monkey", bg: "#e8d3bd" },
+    { key: "penguin", emoji: "🐧", label: "Penguin", bg: "#cfe4f7" },
+  ];
+  const animalOf = (key) => ANIMALS.find((a) => a.key === key) || null;
   const ws = {
+    animal: "", // this viewer's chosen animal avatar ("" = their profile photo)
     ready: null,
     id: "", // this viewer's id, "" when the platform gives none
     name: "",
@@ -136,6 +151,12 @@
     ws.previewing = ws.isOwner && store.get(PREVIEW_KEY) === "1";
     const db = await rawUse("db");
     ws.db = db;
+    if (db && ws.id) {
+      try {
+        const snap = await db.doc(`trainers/${ws.id}`).get();
+        ws.animal = (snap.exists && animalOf(snap.data()?.animal) && snap.data().animal) || "";
+      } catch {}
+    }
     if (db) {
       // The managers list decides the shell, so wait for its first answer (but never long).
       await new Promise((resolve) => {
@@ -174,7 +195,7 @@
   function drawBanner() {
     document.getElementById("ws-banner")?.remove();
     document.body.classList.toggle("ws-readonly", ws.readOnly);
-    if (!ws.viewing && !ws.previewing) return;
+    if (!ws.viewing) return;
     const bar = document.createElement("div");
     bar.id = "ws-banner";
     bar.setAttribute("role", "status");
@@ -245,6 +266,28 @@
       reload();
     },
     toast,
+    animals: ANIMALS,
+    animalOf,
+    get animal() {
+      return ws.animal;
+    },
+    // The avatar as HTML: the chosen animal, else the photo, else the initial. `cls` is the circle's class.
+    avatarHtml({ animal, photo, color, name }, cls) {
+      const a = animalOf(animal);
+      const e = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      if (a) return `<span class="${cls}" style="background:${a.bg}" title="${e(a.label)}">${a.emoji}</span>`;
+      if (photo) return `<img class="${cls}" src="${e(photo)}" alt="" />`;
+      return `<span class="${cls}" style="background:${e(color || "#c7d7ff")}">${e(((name || "T").trim()[0] || "T").toUpperCase())}</span>`;
+    },
+    setAnimal(key) {
+      if (!ws.id || ws.readOnly) return Promise.resolve();
+      ws.animal = animalOf(key) ? key : "";
+      changed();
+      const doc = ws.db?.doc(`trainers/${ws.id}`);
+      if (!doc) return Promise.resolve();
+      const fields = { id: ws.id, base: ws.isOwner ? "root" : "own", animal: ws.animal, updated_at: new Date().toISOString() };
+      return doc.update(fields).catch(() => doc.set(fields)).catch(() => {});
+    },
   };
   window.TrainerWS = api;
   // What the apps call for a capability; the database comes back pointed at the workspace being shown.

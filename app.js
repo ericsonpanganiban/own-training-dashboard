@@ -505,20 +505,25 @@ function drawProfile(card) {
           <span><select id="view-as">${others.map((t) => `<option value="${escapeHtml(t.id)}" data-base="${escapeHtml(t.base || "own")}">${escapeHtml(t.name || "Trainer")}</option>`).join("")}</select>
           <button type="button" class="btn" id="view-open">Open</button></span></div>`
       : `<p class="muted profile-note">Other Trainers will be listed here once they have opened the dashboard.</p>`;
+    const picks = WS.animals.map((a) => `<button type="button" class="animal${WS.animal === a.key ? " is-on" : ""}" data-animal="${a.key}" style="background:${a.bg}" title="${escapeHtml(a.label)}" aria-label="${escapeHtml(a.label)}" aria-pressed="${WS.animal === a.key}">${a.emoji}</button>`).join("");
     card.innerHTML = `<div class="profile-head">
-        ${me.avatar ? `<img class="profile-av" src="${escapeHtml(me.avatar)}" alt="" />` : `<span class="profile-av" style="background:${escapeHtml(me.color || "#c7d7ff")}">${escapeHtml((me.name || "You")[0].toUpperCase())}</span>`}
+        ${WS.avatarHtml({ animal: WS.animal, photo: me.avatar, color: me.color, name: me.name }, "profile-av")}
         <div><b class="profile-name"></b><small class="muted">${escapeHtml(role)}</small></div></div>
+      ${WS.readOnly ? "" : `<div class="profile-pick"><span>Avatar</span><div class="animal-grid" role="group" aria-label="Choose an animal avatar">${picks}<button type="button" class="animal-none${WS.animal ? "" : " is-on"}" data-animal="" aria-pressed="${!WS.animal}" title="Use my profile photo">Photo</button></div></div>`}
       ${WS.viewing ? `<div class="profile-view"><span>You're viewing another Trainer's dashboard.</span><button type="button" class="btn" id="view-back">Back to my dashboard</button></div>` : picker}`;
     card.querySelector(".profile-name").textContent = me.name || "You";
   };
   draw();
   card.addEventListener("click", (e) => {
+    const an = e.target.closest("[data-animal]");
+    if (an) return void WS.setAnimal(an.dataset.animal);
     if (e.target.closest("#view-back")) return WS.stopViewing();
     if (e.target.closest("#view-open")) {
       const opt = card.querySelector("#view-as")?.selectedOptions?.[0];
       if (opt) WS.viewAs({ id: opt.value, base: opt.dataset.base });
     }
   });
+  const offWs = WS.onChange(() => (card.isConnected ? draw() : offWs()));
   const off = TM?.onChange(() => {
     if (!card.isConnected) return off?.();
     if (card.contains(document.activeElement) && document.activeElement.tagName === "SELECT") return;
@@ -539,8 +544,9 @@ function buildAvatarMenu() {
   btn.id = "avatar-btn";
   btn.setAttribute("aria-haspopup", "true");
   btn.setAttribute("aria-label", "Your profile and Trainers");
-  const initial = (me.name || "You").trim()[0].toUpperCase();
-  btn.innerHTML = me.avatar ? `<img src="${escapeHtml(me.avatar)}" alt="" />` : `<span style="background:${escapeHtml(me.color || "#7aa2ff")}">${escapeHtml(initial)}</span>`;
+  const mine = () => ({ animal: WS.animal, photo: me.avatar, color: me.color || "#7aa2ff", name: me.name || "You" });
+  const paintBtn = () => (btn.innerHTML = WS.avatarHtml(mine(), "av-dot"));
+  paintBtn();
   document.getElementById("clock")?.after(btn);
   let pop = null;
   const close = () => {
@@ -556,10 +562,16 @@ function buildAvatarMenu() {
     if (!pop) return;
     const trainers = (TM?.trainers() || []).filter((t) => t.id !== me.id);
     const role = WS.viewing ? "Viewing another Trainer" : WS.role === "manager" ? "Training Manager" : "Trainer";
-    const av = (t) => (t.avatar ? `<img class="ap-av" src="${escapeHtml(t.avatar)}" alt="" />` : `<span class="ap-av" style="background:${escapeHtml(t.color || "#c7d7ff")}">${escapeHtml(((t.name || "T")[0] || "T").toUpperCase())}</span>`);
+    const av = (t) => WS.avatarHtml({ animal: t.animal, photo: t.avatar, color: t.color, name: t.name }, "ap-av");
+    const toggle = WS.isOwner && !WS.viewing
+      ? `<h6>Dashboard</h6>
+         <button type="button" class="ap-item${WS.role === "manager" ? "" : " is-on"}" data-ap-mode="trainer"><span class="ap-ic">🧑‍🏫</span>My Trainer dashboard${WS.role === "manager" ? "" : "<small>current</small>"}</button>
+         <button type="button" class="ap-item${WS.role === "manager" ? " is-on" : ""}" data-ap-mode="manager"><span class="ap-ic">📊</span>Training Manager${WS.role === "manager" ? "<small>current</small>" : ""}</button>`
+      : "";
     pop.innerHTML = `
-      <div class="ap-me">${me.avatar ? `<img class="ap-av" src="${escapeHtml(me.avatar)}" alt="" />` : `<span class="ap-av" style="background:${escapeHtml(me.color || "#7aa2ff")}">${escapeHtml(initial)}</span>`}
+      <div class="ap-me">${WS.avatarHtml(mine(), "ap-av")}
         <div><b class="ap-name"></b><small>${escapeHtml(role)}</small></div></div>
+      ${toggle}
       ${WS.viewing ? `<button type="button" class="ap-item ap-back" data-ap-back>← Back to my dashboard</button>` : ""}
       <h6>View another Trainer <small>read-only</small></h6>
       ${
@@ -583,6 +595,7 @@ function buildAvatarMenu() {
       const b = e.target.closest("button");
       if (!b) return;
       if ("apBack" in b.dataset) return WS.stopViewing();
+      if (b.dataset.apMode) return b.dataset.apMode === "manager" ? (WS.role === "manager" ? close() : WS.setPreview(true)) : WS.role === "manager" ? WS.setPreview(false) : close();
       if (b.dataset.apView) return WS.viewAs({ id: b.dataset.apView, base: b.dataset.apBase });
       if ("apSettings" in b.dataset) {
         close();
@@ -596,6 +609,7 @@ function buildAvatarMenu() {
     document.addEventListener("keydown", onKey, true);
   });
   TM?.onChange(draw);
+  WS.onChange(() => (paintBtn(), draw()));
 }
 
 // ---------- Settings pages ----------
@@ -1182,7 +1196,8 @@ async function publishSummary() {
     if (json === summaryLast) return;
     const db = await window.TrainerUse("db");
     if (!db) return;
-    await db.doc(`trainers/${WS.id}`).set({ id: WS.id, base: WS.isOwner ? "root" : "own", summary, summary_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    const fields = { id: WS.id, base: WS.isOwner ? "root" : "own", summary, summary_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    await db.doc(`trainers/${WS.id}`).update(fields).catch(() => db.doc(`trainers/${WS.id}`).set(fields));
     summaryLast = json;
   } catch {
   } finally {

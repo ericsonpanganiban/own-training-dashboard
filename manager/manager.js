@@ -128,7 +128,7 @@
     if (!db) throw new Error("no db");
     const aid = id || idOf("a");
     const old = assigns.find((a) => a.id === aid);
-    await db.doc(`assignments/${aid}`).set({ ...fields, created_by: old?.created_by || WS()?.id || "", created_at: old?.created_at || new Date().toISOString(), updated_at: new Date().toISOString() });
+    await db.doc(`assignments/${aid}`).set({ ...fields, trainees: old?.trainees || [], created_by: old?.created_by || WS()?.id || "", created_at: old?.created_at || new Date().toISOString(), updated_at: new Date().toISOString() });
   }
   async function deleteAssignment(id) {
     const db = await window.TrainerUse("db");
@@ -248,9 +248,9 @@
         const managed = assigns.find((x) => x.id === c.aid);
         const status = c.pending ? `<span class="mg-pill warn">Waiting for Trainer</span>` : `<span class="mg-pill">${esc(c.status || "")}</span>`;
         const tail = c.pending
-          ? `<td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>`
+          ? `<td>${(a?.trainees || []).length ? `${a.trainees.length} queued` : "—"}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>`
           : `<td>${c.active}${c.inactive ? ` <small class="muted">+${c.inactive} inactive</small>` : ""}</td><td>${fmt(rate(c.passed, c.trainees), "%")}</td><td>${fmt(pct(c.qa), "%")}</td><td>${fmt(mean(c.speed))}</td><td>${fmt(mean(c.quiz), "%")}</td><td>${c.pass}</td><td class="${c.fail ? "bad" : ""}">${c.fail}</td>`;
-        return `<tr><td><b>${esc(c.name)}</b>${managed ? ` <small class="muted">assigned</small>` : ""}</td><td>${esc(nameOf(t))}</td><td>${esc(c.department || "—")}</td><td>${esc(c.start || "—")}</td><td>${status}</td>${tail}<td>${managed ? dots(`data-mg-class-menu="${esc(managed.id)}"`) : ""}</td></tr>`;
+        return `<tr><td><b>${esc(c.name)}</b>${managed ? ` <small class="muted">assigned · ${(managed.trainees || []).length} trainee${(managed.trainees || []).length === 1 ? "" : "s"} picked</small>` : ""}</td><td>${esc(nameOf(t))}</td><td>${esc(c.department || "—")}</td><td>${esc(c.start || "—")}</td><td>${status}</td>${tail}<td>${managed ? dots(`data-mg-class-menu="${esc(managed.id)}"`) : ""}</td></tr>`;
       })
       .join("")}</tbody></table></div>`;
   }
@@ -515,9 +515,148 @@
     const a = assigns.find((x) => x.id === id);
     if (!a || typeof openMenu !== "function") return;
     openMenu(anchor, [
+      { label: "Add trainees", run: () => openClassTrainees(inst.el, a.id) },
       { label: "Edit", run: () => openAddClass(inst.el, a.id, { assign: true, assignment: a }) },
       { label: "Delete", danger: true, run: () => openDeleteClass(inst.el, a) },
     ]);
+  }
+
+  // ---- Trainees in a class: picked from the manager's Roster; one trainee, one cohort ----
+  const normName = (n) => String(n || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const lastNameOf = (n) => {
+    const t = String(n || "").trim();
+    if (t.includes(",")) return t.split(",")[0].trim();
+    return t.split(/\s+/).pop() || t;
+  };
+  async function setClassTrainees(aid, list) {
+    const db = await window.TrainerUse("db");
+    await db.doc(`assignments/${aid}`).update({ trainees: list, updated_at: new Date().toISOString() });
+  }
+  // Where a roster trainee already is: another class of yours, or a cohort a Trainer made themselves (matched by name).
+  function whereIs(t, exceptAid) {
+    const other = assigns.find((x) => x.id !== exceptAid && (x.trainees || []).some((y) => y.rid === t.id));
+    if (other) return { kind: "class", aid: other.id, label: other.name || "another class" };
+    const key = normName(t.name);
+    for (const tr of trainers()) {
+      for (const c of tr.cohorts) {
+        if (c.aid) continue; // classes from here are already covered above
+        if ((c.people || []).some((p) => normName(p.name) === key)) return { kind: "trainer", label: `${c.name} (${nameOf(tr)}'s own cohort)` };
+      }
+    }
+    return null;
+  }
+  function openClassTrainees(el, aid) {
+    const a = assigns.find((x) => x.id === aid);
+    const cc = window.CoachingCompass;
+    if (!a || !cc) return;
+    const roster = cc.data().trainees.slice().sort((x, y) => (x.name || "").localeCompare(y.name || ""));
+    const ui2 = sheetIn(el, `<div id="mg-ct"></div>`);
+    if (!ui2) return;
+    const { sheet, close } = ui2;
+    const host = sheet.querySelector("#mg-ct");
+    const st = { filter: "", picked: new Set(), conflicts: null, msg: "" };
+    const current = () => (assigns.find((x) => x.id === aid)?.trainees || []);
+    const snap = (t) => ({ rid: t.id, name: t.name || "", crm_name: t.crm_name || "", email: t.email || "", department: t.department || "", team_lead: t.team_lead || "" });
+    const paintMain = () => {
+      const cur = current();
+      const inHere = new Set(cur.map((x) => x.rid));
+      const shown = roster.filter((t) => !st.filter || normName(t.name).includes(normName(st.filter)) || normName(t.crm_name).includes(normName(st.filter)));
+      host.innerHTML = `<h3>Add trainees · <span class="mg-ct-name"></span></h3>
+        <div class="field"><span>In this cohort (${cur.length})</span>${
+          cur.length ? `<ul class="mgr-people mg-ct-cur">${cur.map((t) => `<li><span class="mg-ct-n"></span><button type="button" class="btn btn-small" data-rm="${esc(t.rid)}">Remove</button></li>`).join("")}</ul>` : `<small class="muted">Nobody yet.</small>`
+        }</div>
+        <div class="field"><span>Add from the Roster</span>
+          <input type="search" id="mg-ct-q" placeholder="Search the roster" value="${esc(st.filter)}" autocomplete="off" />
+          ${
+            roster.length
+              ? `<div class="pick-list mg-ct-pool">${shown.map((t) => {
+                  const here = inHere.has(t.id);
+                  const w = here ? null : whereIs(t, aid);
+                  return `<label class="pick${here ? " taken" : ""}"><input type="checkbox" value="${esc(t.id)}"${here ? " disabled" : ""}${st.picked.has(t.id) ? " checked" : ""} />
+                    <span><span class="mg-ct-pn"></span><small>${here ? "Already in this cohort" : w ? `Already in ${esc(w.label)}. Adding moves them (needs your confirmation)` : esc([t.department, t.crm_name].filter(Boolean).join(" · ") || "Roster trainee")}</small></span></label>`;
+                }).join("") || `<p class="muted">No match.</p>`}</div>`
+              : `<p class="muted">The Roster is empty. Add trainees in Settings → Roster first.</p>`
+          }</div>
+        <p class="sheet-status" id="mg-ct-status" role="status">${esc(st.msg)}</p>
+        <div class="sheet-actions"><button type="button" class="btn" data-cancel>Close</button><button type="button" class="btn-primary" data-add${st.picked.size ? "" : " disabled"}>${st.picked.size ? `Add ${st.picked.size} trainee${st.picked.size === 1 ? "" : "s"}` : "Add"}</button></div>`;
+      host.querySelector(".mg-ct-name").textContent = a.name || "cohort";
+      host.querySelectorAll(".mg-ct-cur .mg-ct-n").forEach((n, i) => (n.textContent = cur[i].name || "Trainee"));
+      const names = shown.filter(() => true);
+      host.querySelectorAll(".mg-ct-pool .pick").forEach((lab, i) => (lab.querySelector(".mg-ct-pn").textContent = names[i]?.name || "Trainee"));
+      host.querySelector("[data-cancel]").addEventListener("click", close);
+    };
+    // One trainee, one cohort: moving someone needs their last name typed in.
+    const paintConflicts = () => {
+      host.innerHTML = `<h3>Override needed</h3>
+        <p class="muted">A trainee can only be in one cohort. Type each trainee's last name to move them into <b class="mg-ct-name"></b>.</p>
+        <div class="mg-conflicts">${st.conflicts.map((c, i) => `<div class="mg-conflict"><div><b class="mg-cf-n"></b><small class="mg-cf-w"></small></div><input type="text" data-last="${i}" placeholder="Last name" autocomplete="off" /></div>`).join("")}</div>
+        <p class="sheet-status" id="mg-ct-status" role="status"></p>
+        <div class="sheet-actions"><button type="button" class="btn" data-back>Back</button><button type="button" class="btn-primary" data-confirm disabled>Move and add</button></div>`;
+      host.querySelector(".mg-ct-name").textContent = a.name || "this cohort";
+      host.querySelectorAll(".mg-cf-n").forEach((n, i) => (n.textContent = st.conflicts[i].t.name));
+      host.querySelectorAll(".mg-cf-w").forEach((n, i) => (n.textContent = `Currently in ${st.conflicts[i].w.label}`));
+      host.querySelector("input")?.focus();
+    };
+    const ok = () => [...host.querySelectorAll("[data-last]")].every((inp) => normName(inp.value) === normName(lastNameOf(st.conflicts[Number(inp.dataset.last)].t.name)));
+    host.addEventListener("input", (e) => {
+      if (e.target.id === "mg-ct-q") {
+        st.filter = e.target.value;
+        const pos = e.target.selectionStart;
+        paintMain();
+        const q = host.querySelector("#mg-ct-q");
+        q.focus();
+        q.setSelectionRange(pos, pos);
+      }
+      if (e.target.matches("[data-last]")) host.querySelector("[data-confirm]").disabled = !ok();
+    });
+    host.addEventListener("change", (e) => {
+      if (e.target.matches('.mg-ct-pool input[type="checkbox"]')) {
+        e.target.checked ? st.picked.add(e.target.value) : st.picked.delete(e.target.value);
+        const btn = host.querySelector("[data-add]");
+        btn.disabled = !st.picked.size;
+        btn.textContent = st.picked.size ? `Add ${st.picked.size} trainee${st.picked.size === 1 ? "" : "s"}` : "Add";
+      }
+    });
+    const commit = async (moves) => {
+      const status = host.querySelector("#mg-ct-status");
+      status.textContent = "Saving…";
+      try {
+        // Move: take them out of their old class first.
+        for (const m of moves) if (m.w.kind === "class") {
+          const old = assigns.find((x) => x.id === m.w.aid);
+          if (old) await setClassTrainees(old.id, (old.trainees || []).filter((y) => y.rid !== m.t.id));
+        }
+        const next = [...current(), ...roster.filter((t) => st.picked.has(t.id)).map(snap)];
+        await setClassTrainees(aid, next);
+        st.picked.clear();
+        st.conflicts = null;
+        st.msg = `Added.${moves.some((m) => m.w.kind === "trainer") ? " Their entry in a Trainer's own cohort wasn't changed, so remove them there too." : ""}`;
+        paintMain();
+      } catch {
+        status.textContent = "Couldn't save. Try again.";
+      }
+    };
+    host.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if (b.dataset.rm) {
+        setClassTrainees(aid, current().filter((x) => x.rid !== b.dataset.rm)).then(() => ((st.msg = ""), paintMain())).catch(() => {});
+      } else if ("add" in b.dataset) {
+        const chosen = roster.filter((t) => st.picked.has(t.id));
+        const conflicts = chosen.map((t) => ({ t, w: whereIs(t, aid) })).filter((c) => c.w);
+        if (conflicts.length) {
+          st.conflicts = conflicts;
+          paintConflicts();
+        } else commit([]);
+      } else if ("back" in b.dataset) {
+        st.conflicts = null;
+        paintMain();
+      } else if ("confirm" in b.dataset) {
+        if (ok()) commit(st.conflicts);
+      }
+    });
+    st.msg = "";
+    paintMain();
   }
 
   // ---- The apps ----

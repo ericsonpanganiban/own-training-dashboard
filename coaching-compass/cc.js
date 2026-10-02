@@ -4761,11 +4761,23 @@
       var record = { name: fields.name, department: fields.department || "", team_lead: fields.team_lead || "", training_start_date: fields.training_start_date || "", trainee_ids: [], created_at: new Date().toISOString() };
       if (fields.assignment_id) record.assignment_id = fields.assignment_id;
       if (!dbFn){
-        state.cohorts = state.cohorts.concat([Object.assign({ id: "local-" + Date.now() }, record)]);
+        var localId = "local-" + Date.now();
+        state.cohorts = state.cohorts.concat([Object.assign({ id: localId }, record)]);
         renderAll();
-        return Promise.resolve();
+        return Promise.resolve({ id: localId });
       }
       return dbFn.collection("cohorts").add(record);
+    },
+    // Add a trainee to the roster (Settings → Roster). Resolves with the new trainee's id.
+    addTrainee: function(fields){
+      var record = Object.assign({ name: "", email: "", crm_name: "", team_lead: "", department: "", nesting_status: "", created_at: new Date().toISOString() }, fields);
+      if (!dbFn){
+        var id = "local-t" + Date.now() + Math.random().toString(36).slice(2, 5);
+        state.trainees = state.trainees.concat([Object.assign({ id: id }, record)]);
+        renderAll();
+        return Promise.resolve(id);
+      }
+      return dbFn.collection("trainees").add(record).then(function(ref){ return ref.id; });
     },
     updateTrainee: function(id, fields){
       if (!dbFn || String(id).indexOf("local-") === 0){

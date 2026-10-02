@@ -1268,17 +1268,47 @@ async function importAssignments() {
       const fields = { name: a.name || "", department: a.department || "", team_lead: a.team_lead || "", training_start_date: a.training_start_date || "" };
       if (local) {
         if (Object.keys(fields).some((k) => (local[k] || "") !== fields[k])) await cc.updateCohort(local.id, fields).catch(() => {});
+        await syncAssignedTrainees(a, local);
       } else if (!done.has(a.id)) {
-        await cc.addCohort({ ...fields, assignment_id: a.id });
+        const ref = await cc.addCohort({ ...fields, assignment_id: a.id });
         done.add(a.id);
         changed = true;
+        if (ref?.id) await syncAssignedTrainees(a, { id: ref.id, trainee_ids: [] });
       }
     }
-    if (changed) await ref.set({ ids: [...done], updated_at: new Date().toISOString() });
+    if (changed) {
+      await ref.set({ ids: [...done], updated_at: new Date().toISOString() });
+      setTimeout(importAssignments, 3500); // once the new cohort has loaded, bring its trainees in
+    }
   } catch {
   } finally {
     importRunning = false;
   }
+}
+// The trainees the manager put in a class become roster trainees in this Trainer's cohort (created once, matched by roster_ref).
+const createdTrainees = {}; // roster id -> local trainee id, for this visit
+async function syncAssignedTrainees(a, cohort) {
+  const cc = window.CoachingCompass;
+  const want = a.trainees || [];
+  const locals = cc.data().trainees;
+  const ids = [];
+  for (const w of want) {
+    const found = locals.find((x) => x.roster_ref === w.rid);
+    if (found) ids.push(found.id);
+    else if (createdTrainees[w.rid]) ids.push(createdTrainees[w.rid]);
+    else {
+      const id = await cc.addTrainee({ name: w.name || "", email: w.email || "", crm_name: w.crm_name || "", department: w.department || "", team_lead: w.team_lead || "", roster_ref: w.rid, assignment_id: a.id }).catch(() => null);
+      if (id) {
+        createdTrainees[w.rid] = id;
+        ids.push(id);
+      }
+    }
+  }
+  const cur = cohort.trainee_ids || [];
+  const fromThisClass = new Set(locals.filter((x) => x.assignment_id === a.id).map((x) => x.id));
+  // Trainees the Trainer added themselves stay; ones that came with this class follow the manager's list.
+  const next = [...new Set([...cur.filter((id) => !fromThisClass.has(id)), ...ids])];
+  if (next.length !== cur.length || next.some((id) => !cur.includes(id))) await cc.setCohortTrainees(cohort.id, next).catch(() => {});
 }
 (function startImport() {
   const t = setInterval(() => {

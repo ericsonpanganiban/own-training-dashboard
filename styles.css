@@ -1726,3 +1726,11 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .nt-compose { margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
 .nt-compose textarea { width: 100%; resize: vertical; font: inherit; box-sizing: border-box; }
 .app-body .btn.is-done, .btn.is-done { border-color: var(--success-ink, #1a7f3c); color: var(--success-ink, #1a7f3c); }
+
+.mg-ct-pool { max-height: 220px; }
+.mg-conflicts { display: flex; flex-direction: column; gap: 8px; }
+.mg-conflict { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.mg-conflict small { display: block; color: var(--muted); font-size: 12px; }
+.mg-conflict input { width: 150px; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--window-fg); }
+.sheet-card:has(#mg-ct) { width: min(540px, 100%); max-height: calc(100% - 32px); overflow: auto; }
+.mg-ct-pool .pick small { display: block; color: var(--muted); font-size: 12px; }

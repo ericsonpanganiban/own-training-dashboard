@@ -1743,3 +1743,8 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .mg-sched .mg-sched-h { font-size: 15px; }
 .mg-sched .mg-endorse { font-weight: 700; }
 .mg-sched small { font-weight: 400; }
+
+.mg-sched { font-size: 11.5px; gap: 1px; padding: 2px 0 4px; line-height: 1.35; }
+.mg-sched .mg-sched-h { font-size: 13.5px; }
+.mg-table td.mg-cohort-cell { white-space: normal; min-width: 300px; vertical-align: top; }
+.mg-table td.mg-cohort-cell .mg-sched { margin-top: 3px; }

@@ -232,14 +232,14 @@
   }
 
   // The cohort's schedule, as the Trainer's Cohorts shows it: classroom, nesting, endorsement date, trainee count.
-  function scheduleHtml(c, a) {
+  function scheduleHtml(c, a, noName) {
     const s = typeof cohortSchedule === "function" ? cohortSchedule(c.start) : null;
     const f = (d) => (typeof fmtShort === "function" ? fmtShort(d) : d);
     const sub = [c.department, c.team_lead || a?.team_lead].filter(Boolean).join(" · ");
     const count = c.pending
       ? `Trainees picked: ${(a?.trainees || []).length} <small class="muted">(they join once the Trainer opens the dashboard)</small>`
       : `Current number of trainees: ${c.active} active${c.trainees ? ` (${Math.round((c.active / c.trainees) * 100)}%)` : ""}${c.inactive ? ` · ${c.inactive} inactive` : ""}`;
-    return `<div class="mg-sched"><div class="mg-sched-h"><b>${esc(c.name)}</b></div>${sub ? `<div class="muted">${esc(sub)}</div>` : ""}${
+    return `<div class="mg-sched">${noName ? "" : `<div class="mg-sched-h"><b>${esc(c.name)}</b></div>`}${sub ? `<div class="muted">${esc(sub)}</div>` : ""}${
       s
         ? `<div>Classroom Training: ${esc(f(s.classroom.start))} – ${esc(f(s.classroom.end))}</div><div>Nesting: ${esc(f(s.nesting.start))} – ${esc(f(s.nesting.end))}</div><div class="mg-endorse">Production Endorsement Date: ${esc(f(s.endorsement))}</div>`
         : `<div class="muted">No start date yet, so there's no schedule.</div>`
@@ -265,10 +265,7 @@
         const tail = c.pending
           ? `<td>${(a?.trainees || []).length ? `${a.trainees.length} queued` : "—"}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>`
           : `<td>${c.active}${c.inactive ? ` <small class="muted">+${c.inactive} inactive</small>` : ""}</td><td>${fmt(rate(c.passed, c.trainees), "%")}</td><td>${fmt(pct(c.qa), "%")}</td><td>${fmt(mean(c.speed))}</td><td>${fmt(mean(c.quiz), "%")}</td><td>${c.pass}</td><td class="${c.fail ? "bad" : ""}">${c.fail}</td>`;
-        const open = ui.open.has(c.id);
-        const toggle = `<button type="button" class="mg-toggle" data-mg-toggle="${esc(c.id)}" aria-expanded="${open}"><span class="chev" aria-hidden="true">›</span><b>${esc(c.name)}</b></button>`;
-        const detailRow = open ? `<tr class="mg-detail"><td colspan="13">${scheduleHtml(c, managed || a)}</td></tr>` : "";
-        return `<tr class="${open ? "is-open" : ""}"><td>${toggle}${managed ? ` <small class="muted">assigned · ${(managed.trainees || []).length} trainee${(managed.trainees || []).length === 1 ? "" : "s"} picked</small>` : ""}</td><td>${esc(nameOf(t))}</td><td>${esc(c.department || "—")}</td><td>${esc(c.start || "—")}</td><td>${status}</td>${tail}<td>${managed ? dots(`data-mg-class-menu="${esc(managed.id)}"`) : ""}</td></tr>${detailRow}`;
+        return `<tr><td class="mg-cohort-cell"><b>${esc(c.name)}</b>${managed ? ` <small class="muted">assigned · ${(managed.trainees || []).length} trainee${(managed.trainees || []).length === 1 ? "" : "s"} picked</small>` : ""}${scheduleHtml(c, managed || a, true)}</td><td>${esc(nameOf(t))}</td><td>${esc(c.department || "—")}</td><td>${esc(c.start || "—")}</td><td>${status}</td>${tail}<td>${managed ? dots(`data-mg-class-menu="${esc(managed.id)}"`) : ""}</td></tr>`;
       })
       .join("")}</tbody></table></div>`;
   }
@@ -734,7 +731,6 @@
       el.addEventListener("click", (e) => {
         const b = e.target.closest("button");
         if (!b) return;
-        if (b.dataset.mgToggle) return void ((ui.open.has(b.dataset.mgToggle) ? ui.open.delete(b.dataset.mgToggle) : ui.open.add(b.dataset.mgToggle)), drawAll());
         if (b.dataset.mgOpen) return openTrainerWindow(b.dataset.mgOpen);
         if (b.dataset.mgMenu) return trainerMenu(b, b.dataset.mgMenu, inst);
         if (b.dataset.mgClassMenu) return classMenu(b, b.dataset.mgClassMenu, inst);

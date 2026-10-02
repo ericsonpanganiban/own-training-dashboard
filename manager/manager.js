@@ -255,19 +255,40 @@
       .map((a) => ({ t: list.find((x) => x.id === a.trainer_ref) || list.find((x) => x.uid && x.uid === targetOf(a)) || { id: a.trainer_ref, name: "", cohorts: [] }, a, c: { id: a.id, aid: a.id, name: a.name, department: a.department, start: a.training_start_date, status: "waiting", pending: true } }));
     return [...rows, ...pending].sort((x, y) => String(y.c.start || "").localeCompare(String(x.c.start || "")));
   }
+  // Cohorts in Active, Upcoming and Completed sections (and "No start date" when there are any), like the Trainer's Cohorts.
   function cohortsTable(list) {
     const rows = cohortRows(list);
     if (!rows.length) return `<p class="muted">No cohorts yet. Use + Add Class to create one for a Trainer.</p>`;
-    return `<div class="mg-table-wrap"><table class="mg-table"><thead><tr><th>Cohort</th><th>Trainer</th><th>Department</th><th>Starts</th><th>Status</th><th>Active</th><th>Pass rate</th><th>QA</th><th>Speed</th><th>Quiz</th><th>Projected pass</th><th>Projected fail</th><th></th></tr></thead><tbody>${rows
-      .map(({ t, c, a }) => {
-        const managed = assigns.find((x) => x.id === c.aid);
-        const status = c.pending ? `<span class="mg-pill warn">Waiting for Trainer</span>` : `<span class="mg-pill">${esc(c.status || "")}</span>`;
-        const tail = c.pending
-          ? `<td>${(a?.trainees || []).length ? `${a.trainees.length} queued` : "—"}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>`
-          : `<td>${c.active}${c.inactive ? ` <small class="muted">+${c.inactive} inactive</small>` : ""}</td><td>${fmt(rate(c.passed, c.trainees), "%")}</td><td>${fmt(pct(c.qa), "%")}</td><td>${fmt(mean(c.speed))}</td><td>${fmt(mean(c.quiz), "%")}</td><td>${c.pass}</td><td class="${c.fail ? "bad" : ""}">${c.fail}</td>`;
-        return `<tr><td class="mg-cohort-cell"><b>${esc(c.name)}</b>${managed ? ` <small class="muted">assigned · ${(managed.trainees || []).length} trainee${(managed.trainees || []).length === 1 ? "" : "s"} picked</small>` : ""}${scheduleHtml(c, managed || a, true)}</td><td>${esc(nameOf(t))}</td><td>${esc(c.department || "—")}</td><td>${esc(c.start || "—")}</td><td>${status}</td>${tail}<td>${managed ? dots(`data-mg-class-menu="${esc(managed.id)}"`) : ""}</td></tr>`;
+    const today = typeof localToday === "function" ? localToday() : "";
+    const groupOf = ({ c }) => {
+      if (!c.pending) return c.status || "unscheduled";
+      const sc = typeof cohortSchedule === "function" ? cohortSchedule(c.start) : null;
+      return !sc ? "unscheduled" : today < sc.start ? "upcoming" : today > sc.end ? "completed" : "active";
+    };
+    const rowHtml = ({ t, c, a }) => {
+      const managed = assigns.find((x) => x.id === c.aid);
+      const status = c.pending ? `<span class="mg-pill warn">Waiting for Trainer</span>` : `<span class="mg-pill">${esc(c.status || "")}</span>`;
+      const tail = c.pending
+        ? `<td>${(a?.trainees || []).length ? `${a.trainees.length} queued` : "—"}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>`
+        : `<td>${c.active}${c.inactive ? ` <small class="muted">+${c.inactive} inactive</small>` : ""}</td><td>${fmt(rate(c.passed, c.trainees), "%")}</td><td>${fmt(pct(c.qa), "%")}</td><td>${fmt(mean(c.speed))}</td><td>${fmt(mean(c.quiz), "%")}</td><td>${c.pass}</td><td class="${c.fail ? "bad" : ""}">${c.fail}</td>`;
+      return `<tr><td class="mg-cohort-cell"><b>${esc(c.name)}</b>${managed ? ` <small class="muted">assigned · ${(managed.trainees || []).length} trainee${(managed.trainees || []).length === 1 ? "" : "s"} picked</small>` : ""}${scheduleHtml(c, managed || a, true)}</td><td>${esc(nameOf(t))}</td><td>${esc(c.department || "—")}</td><td>${esc(c.start || "—")}</td><td>${status}</td>${tail}<td>${managed ? dots(`data-mg-class-menu="${esc(managed.id)}"`) : ""}</td></tr>`;
+    };
+    const head = `<thead><tr><th>Cohort</th><th>Trainer</th><th>Department</th><th>Starts</th><th>Status</th><th>Active</th><th>Pass rate</th><th>QA</th><th>Speed</th><th>Quiz</th><th>Projected pass</th><th>Projected fail</th><th></th></tr></thead>`;
+    const groups = [
+      { key: "active", title: "Active", sort: (x, y) => String(x.c.start || "").localeCompare(String(y.c.start || "")) },
+      { key: "upcoming", title: "Upcoming", sort: (x, y) => String(x.c.start || "").localeCompare(String(y.c.start || "")) },
+      { key: "completed", title: "Completed", sort: (x, y) => String(y.c.start || "").localeCompare(String(x.c.start || "")) },
+      { key: "unscheduled", title: "No start date", sort: (x, y) => String(x.c.name || "").localeCompare(String(y.c.name || "")) },
+    ];
+    return groups
+      .map((g) => {
+        const items = rows.filter((r) => groupOf(r) === g.key).sort(g.sort);
+        if (!items.length && g.key === "unscheduled") return "";
+        return `<section class="mg-section"><h4 class="mg-h2">${g.title} <span class="muted">${items.length}</span></h4>${
+          items.length ? `<div class="mg-table-wrap"><table class="mg-table">${head}<tbody>${items.map(rowHtml).join("")}</tbody></table></div>` : `<p class="muted mg-empty">No ${g.title.toLowerCase()} cohorts.</p>`
+        }</section>`;
       })
-      .join("")}</tbody></table></div>`;
+      .join("");
   }
 
   function performance(list) {

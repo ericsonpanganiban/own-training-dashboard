@@ -1748,3 +1748,7 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .mg-sched .mg-sched-h { font-size: 13.5px; }
 .mg-table td.mg-cohort-cell { white-space: normal; min-width: 300px; vertical-align: top; }
 .mg-table td.mg-cohort-cell .mg-sched { margin-top: 3px; }
+
+.mg-section { margin-bottom: 22px; }
+.mg-section .mg-h2 { margin-bottom: 8px; }
+.mg-section .mg-empty { margin: 0; padding: 4px 2px; font-size: 13px; }

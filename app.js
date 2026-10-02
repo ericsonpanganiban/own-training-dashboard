@@ -1718,6 +1718,7 @@ function openAddTrainee(content, cohortId) {
               .join("")}</div>`
           : `<p class="muted">${trainees.length ? "Everyone on the roster is already in this cohort." : "Add trainees in Settings → Roster first."}</p>`
       }
+      <p class="muted" data-at-count></p>
       <p class="sheet-status" id="at-status" role="status"></p>
       <div class="sheet-actions">
         <button type="button" class="btn" data-cancel>Cancel</button>
@@ -1729,6 +1730,16 @@ function openAddTrainee(content, cohortId) {
   const status = sheet.querySelector("#at-status");
   sheet.querySelector("[data-cancel]").addEventListener("click", close);
   sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  // Live count of what is ticked, on the Add button and above it.
+  const updateCount = () => {
+    const n = sheet.querySelectorAll("input:checked").length;
+    const total = sheet.querySelectorAll("input[type=checkbox]:not([disabled])").length;
+    const count = sheet.querySelector("[data-at-count]");
+    if (count) count.textContent = total ? `${n} of ${total} selected` : "";
+    sheet.querySelector(".btn-primary").textContent = n ? `Add ${n} trainee${n === 1 ? "" : "s"}` : "Add";
+  };
+  sheet.addEventListener("change", updateCount);
+  updateCount();
   sheet.querySelector("form").addEventListener("submit", (e) => {
     e.preventDefault();
     const picked = [...sheet.querySelectorAll("input:checked")].map((i) => i.value);

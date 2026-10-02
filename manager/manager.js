@@ -49,7 +49,8 @@
         },
         () => ((loaded = true), notify())
       );
-    watch("added", (v) => (added = v));
+    // Entries from the first version of Add Trainer were just a person's id (no name, no link): treat that id as the link.
+    watch("added", (v) => (added = v.map((p) => (p.user_id === undefined && p.name === undefined ? { ...p, user_id: p.id } : p))));
     watch("assignments", (v) => (assigns = v));
     watch("trainers", (v) => (dir = v));
   }

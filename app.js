@@ -1590,6 +1590,7 @@ function cohortRowHtml(c, byId, today, open) {
           <span class="row-cell">${members.length} trainee${members.length === 1 ? "" : "s"}</span>
           <span class="row-actions">
             <button type="button" class="btn btn-small" data-add-trainee="${escapeHtml(c.id)}">+ Add Trainee</button>
+            <button type="button" class="btn btn-small" data-team-docs="${escapeHtml(c.id)}">Team Docs</button>
             <button type="button" class="btn btn-small${c.completed ? " is-done" : ""}" data-complete-cohort="${escapeHtml(c.id)}" aria-pressed="${!!c.completed}" title="${c.completed ? "Put this class back among the current ones" : "Move this class to Completed"}">${c.completed ? "Reopen" : "Mark completed"}</button>
             <button type="button" class="square-btn kebab" title="Cohort options" aria-label="Options for ${escapeHtml(c.name)}" data-cohort-menu="${escapeHtml(c.id)}">⋮</button>
           </span>
@@ -1621,6 +1622,7 @@ function wireCohortRows(el, onToggle) {
     })
   );
   el.querySelectorAll("[data-add-trainee]").forEach((b) => b.addEventListener("click", () => openAddTrainee(el, b.dataset.addTrainee)));
+  el.querySelectorAll("[data-team-docs]").forEach((b) => b.addEventListener("click", () => window.TeamDocs?.open(el, b.dataset.teamDocs)));
   el.querySelectorAll("[data-toggle-active]").forEach((btn) =>
     btn.addEventListener("click", () => {
       btn.disabled = true;

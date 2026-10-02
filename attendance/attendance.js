@@ -20,10 +20,10 @@
   const DAY_OPTIONS = [
     { value: "", label: "—", short: "", points: 0 },
     { value: "ontime", label: "On time", short: "On time", points: 0 },
-    { value: "late25", label: ".25 (15m–2h30m late)", short: ".25", points: 0.25 },
-    { value: "late50", label: ".50 (2h31m–5h late)", short: ".50", points: 0.5 },
-    { value: "late75", label: ".75 (5h1m–7h30m late)", short: ".75", points: 0.75 },
-    { value: "late100", label: "1.00 (7h31m+ late)", short: "1.00", points: 1 },
+    { value: "late25", label: ".25 (late)", short: ".25", points: 0.25 },
+    { value: "late50", label: ".50 (late)", short: ".50", points: 0.5 },
+    { value: "late75", label: ".75 (late)", short: ".75", points: 0.75 },
+    { value: "late100", label: "1.00 (late)", short: "1.00", points: 1 },
     { value: "absent", label: "Absent", short: "Absent", points: 1 },
     { value: "ncns", label: "2.00 (NCNS)", short: "NCNS", points: 2 },
   ];

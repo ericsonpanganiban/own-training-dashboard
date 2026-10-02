@@ -1714,3 +1714,11 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .mg-hits { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow: auto; }
 .mg-hit { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; }
 .mg-add-note { margin: 0; font-size: 12px; }
+.mg-kpis { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.mg-m4 { grid-template-columns: repeat(4, 1fr); }
+.mg-pill.warn { background: var(--warning-bg); color: var(--warning-ink); }
+.mg-card-h .kebab, .mg-table .kebab { flex: none; }
+.mg-card-h .mg-pill { margin-left: auto; }
+.mg-link { display: flex; align-items: center; gap: 8px; margin: 2px 0 6px; }
+.mg-table small.muted { margin-left: 4px; }
+.mg-table td:last-child, .mg-table th:last-child { position: sticky; right: 0; background: var(--card); box-shadow: -1px 0 0 var(--line); }

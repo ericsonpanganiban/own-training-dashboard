@@ -485,7 +485,7 @@ APPS.mgTrainers = mgApp("trainers", "Trainers", '<circle cx="9" cy="8" r="3.5"/>
 APPS.mgCohorts = mgApp("cohorts", "Cohorts", '<path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12.5V17c3.3 2.3 8.7 2.3 12 0v-4.5"/>', "#f59e0b");
 APPS.mgPerformance = mgApp("performance", "Performance", '<path d="M3 20h18"/><rect x="5" y="12" width="3.5" height="8" rx="0.8"/><rect x="10.25" y="7" width="3.5" height="13" rx="0.8"/><rect x="15.5" y="3" width="3.5" height="17" rx="0.8"/>', "#8b5cf6");
 APPS.mgReports = mgApp("reports", "Reports", '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/>', "#ef4444");
-const MANAGER_ORDER = ["mgOverview", "mgTrainers", "mgCohorts", "mgPerformance", "mgReports", "courseware", "settings"];
+const MANAGER_ORDER = ["mgOverview", "mgTrainers", "mgCohorts", "mgPerformance", "mgReports", "notion", "courseware", "settings"];
 const appRole = () => window.TrainerWS?.role || "trainer";
 const visibleAppIds = () => (appRole() === "manager" ? MANAGER_ORDER.filter((id) => APPS[id]) : Object.keys(APPS).filter((id) => !id.startsWith("mg")));
 
@@ -819,7 +819,7 @@ const SETTINGS_PAGES = [
   },
   {
     id: "roster",
-    roles: ["trainer"],
+    roles: ["trainer", "manager"],
     title: "Roster",
     color: "#10b981",
     icon: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M21.5 20a6.5 6.5 0 0 0-4-6"/>',
@@ -1176,6 +1176,7 @@ async function buildSummary() {
         speed: spd == null ? null : Math.round(spd * 10) / 10,
         quiz: qv == null ? null : Math.round(qv),
         att: window.TrainerAttendance?.points ? window.TrainerAttendance.points(c.id, t.id) : null,
+        nest: t.nesting_status === "passed",
       };
     });
     const crms = members.map((t) => t.crm_name).filter(Boolean);
@@ -1187,7 +1188,11 @@ async function buildSummary() {
       department: c.department || "",
       start: c.training_start_date || "",
       status: scheduleStatus(cohortSchedule(c.training_start_date), today),
+      aid: c.assignment_id || "",
       trainees: members.length,
+      passed: members.filter((t) => t.nesting_status === "passed").length,
+      cpTrainees: members.filter((t) => /\bcp\b/i.test(t.department || "")).length,
+      cpPassed: members.filter((t) => /\bcp\b/i.test(t.department || "") && t.nesting_status === "passed").length,
       active: members.filter((t) => !isInactive(t)).length,
       inactive: members.filter(isInactive).length,
       ...tally,
@@ -1230,6 +1235,56 @@ function scheduleSummary(ms = 15000) {
     window.CoachingCompass.onChange(() => scheduleSummary());
     window.TrainerWS.ready.then(() => scheduleSummary(20000));
     setInterval(publishSummary, 5 * 60 * 1000);
+  }, 500);
+})();
+
+// ---- Classes the Training Manager created for this Trainer land in their Cohorts (once each) ----
+let importRunning = false;
+async function importAssignments() {
+  const WS = window.TrainerWS;
+  const cc = window.CoachingCompass;
+  const TM = window.TrainerManager;
+  if (!WS?.id || WS.readOnly || !cc || !TM || importRunning || WS.role === "manager") return;
+  const list = TM.assignmentsFor(WS.id);
+  if (!list.length) return;
+  importRunning = true;
+  try {
+    const db = await window.TrainerUse("db");
+    const ref = db.doc("settings/imported_assignments");
+    const snap = await ref.get();
+    const done = new Set((snap.exists && snap.data()?.ids) || []);
+    const mine = cc.data().cohorts;
+    let changed = false;
+    for (const a of list) {
+      const local = mine.find((c) => c.assignment_id === a.id);
+      const fields = { name: a.name || "", department: a.department || "", team_lead: a.team_lead || "", training_start_date: a.training_start_date || "" };
+      if (local) {
+        if (Object.keys(fields).some((k) => (local[k] || "") !== fields[k])) await cc.updateCohort(local.id, fields).catch(() => {});
+      } else if (!done.has(a.id)) {
+        await cc.addCohort({ ...fields, assignment_id: a.id });
+        done.add(a.id);
+        changed = true;
+      }
+    }
+    if (changed) await ref.set({ ids: [...done], updated_at: new Date().toISOString() });
+  } catch {
+  } finally {
+    importRunning = false;
+  }
+}
+(function startImport() {
+  const t = setInterval(() => {
+    if (!window.CoachingCompass || !window.TrainerManager || !window.TrainerWS) return;
+    clearInterval(t);
+    window.TrainerWS.ready.then(() => {
+      window.TrainerManager.start();
+      // Give the cohort list a moment to load first, so a class isn't imported twice.
+      let timer = setTimeout(importAssignments, 4000);
+      window.TrainerManager.onChange(() => {
+        clearTimeout(timer);
+        timer = setTimeout(importAssignments, 4000);
+      });
+    });
   }, 500);
 })();
 
@@ -2467,12 +2522,15 @@ function openEditTrainee(content, traineeId) {
 
 // "Add Class" sheet for the Cohorts app, also used to edit a cohort (pass its id).
 // Department and Team Lead lists come from Settings → Roster.
-function openAddClass(content, editId) {
+function openAddClass(content, editId, opts = {}) {
   const win = content.closest(".window");
   if (win.querySelector(".sheet")) return;
   const { departments, teamLeads, cohorts } = window.CoachingCompass.data();
-  const editing = editId ? cohorts.find((c) => c.id === editId) : null;
-  if (editId && !editing) return;
+  // As the Training Manager, a class is created for one of the Trainers (it appears in that Trainer's Cohorts).
+  const assign = !!opts.assign;
+  const trainerOpts = assign ? window.TrainerManager?.trainerOptions() || [] : [];
+  const editing = assign ? opts.assignment || null : editId ? cohorts.find((c) => c.id === editId) : null;
+  if (!assign && editId && !editing) return;
   const cur = editing || {};
   // Keep a saved value listed even if it has since been removed from the roster lists.
   const options = (items, current, emptyText) => {
@@ -2491,6 +2549,15 @@ function openAddClass(content, editId) {
       <label class="field"><span>Department</span><select id="ac-dept"${departments.length || cur.department ? "" : " disabled"}>${options(departments, cur.department, "Add a department in Settings → Roster first")}</select></label>
       <label class="field"><span>Team Lead</span><select id="ac-lead"${teamLeads.length || cur.team_lead ? "" : " disabled"}>${options(teamLeads, cur.team_lead, "Add a team lead in Settings → Roster first")}</select></label>
       <label class="field"><span>Start Date</span><input id="ac-date" type="date" value="${escapeHtml(cur.training_start_date || "")}" /></label>
+      ${
+        assign
+          ? `<label class="field"><span>Trainer</span><select id="ac-trainer"${trainerOpts.length ? "" : " disabled"}>${
+              trainerOpts.length
+                ? `<option value="">— Select —</option>` + trainerOpts.map((o) => `<option value="${escapeHtml(o.ref)}"${o.ref === cur.trainer_ref ? " selected" : ""}>${escapeHtml(o.name)}</option>`).join("")
+                : `<option value="">Add a Trainer first</option>`
+            }</select></label>`
+          : ""
+      }
       <p class="sheet-status" id="ac-status" role="status"></p>
       <div class="sheet-actions">
         <button type="button" class="btn" data-cancel>Cancel</button>
@@ -2517,6 +2584,17 @@ function openAddClass(content, editId) {
       team_lead: sheet.querySelector("#ac-lead").value,
       training_start_date: sheet.querySelector("#ac-date").value,
     };
+    if (assign) {
+      fields.trainer_ref = sheet.querySelector("#ac-trainer").value;
+      if (!fields.trainer_ref) {
+        status.textContent = "Pick the Trainer this class is for.";
+        return;
+      }
+      window.TrainerManager.saveAssignment(fields, editing?.id)
+        .then(close)
+        .catch(() => (status.textContent = "Couldn't save the class. Try again."));
+      return;
+    }
     (editing ? window.CoachingCompass.updateCohort(editing.id, fields) : window.CoachingCompass.addCohort(fields))
       .then(close)
       .catch(() => (status.textContent = "Couldn't save the class. Try again."));
@@ -2885,7 +2963,7 @@ function setRunning(appId, running) {
 
 // A thin divider separates the trainer apps from the tools (Ops Updates, Settings), wherever the icons are moved.
 const DOCK_TOOLS = new Set(["notion", "settings"]);
-const MANAGER_TOOLS = new Set(["courseware", "settings"]);
+const MANAGER_TOOLS = new Set(["notion", "courseware", "settings"]);
 function markDockGroups() {
   let prev = null;
   dock.querySelectorAll(".dock-item").forEach((item) => {

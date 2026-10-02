@@ -25,7 +25,7 @@
   let viewer = ""; // this viewer's id; personal notifications and reminders carry it as `owner`
   const mine = (x) => !x.owner || !viewer || x.owner === viewer;
   const cfgs = {}; // settings documents by id
-  const CFG_IDS = ["notion", "ops_cp_gen", "ops_care"];
+  const CFG_IDS = ["notion", "ops_cp_gen", "ops_care", "ops_training_team"];
   const listeners = new Set();
   const notify = () => listeners.forEach((f) => f());
   const sources = new Map();
@@ -323,6 +323,8 @@
     { key: "care", name: "Care", source: "ops_care", cfg: "ops_care", prefix: "ops_care" },
     // The first version of this app was a single Notion channel; its settings and updates carry over here.
     { key: "requests", name: "Notion Update Requests", source: "notion", cfg: "notion", prefix: "notion" },
+    // Only the Training Manager has this one.
+    { key: "training_team", name: "Training Team", source: "ops_training_team", cfg: "ops_training_team", prefix: "ops_training_team", managerOnly: true },
   ];
   function pollPage(page) {
     return async function (ctx) {
@@ -484,7 +486,7 @@
   }
 
   function tabsHtml(active) {
-    const tabs = PAGES.map((x) => {
+    const tabs = PAGES.filter((x) => !x.managerOnly || window.TrainerWS?.role === "manager").map((x) => {
       const n = notes.filter((m) => m.source === x.source && !m.read).length;
       return `<button type="button" role="tab" data-nt-page="${x.key}" aria-selected="${x.key === active}">${esc(x.name)}${n ? ` <span class="tab-count">${n}</span>` : ""}</button>`;
     });

@@ -4759,6 +4759,7 @@
     },
     addCohort: function(fields){
       var record = { name: fields.name, department: fields.department || "", team_lead: fields.team_lead || "", training_start_date: fields.training_start_date || "", trainee_ids: [], created_at: new Date().toISOString() };
+      if (fields.assignment_id) record.assignment_id = fields.assignment_id;
       if (!dbFn){
         state.cohorts = state.cohorts.concat([Object.assign({ id: "local-" + Date.now() }, record)]);
         renderAll();

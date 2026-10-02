@@ -323,8 +323,7 @@
     { key: "care", name: "Care", source: "ops_care", cfg: "ops_care", prefix: "ops_care" },
     // The first version of this app was a single Notion channel; its settings and updates carry over here.
     { key: "requests", name: "Notion Update Requests", source: "notion", cfg: "notion", prefix: "notion" },
-    // Only the Training Manager has this one.
-    { key: "training_team", name: "Training Team", source: "ops_training_team", cfg: "ops_training_team", prefix: "ops_training_team", managerOnly: true },
+    { key: "training_team", name: "Training Team", source: "ops_training_team", cfg: "ops_training_team", prefix: "ops_training_team" },
   ];
   function pollPage(page) {
     return async function (ctx) {
@@ -478,7 +477,7 @@
     if (!api) return [];
     const today = typeof localToday === "function" ? localToday() : "";
     const order = { active: 0, upcoming: 1, completed: 2, unscheduled: 3 };
-    const st = (c) => (typeof scheduleStatus === "function" ? scheduleStatus(cohortSchedule(c.training_start_date), today) : "unscheduled");
+    const st = (c) => (typeof cohortStatus === "function" ? cohortStatus(c, today) : "unscheduled");
     return api
       .data()
       .cohorts.map((c) => ({ c, status: st(c), channel: String(c.attendance_channel_id || "").trim() }))
@@ -606,6 +605,16 @@
         </section>
         ${ui.msg && !setup ? `<p class="quiz-note" role="status">${esc(ui.msg)}</p>` : ""}
         ${
+          pg.key === "training_team" && window.TrainerWS?.role === "manager" && cfg.channel_id && !setup
+            ? `<form class="nt-compose" data-nt-compose novalidate>
+                <label class="cw-field">Send a notification to the Training Team
+                  <textarea name="message" rows="3" placeholder="Your message goes to the Training Team's Slack channel"></textarea></label>
+                <p class="sheet-status" data-nt-compose-status role="status"></p>
+                <div class="nt-row"><button type="submit" class="btn-primary">Send to Training Team</button></div>
+              </form>`
+            : ""
+        }
+        ${
           cfg.channel_id && !setup
             ? `<div class="nt-feed-head"><h4>${esc(pg.name)}${newCount ? ` <span class="chip ok">${newCount} new</span>` : ""}</h4>${newCount ? `<button type="button" class="linkish" data-nt-read-all>Mark all read</button>` : ""}</div>
                ${
@@ -650,6 +659,27 @@
     }
     ui.editRem = null;
     draw();
+  }
+  // Manager only: a message to the Training Team's Slack channel (the one set on the Training Team tab).
+  async function sendToTeam(form) {
+    const pg = PAGES.find((x) => x.key === "training_team");
+    const status = form.querySelector("[data-nt-compose-status]");
+    const message = form.message.value.trim();
+    const channel = cfgOf(pg.cfg).channel_id;
+    const s = slack();
+    if (!message) return void (status.textContent = "Write a message first.");
+    if (!channel) return void (status.textContent = "Set the Training Team's Slack channel first.");
+    if (!s) return void (status.textContent = "Slack isn't available right now.");
+    status.textContent = "Sending…";
+    form.querySelector("button[type=submit]").disabled = true;
+    try {
+      await s.call("slack_send_message", { channel_id: channel, message });
+      form.message.value = "";
+      status.textContent = "Sent to the Training Team ✓";
+    } catch (err) {
+      status.textContent = s.errorText ? s.errorText(err) : "Couldn't send. Try again.";
+    }
+    form.querySelector("button[type=submit]").disabled = false;
   }
   async function addReminder(form) {
     const status = form.querySelector("[data-rem-status]");
@@ -782,6 +812,8 @@
         if (f) saveChannel(f);
         const r = e.target.closest("[data-rem-form]");
         if (r) addReminder(r);
+        const tt = e.target.closest("[data-nt-compose]");
+        if (tt) sendToTeam(tt);
         const ed = e.target.closest("[data-rem-edit-form]");
         if (ed) saveEdit(ed);
       });

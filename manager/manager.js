@@ -216,10 +216,17 @@
       </div>`;
   }
 
+  // The class a Trainer is running now: cohorts in training (not completed); else the next one coming up.
+  const currentClass = (t) => {
+    const active = t.cohorts.filter((c) => c.status === "active").map((c) => c.name);
+    if (active.length) return esc(active.join(", "));
+    const next = t.cohorts.filter((c) => c.status === "upcoming").sort((x, y) => String(x.start).localeCompare(String(y.start)))[0];
+    return next ? `<span class="muted">${esc(next.name)} (upcoming)</span>` : `<span class="muted">—</span>`;
+  };
   function trainersTable(list) {
-    return `<div class="mg-table-wrap"><table class="mg-table"><thead><tr><th>Trainer</th><th>Cohorts</th><th>Active</th><th>Pass rate</th><th>QA</th><th>Speed</th><th>Quiz</th><th>Projected pass</th><th>Projected fail</th><th>Overdue</th><th>Updated</th><th></th><th></th></tr></thead><tbody>${list
+    return `<div class="mg-table-wrap"><table class="mg-table"><thead><tr><th>Trainer</th><th>Current class</th><th>Cohorts</th><th>Active</th><th>Pass rate</th><th>QA</th><th>Speed</th><th>Quiz</th><th>Projected pass</th><th>Projected fail</th><th>Overdue</th><th>Updated</th><th></th><th></th></tr></thead><tbody>${list
       .map(
-        (t) => `<tr><td class="mg-name">${avatar(t)} ${esc(nameOf(t))}${t.has ? "" : ` <small class="muted">not opened yet</small>`}</td><td>${t.cohorts.length}</td><td>${t.active}</td><td>${fmt(t.passRate, "%")}</td><td>${fmt(t.qa, "%")}</td><td>${fmt(t.speed)}</td><td>${fmt(t.quiz, "%")}</td><td>${t.pass}</td><td class="${t.fail ? "bad" : ""}">${t.fail}</td><td class="${t.overdue ? "bad" : ""}">${t.overdue}</td><td class="muted">${t.has ? esc(ago(t.at)) : "—"}</td><td><button type="button" class="btn btn-small" data-mg-open="${esc(t.id)}">Open</button></td><td>${dots(`data-mg-menu="${esc(t.id)}"`)}</td></tr>`
+        (t) => `<tr><td class="mg-name">${avatar(t)} ${esc(nameOf(t))}${t.has ? "" : ` <small class="muted">not opened yet</small>`}</td><td>${currentClass(t)}</td><td>${t.cohorts.length}</td><td>${t.active}</td><td>${fmt(t.passRate, "%")}</td><td>${fmt(t.qa, "%")}</td><td>${fmt(t.speed)}</td><td>${fmt(t.quiz, "%")}</td><td>${t.pass}</td><td class="${t.fail ? "bad" : ""}">${t.fail}</td><td class="${t.overdue ? "bad" : ""}">${t.overdue}</td><td class="muted">${t.has ? esc(ago(t.at)) : "—"}</td><td><button type="button" class="btn btn-small" data-mg-open="${esc(t.id)}">Open</button></td><td>${dots(`data-mg-menu="${esc(t.id)}"`)}</td></tr>`
       )
       .join("")}</tbody></table></div>`;
   }

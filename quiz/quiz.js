@@ -527,7 +527,7 @@
     const order = { active: 0, upcoming: 1, completed: 2, unscheduled: 3 };
     return cc()
       .data()
-      .cohorts.map((c) => ({ c, st: scheduleStatus(cohortSchedule(c.training_start_date), today) }))
+      .cohorts.map((c) => ({ c, st: cohortStatus(c, today) }))
       .sort((a, b) => order[a.st] - order[b.st] || (a.c.name || "").localeCompare(b.c.name || ""));
   }
   const cohortMembers = (cohortId) => {

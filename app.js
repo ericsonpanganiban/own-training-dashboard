@@ -171,11 +171,11 @@ const APPS = {
         const { cohorts, trainees } = cc.data();
         const today = localToday();
         const active = cohorts
-          .filter((c) => scheduleStatus(cohortSchedule(c.training_start_date), today) === "active")
+          .filter((c) => cohortStatus(c, today) === "active")
           .sort((a, b) => a.training_start_date.localeCompare(b.training_start_date));
         if (!active.length) {
           const next = cohorts
-            .filter((c) => scheduleStatus(cohortSchedule(c.training_start_date), today) === "upcoming")
+            .filter((c) => cohortStatus(c, today) === "upcoming")
             .sort((a, b) => a.training_start_date.localeCompare(b.training_start_date))[0];
           el.innerHTML = `
             <h3>No active class</h3>
@@ -272,7 +272,7 @@ const APPS = {
       const draw = () => {
         const { cohorts, trainees } = cc.data();
         const today = localToday();
-        const statusOf = (c) => scheduleStatus(cohortSchedule(c.training_start_date), today);
+        const statusOf = (c) => cohortStatus(c, today);
         const counts = { active: 0, upcoming: 0, completed: 0, unscheduled: 0 };
         cohorts.forEach((c) => counts[statusOf(c)]++);
         const rosterIds = new Set(trainees.map((t) => t.id));
@@ -989,6 +989,11 @@ function cohortSchedule(start) {
   };
 }
 
+// A cohort's status: the schedule decides, unless the Trainer marked it completed (or reopened it).
+function cohortStatus(c, today) {
+  return c.completed ? "completed" : scheduleStatus(cohortSchedule(c.training_start_date), today);
+}
+
 function scheduleStatus(s, today) {
   if (!s) return "unscheduled";
   if (today < s.start) return "upcoming";
@@ -1187,7 +1192,7 @@ async function buildSummary() {
       name: c.name || "",
       department: c.department || "",
       start: c.training_start_date || "",
-      status: scheduleStatus(cohortSchedule(c.training_start_date), today),
+      status: cohortStatus(c, today),
       aid: c.assignment_id || "",
       trainees: members.length,
       passed: members.filter((t) => t.nesting_status === "passed").length,
@@ -1530,10 +1535,11 @@ async function exportCohort(el, cohortId) {
 // One cohort as a list row; open shows its schedule and roster. Cohorts and My Class both use it.
 function cohortRowHtml(c, byId, today, open) {
     const s = cohortSchedule(c.training_start_date);
-    const status = scheduleStatus(s, today);
+    const status = cohortStatus(c, today);
     const members = (c.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
     const where =
-      status === "active" ? (() => { const p = scheduleProgress(s, today); return `${p.label} · Day ${p.day} of ${TRAINING_DAYS}`; })()
+      c.completed ? `Marked completed${c.completed_at ? ` ${fmtDate(c.completed_at.slice(0, 10))}` : ""}`
+      : status === "active" ? (() => { const p = scheduleProgress(s, today); return `${p.label} · Day ${p.day} of ${TRAINING_DAYS}`; })()
       : status === "upcoming" ? `Starts ${fmtDate(s.start)}`
       : status === "completed" ? `Finished ${fmtDate(s.end)}`
       : "Set a start date to schedule it";
@@ -1549,6 +1555,7 @@ function cohortRowHtml(c, byId, today, open) {
           <span class="row-cell">${members.length} trainee${members.length === 1 ? "" : "s"}</span>
           <span class="row-actions">
             <button type="button" class="btn btn-small" data-add-trainee="${escapeHtml(c.id)}">+ Add Trainee</button>
+            <button type="button" class="btn btn-small${c.completed ? " is-done" : ""}" data-complete-cohort="${escapeHtml(c.id)}" aria-pressed="${!!c.completed}" title="${c.completed ? "Put this class back among the current ones" : "Move this class to Completed"}">${c.completed ? "Reopen" : "Mark completed"}</button>
             <button type="button" class="square-btn kebab" title="Cohort options" aria-label="Options for ${escapeHtml(c.name)}" data-cohort-menu="${escapeHtml(c.id)}">⋮</button>
           </span>
         </div>
@@ -1570,6 +1577,14 @@ function wireCohortRows(el, onToggle) {
   const cc = window.CoachingCompass;
   refreshAutoStatuses();
   el.querySelectorAll("[data-toggle-row]").forEach((b) => b.addEventListener("click", () => onToggle(b.dataset.toggleRow)));
+  el.querySelectorAll("[data-complete-cohort]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const c = cc.data().cohorts.find((x) => x.id === b.dataset.completeCohort);
+      if (!c) return;
+      b.disabled = true;
+      cc.updateCohort(c.id, c.completed ? { completed: false, completed_at: "" } : { completed: true, completed_at: new Date().toISOString() }).catch(() => (b.disabled = false));
+    })
+  );
   el.querySelectorAll("[data-add-trainee]").forEach((b) => b.addEventListener("click", () => openAddTrainee(el, b.dataset.addTrainee)));
   el.querySelectorAll("[data-toggle-active]").forEach((btn) =>
     btn.addEventListener("click", () => {
@@ -1630,7 +1645,7 @@ function cohortSectionsHtml(cohorts, trainees, today, openRows) {
   const row = (c) => cohortRowHtml(c, byId, today, openRows.has(c.id));
   return groups
     .map((g) => {
-      const list = cohorts.filter((c) => scheduleStatus(cohortSchedule(c.training_start_date), today) === g.key).sort(g.sort);
+      const list = cohorts.filter((c) => cohortStatus(c, today) === g.key).sort(g.sort);
       if (!list.length && g.key === "unscheduled") return "";
       return `<section class="cohort-section">
         <h4>${g.title} <span class="muted">${list.length}</span></h4>

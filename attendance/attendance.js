@@ -464,7 +464,7 @@
 
   function cardHtml(cohort, today) {
     const s = cohortSchedule(cohort.training_start_date);
-    const status = scheduleStatus(s, today);
+    const status = cohortStatus(cohort, today);
     const members = membersOf(cohort);
     const inactive = members.filter(isInactive).length;
     const open = ui.open.has(cohort.id);
@@ -540,7 +540,7 @@
 
     const today = localToday();
     const { cohorts } = cc().data();
-    const statusOf = (c) => scheduleStatus(cohortSchedule(c.training_start_date), today);
+    const statusOf = (c) => cohortStatus(c, today);
     // Active cohorts open by default until the viewer collapses one.
     cohorts.forEach((c) => {
       if (!ui.touched.has(c.id) && statusOf(c) === "active") ui.open.add(c.id);

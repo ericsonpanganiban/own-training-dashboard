@@ -1858,8 +1858,8 @@ function openPerformance(content, traineeId) {
         <div class="stat"><div class="value">${sc.avg == null ? "—" : `${num(sc.avg)}%`}</div><div class="label">Average score</div><div class="hint">${sc.count} spot check${sc.count === 1 ? "" : "s"}</div></div>
         <div class="stat"><div class="value">${num(Number(sc.checks[0].score))}%</div><div class="label">Latest score</div><div class="hint">${escapeHtml(d(sc.checks[0].created_at))}</div></div>
       </div></div>
-      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Date</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th></tr></thead><tbody>${sc.checks
-        .map((x) => `<tr><td>${escapeHtml(d(x.created_at))}</td><td><b>${num(Number(x.score))}%</b></td><td>${link(x.ticket)}</td><td>${escapeHtml(x.comms)}</td><td>${escapeHtml(x.resolution)}</td></tr>`)
+      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Date</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th></tr></thead><tbody>${sc.checks
+        .map((x) => `<tr><td>${escapeHtml(d(x.created_at))}</td><td><b>${num(Number(x.score))}%</b></td><td>${link(x.ticket)}</td><td>${escapeHtml(x.comms)}</td><td>${escapeHtml(x.resolution)}</td><td>${x.reply ? escapeHtml(x.reply) : `<span class="muted">${x.slack_sent_at ? "No reply yet" : "Not sent"}</span>`}</td></tr>`)
         .join("")}</tbody></table></div>`;
   };
 
@@ -1935,8 +1935,8 @@ function openPerformance(content, traineeId) {
       return rows;
     }
     if (view.mode === "spot") {
-      const rows = [["Trainee", "Date", "Ticket", "Feedback on Comms", "Feedback on Resolution", "Score %"]];
-      cc.traineeSpot(traineeId).checks.slice().reverse().forEach((x) => rows.push([name, (x.created_at || "").slice(0, 10), x.ticket, x.comms, x.resolution, x.score]));
+      const rows = [["Trainee", "Date", "Ticket", "Feedback on Comms", "Feedback on Resolution", "Score %", "Trainee reply"]];
+      cc.traineeSpot(traineeId).checks.slice().reverse().forEach((x) => rows.push([name, (x.created_at || "").slice(0, 10), x.ticket, x.comms, x.resolution, x.score, x.reply || ""]));
       return rows;
     }
     if (view.mode === "quiz") {

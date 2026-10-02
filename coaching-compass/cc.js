@@ -4685,8 +4685,10 @@
   });
 
   // ---- Spot Check: a spot check of one ticket per record (link, comms feedback, resolution feedback, score) ----
-  // Stored in spot_checks/{id}; the trainee is sent a copy on Slack asking for an acknowledgement and an action plan.
-  var spot = { checks: [], cohort: "", form: false, trainee: "", busy: false, msg: "", err: false, draft: { ticket: "", comms: "", resolution: "", score: "" } };
+  // Stored in spot_checks/{id}; the trainee is sent a copy on Slack asking for an acknowledgement and an action plan,
+  // and their reply is read back from the DM (reply, reply_at). Editing a check can optionally send an updated copy.
+  var BLANK_SPOT = { ticket: "", comms: "", resolution: "", score: "" };
+  var spot = { checks: [], cohort: "", view: "trainee", form: false, editId: "", resend: false, trainee: "", busy: false, msg: "", err: false, draft: Object.assign({}, BLANK_SPOT) };
   function spotScore(v){
     var n = parseFloat(String(v == null ? "" : v).replace("%", "").trim());
     return isNaN(n) ? null : n;
@@ -4709,43 +4711,102 @@
       renderAll();
     }), function(){});
   }
-  function spotMessage(t, c, cohortName){
+  function spotFmt(v){ return v == null ? "—" : String(Math.round(v * 10) / 10); }
+  function spotMessage(t, c, cohortName, updated){
     var first = String(t.name || "").split(/\s+/)[0] || "there";
-    return "Hi " + first + ", I did a spot check on one of your tickets" + (cohortName ? " (" + cohortName + ")" : "") + ".\n\n" +
+    return "Hi " + first + ", " + (updated ? "I updated my spot check on one of your tickets" : "I did a spot check on one of your tickets") + (cohortName ? " (" + cohortName + ")" : "") + ".\n\n" +
       "*Ticket:* " + c.ticket + "\n" +
       "*Feedback on Comms:* " + c.comms + "\n" +
       "*Feedback on Resolution:* " + c.resolution + "\n" +
       "*Score:* " + spotFmt(spotScore(c.score)) + "%\n\n" +
       "Please reply to this message with:\n1. Your *acknowledgement* of this feedback\n2. Your *action plan*: what you'll do differently from now on\n\nThank you!";
   }
-  function spotFmt(v){ return v == null ? "—" : String(Math.round(v * 10) / 10); }
   function cohortOfTrainee(id){
     return state.cohorts.filter(function(c){ return (c.trainee_ids || []).indexOf(id) !== -1; })[0] || null;
   }
-  // Send the saved check to the trainee. Records slack_sent_at or the reason it failed; the check itself is already saved.
-  function sendSpot(check){
+  // The Slack tools return one formatted text block: channel history has "=== Message from Name (U123) at … ===" and
+  // "Message TS: …"; threads have "--- Reply 1 of 3 ---", "From: Name (U123)" and "Message TS: …".
+  function slackBody(block){
+    var lines = block.split("\n");
+    var i = lines.findIndex(function(l){ return /^Message TS:/.test(l); });
+    return lines.slice(i + 1).filter(function(l){ return !/^(Reactions|Thread|Files?|Attachments?|Forwarded message from)\b/.test(l.trim()); }).join("\n").trim();
+  }
+  function parseSlackChannel(raw){
+    var text = String(raw || "");
+    var m = text.match(/^Channel:.*\(([A-Z0-9]+)\)\s*$/m);
+    return { channel: m ? m[1] : null, messages: text.split(/(?=^=== Message from )/m).filter(function(b){ return b.indexOf("=== Message from ") === 0; }).map(function(b){
+      var u = b.match(/^=== Message from .*?\(([A-Z0-9]+)\)\s+at /m), ts = b.match(/^Message TS:\s*(\S+)/m);
+      return { userId: u ? u[1] : "", ts: ts ? ts[1] : "", text: slackBody(b) };
+    }).filter(function(x){ return x.ts; }) };
+  }
+  function parseSlackThread(raw){
+    return String(raw || "").split(/(?=^--- Reply \d+ of \d+ ---)/m).filter(function(b){ return /^--- Reply \d+ of \d+ ---/.test(b); }).map(function(b){
+      var u = b.match(/^From:.*\(([A-Z0-9]+)\)\s*$/m), ts = b.match(/^Message TS:\s*(\S+)/m);
+      return { userId: u ? u[1] : "", ts: ts ? ts[1] : "", text: slackBody(b) };
+    }).filter(function(x){ return x.ts; });
+  }
+  // Send the saved check to the trainee. Records slack_sent_at (and where the DM is, to find the reply) or why it failed;
+  // the check itself is already saved. Resolves to "" or the reason.
+  function sendSpot(check, updated){
     var t = state.trainees.filter(function(x){ return x.id === check.trainee_id; })[0];
     var slack = window.TrainerSlack;
     var mark = function(fields){ return dbFn.doc("spot_checks/" + check.id).update(fields).catch(function(){}); };
+    var fail = function(m){ return mark({ slack_error: m }).then(function(){ return m; }); };
     if (!t) return Promise.resolve("The trainee is no longer on the roster.");
-    if (!slack) return mark({ slack_error: "Slack isn't available right now." }).then(function(){ return "Slack isn't available right now."; });
-    if (!t.slack_user_id && !t.email){
-      var m = "Add " + t.name + "'s work email in Settings → Roster so they can be found on Slack.";
-      return mark({ slack_error: m }).then(function(){ return m; });
-    }
-    var co = cohortOfTrainee(t.id);
-    return slack.userIdFor(t).then(function(uid){
+    if (!slack) return fail("Slack isn't available right now.");
+    if (!t.slack_user_id && !t.email) return fail("Add " + t.name + "'s work email in Settings → Roster so they can be found on Slack.");
+    var co = cohortOfTrainee(t.id), uid = null;
+    return slack.userIdFor(t).then(function(id){
+      uid = id;
       if (!uid) throw { plain: "Couldn't find a Slack account for " + (t.email || t.name) + ". Check the work email in Settings → Roster." };
-      return slack.sendDirect(uid, spotMessage(t, check, co ? co.name : ""));
+      return slack.sendDirect(uid, spotMessage(t, check, co ? co.name : "", updated));
     }).then(function(){
-      return mark({ slack_sent_at: new Date().toISOString(), slack_error: "" }).then(function(){ return ""; });
+      var sentAt = new Date().toISOString();
+      var fields = { slack_sent_at: sentAt, slack_error: "", slack_user_id: uid, slack_channel: "", slack_ts: String(Date.parse(sentAt) / 1000), reply: "", reply_at: "" };
+      // The newest message in the DM right after sending is the spot check; its ts anchors the reply.
+      return slack.call("slack_read_channel", { channel_id: uid, limit: 3, response_format: "detailed" }, { cache: false }).then(function(r){
+        var parsed = parseSlackChannel(r && r.payload && r.payload.messages);
+        var mine = parsed.messages.filter(function(m){ return m.userId !== uid; }).sort(function(a, b){ return parseFloat(b.ts) - parseFloat(a.ts); })[0];
+        fields.slack_channel = parsed.channel || "";
+        if (mine) fields.slack_ts = mine.ts;
+      }).catch(function(){}).then(function(){ return mark(fields); }).then(function(){ return ""; });
     }, function(err){
-      var m = err && err.plain ? err.plain : slack.errorText(err);
-      return mark({ slack_error: m }).then(function(){ return m; });
+      return fail(err && err.plain ? err.plain : slack.errorText(err));
+    });
+  }
+  // Everything the trainee wrote after the spot check: thread replies and plain DM messages, joined in order.
+  function readSpotReply(c){
+    var slack = window.TrainerSlack;
+    if (!slack || !c.slack_user_id || !c.slack_ts) return Promise.reject({ plain: "This spot check hasn't been sent on Slack yet." });
+    var found = {}, errors = [];
+    var keep = function(m){ if (m.userId === c.slack_user_id && parseFloat(m.ts) > parseFloat(c.slack_ts) && m.text) found[m.ts] = m; };
+    return slack.call("slack_read_thread", { channel_id: c.slack_channel || c.slack_user_id, message_ts: c.slack_ts, response_format: "detailed" }, { cache: false })
+      .then(function(r){ parseSlackThread(r && r.payload && r.payload.messages).forEach(keep); }, function(e){ errors.push(e); })
+      .then(function(){ return slack.call("slack_read_channel", { channel_id: c.slack_user_id, oldest: c.slack_ts, limit: 50, response_format: "detailed" }, { cache: false }); })
+      .then(function(r){ parseSlackChannel(r && r.payload && r.payload.messages).messages.forEach(keep); }, function(e){ errors.push(e); })
+      .then(function(){
+        if (errors.length === 2) throw errors[0];
+        var msgs = Object.keys(found).map(function(k){ return found[k]; }).sort(function(a, b){ return parseFloat(a.ts) - parseFloat(b.ts); });
+        return { text: msgs.map(function(m){ return m.text; }).join("\n"), at: msgs.length ? new Date(parseFloat(msgs[msgs.length - 1].ts) * 1000).toISOString() : "" };
+      });
+  }
+  function checkSpotReplies(ids){
+    var list = spot.checks.filter(function(c){ return ids.indexOf(c.id) !== -1 && c.slack_sent_at && c.slack_ts; });
+    if (!list.length) return setSpotMsg("Nothing sent on Slack to check yet.", true);
+    setSpotMsg("Reading replies on Slack…", false);
+    var got = 0, failed = 0;
+    list.reduce(function(chain, c){
+      return chain.then(function(){
+        return readSpotReply(c).then(function(r){
+          if (r.text && r.text !== c.reply){ got++; return dbFn.doc("spot_checks/" + c.id).update({ reply: r.text, reply_at: r.at, reply_checked_at: new Date().toISOString() }).then(function(){ c.reply = r.text; c.reply_at = r.at; }); }
+        }, function(){ failed++; });
+      });
+    }, Promise.resolve()).then(function(){
+      setSpotMsg((got ? "Saved " + got + " new repl" + (got === 1 ? "y" : "ies") + " ✓" : "No new replies yet.") + (failed ? " Couldn't read " + failed + " DM" + (failed === 1 ? "" : "s") + "; try again." : ""), !got && !!failed);
     });
   }
   function saveSpot(){
-    var d = spot.draft, t = spot.trainee;
+    var d = spot.draft, t = spot.trainee, editing = spot.editId ? spot.checks.filter(function(c){ return c.id === spot.editId; })[0] : null;
     var sc = spotScore(d.score);
     if (!t) return setSpotMsg("Pick the trainee.", true);
     if (!d.ticket.trim()) return setSpotMsg("Add the ticket link.", true);
@@ -4753,76 +4814,146 @@
     if (!d.resolution.trim()) return setSpotMsg("Add your feedback on resolution.", true);
     if (sc == null || sc < 0 || sc > 100) return setSpotMsg("The score is a percentage from 0 to 100.", true);
     if (!dbFn) return setSpotMsg("Saving isn't available in this view.", true);
-    var co = cohortOfTrainee(t);
-    var id = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    var check = { id: id, trainee_id: t, cohort_id: co ? co.id : "", ticket: d.ticket.trim(), comms: d.comms.trim(), resolution: d.resolution.trim(), score: sc, created_at: new Date().toISOString(), slack_sent_at: "", slack_error: "" };
+    var fields = { ticket: d.ticket.trim(), comms: d.comms.trim(), resolution: d.resolution.trim(), score: sc };
+    var send = !editing || spot.resend, check, write;
+    if (editing){
+      fields.edited_at = new Date().toISOString();
+      check = Object.assign({}, editing, fields);
+      write = dbFn.doc("spot_checks/" + editing.id).update(fields);
+    } else {
+      var co = cohortOfTrainee(t);
+      var id = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      check = Object.assign({ id: id, trainee_id: t, cohort_id: co ? co.id : "", created_at: new Date().toISOString(), slack_sent_at: "", slack_error: "" }, fields);
+      write = dbFn.doc("spot_checks/" + id).set(check);
+    }
     spot.busy = true; setSpotMsg("Saving…", false);
-    dbFn.doc("spot_checks/" + id).set(check).then(function(){
-      spot.checks = spot.checks.concat([check]);
-      spot.draft = { ticket: "", comms: "", resolution: "", score: "" };
-      spot.form = false;
+    write.then(function(){
+      var i = spot.checks.map(function(c){ return c.id; }).indexOf(check.id);
+      if (i === -1) spot.checks = spot.checks.concat([check]); else spot.checks[i] = check;
+      spot.draft = Object.assign({}, BLANK_SPOT); spot.form = false; spot.editId = ""; spot.resend = false;
+      if (!send){ spot.busy = false; setSpotMsg("Changes saved. Nothing was sent on Slack.", false); return; }
       setSpotMsg("Saved. Sending to the trainee on Slack…", false);
-      return sendSpot(check);
-    }, function(){ spot.busy = false; setSpotMsg("Couldn't save. Try again.", true); throw null; }).then(function(err){
-      spot.busy = false;
-      var tn = (state.trainees.filter(function(x){ return x.id === t; })[0] || {}).name || "the trainee";
-      setSpotMsg(err ? "Saved, but it wasn't sent: " + err : "Saved and sent to " + tn + " on Slack ✓", !!err);
-    }, function(){});
+      return sendSpot(check, !!editing).then(function(err){
+        spot.busy = false;
+        var tn = (state.trainees.filter(function(x){ return x.id === t; })[0] || {}).name || "the trainee";
+        setSpotMsg(err ? "Saved, but it wasn't sent: " + err : "Saved and sent to " + tn + " on Slack ✓", !!err);
+      });
+    }, function(){ spot.busy = false; setSpotMsg("Couldn't save. Try again.", true); });
   }
   function setSpotMsg(m, err){ spot.msg = m; spot.err = !!err; renderSpotPanel(true); }
   function resendSpot(id){
     var c = spot.checks.filter(function(x){ return x.id === id; })[0];
     if (!c) return;
     setSpotMsg("Sending…", false);
-    sendSpot(c).then(function(err){ setSpotMsg(err ? "Not sent: " + err : "Sent on Slack ✓", !!err); });
+    sendSpot(c, !!c.edited_at).then(function(err){ setSpotMsg(err ? "Not sent: " + err : "Sent on Slack ✓", !!err); });
+  }
+  function editSpot(id){
+    var c = spot.checks.filter(function(x){ return x.id === id; })[0];
+    if (!c) return;
+    spot.form = true; spot.editId = id; spot.resend = false; spot.trainee = c.trainee_id; spot.msg = "";
+    spot.draft = { ticket: c.ticket || "", comms: c.comms || "", resolution: c.resolution || "", score: c.score == null ? "" : String(c.score) };
+    renderSpotPanel(true);
+    var f = document.getElementById("spotBody"); if (f && f.scrollIntoView) f.scrollIntoView({ block: "start" });
   }
   function spotDate(iso){ return iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : ""; }
+  function spotLink(u){
+    return /^https?:\/\//i.test(u) ? "<a href=\"" + esc(u) + "\" target=\"_blank\" rel=\"noopener\">" + esc(u) + "</a>" : esc(u);
+  }
+  function spotReplyHtml(c){
+    if (c.reply) return "<p><b>Trainee reply" + (c.reply_at ? " (" + esc(spotDate(c.reply_at)) + ")" : "") + ":</b> " + esc(c.reply).replace(/\n/g, "<br>") + "</p>";
+    return c.slack_sent_at ? "<p class=\"hint\" style=\"margin:4px 0;\">No reply from the trainee yet.</p>" : "";
+  }
   function spotCheckHtml(c){
-    var link = /^https?:\/\//i.test(c.ticket) ? "<a href=\"" + esc(c.ticket) + "\" target=\"_blank\" rel=\"noopener\">" + esc(c.ticket) + "</a>" : esc(c.ticket);
-    var status = c.slack_sent_at ? "<span class=\"hint\" style=\"margin:0;\">Sent on Slack " + esc(spotDate(c.slack_sent_at)) + "</span>" : "<span class=\"save-status err\">Not sent" + (c.slack_error ? ": " + esc(c.slack_error) : "") + "</span> <button class=\"link-btn\" type=\"button\" data-spot-resend=\"" + esc(c.id) + "\">Send again</button>";
-    return "<div class=\"spot-item\"><div><b>" + spotFmt(spotScore(c.score)) + "%</b> · " + esc(spotDate(c.created_at)) + " · " + link + "</div>" +
-      "<p><b>Comms:</b> " + esc(c.comms) + "</p><p><b>Resolution:</b> " + esc(c.resolution) + "</p><div>" + status + "</div></div>";
+    var status = c.slack_sent_at ? "<span class=\"hint\" style=\"margin:0;\">Sent on Slack " + esc(spotDate(c.slack_sent_at)) + "</span> <button class=\"link-btn\" type=\"button\" data-spot-replies=\"" + esc(c.id) + "\">Check reply</button>" : "<span class=\"save-status err\">Not sent" + (c.slack_error ? ": " + esc(c.slack_error) : "") + "</span> <button class=\"link-btn\" type=\"button\" data-spot-resend=\"" + esc(c.id) + "\">Send</button>";
+    return "<div class=\"spot-item\"><div><b>" + spotFmt(spotScore(c.score)) + "%</b> · " + esc(spotDate(c.created_at)) + (c.edited_at ? " <small class=\"muted\">edited</small>" : "") + " · " + spotLink(c.ticket) + " <button class=\"link-btn\" type=\"button\" data-spot-edit=\"" + esc(c.id) + "\">Edit</button></div>" +
+      "<p><b>Comms:</b> " + esc(c.comms) + "</p><p><b>Resolution:</b> " + esc(c.resolution) + "</p>" + spotReplyHtml(c) + "<div>" + status + "</div></div>";
+  }
+  // The trainees in view (the picked cohort, or everyone who is in one).
+  function spotList(){
+    var inAny = {};
+    state.cohorts.forEach(function(c){ (c.trainee_ids || []).forEach(function(id){ inAny[id] = true; }); });
+    var cohort = state.cohorts.filter(function(c){ return c.id === spot.cohort; })[0];
+    var byId = function(id){ return state.trainees.filter(function(t){ return t.id === id; })[0]; };
+    return cohort ? (cohort.trainee_ids || []).map(byId).filter(Boolean) : state.trainees.filter(function(t){ return inAny[t.id]; });
+  }
+  // Every spot check of the trainees in view, by trainee then oldest first.
+  function spotCohortRows(list){
+    var rows = [];
+    list.forEach(function(t){ spotFor(t.id).slice().reverse().forEach(function(c){ rows.push({ t: t, c: c }); }); });
+    return rows;
+  }
+  function copySpotCohort(){
+    var rows = spotCohortRows(spotList());
+    if (!rows.length) return setSpotMsg("Nothing to copy yet.", true);
+    var cell = function(v){ return String(v == null ? "" : v).replace(/[\t\r\n]+/g, " ").trim(); };
+    var lines = [["Trainee", "Date", "Ticket", "Feedback on Comms", "Feedback on Resolution", "Score %", "Trainee reply", "Reply date"]].concat(rows.map(function(r){
+      return [r.t.name, (r.c.created_at || "").slice(0, 10), r.c.ticket, r.c.comms, r.c.resolution, r.c.score, r.c.reply || "", (r.c.reply_at || "").slice(0, 10)];
+    })).map(function(r){ return r.map(cell).join("\t"); });
+    var done = function(ok){ setSpotMsg(ok ? "Copied " + rows.length + " spot check" + (rows.length === 1 ? "" : "s") + ". Paste into a sheet." : "Couldn't copy. Your browser blocked the clipboard.", !ok); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(lines.join("\n")).then(function(){ done(true); }, function(){ done(fallbackCopy(lines.join("\n"))); });
+    else done(fallbackCopy(lines.join("\n")));
   }
   function renderSpotPanel(force){
     var host = document.getElementById("spotBody");
     if (!host) return;
     if (!force && host.contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
-    var inAny = {};
-    state.cohorts.forEach(function(c){ (c.trainee_ids || []).forEach(function(id){ inAny[id] = true; }); });
     var cohort = state.cohorts.filter(function(c){ return c.id === spot.cohort; })[0];
-    var byId = function(id){ return state.trainees.filter(function(t){ return t.id === id; })[0]; };
-    var list = cohort ? (cohort.trainee_ids || []).map(byId).filter(Boolean) : state.trainees.filter(function(t){ return inAny[t.id]; });
+    var list = spotList();
     var cohortOpts = "<option value=\"\">All cohort trainees</option>" + state.cohorts.map(function(c){ return "<option value=\"" + esc(c.id) + "\"" + (c.id === spot.cohort ? " selected" : "") + ">" + esc(c.name) + "</option>"; }).join("");
+    var viewBtn = function(k, label){ return "<button class=\"ghost small" + (spot.view === k ? " on" : "") + "\" type=\"button\" data-spot-view=\"" + k + "\" aria-pressed=\"" + (spot.view === k) + "\">" + label + "</button>"; };
     var head = "<div class=\"speed-bar\"><div class=\"field\"><label for=\"spotCohort\">Cohort</label><select id=\"spotCohort\">" + cohortOpts + "</select></div>" +
+      "<div class=\"spot-views\">" + viewBtn("trainee", "By trainee") + viewBtn("cohort", "Entire cohort") + "</div>" +
       "<button class=\"primary small\" id=\"spotNewBtn\" type=\"button\">" + (spot.form ? "Cancel" : "+ New spot check") + "</button>" +
+      (spot.view === "cohort" ? "<button class=\"ghost small\" id=\"spotCopyBtn\" type=\"button\" title=\"Copy every spot check in view as rows to paste into a sheet\">Copy</button>" : "") +
+      "<button class=\"ghost small\" id=\"spotRepliesBtn\" type=\"button\" title=\"Read the trainees' replies from Slack and save them here\">Check replies</button>" +
       (spot.msg ? "<span class=\"save-status " + (spot.err ? "err" : "ok") + "\">" + esc(spot.msg) + "</span>" : "") + "</div>";
     var form = "";
     if (spot.form){
-      var traineeOpts = "<option value=\"\">Pick a trainee…</option>" + list.map(function(t){ return "<option value=\"" + esc(t.id) + "\"" + (t.id === spot.trainee ? " selected" : "") + ">" + esc(t.name) + "</option>"; }).join("");
+      var editing = !!spot.editId;
+      var traineeOpts = "<option value=\"\">Pick a trainee…</option>" + list.concat(editing ? state.trainees.filter(function(t){ return t.id === spot.trainee && list.indexOf(t) === -1; }) : []).map(function(t){ return "<option value=\"" + esc(t.id) + "\"" + (t.id === spot.trainee ? " selected" : "") + ">" + esc(t.name) + "</option>"; }).join("");
       var d = spot.draft;
-      form = "<div class=\"card spot-form\"><h3 class=\"card-title\">New spot check</h3>" +
-        "<div class=\"field\"><label for=\"spotTrainee\">Trainee</label><select id=\"spotTrainee\">" + traineeOpts + "</select></div>" +
+      form = "<div class=\"card spot-form\"><h3 class=\"card-title\">" + (editing ? "Edit spot check" : "New spot check") + "</h3>" +
+        "<div class=\"field\"><label for=\"spotTrainee\">Trainee</label><select id=\"spotTrainee\"" + (editing ? " disabled" : "") + ">" + traineeOpts + "</select></div>" +
         "<div class=\"field\"><label for=\"spotTicket\">Ticket link</label><input id=\"spotTicket\" type=\"url\" placeholder=\"https://…\" value=\"" + esc(d.ticket) + "\" /></div>" +
         "<div class=\"field\"><label for=\"spotComms\">Feedback on Comms</label><textarea id=\"spotComms\" rows=\"3\">" + esc(d.comms) + "</textarea></div>" +
         "<div class=\"field\"><label for=\"spotRes\">Feedback on Resolution</label><textarea id=\"spotRes\" rows=\"3\">" + esc(d.resolution) + "</textarea></div>" +
         "<div class=\"field\"><label for=\"spotScore\">Score (%)</label><input id=\"spotScore\" type=\"text\" inputmode=\"decimal\" placeholder=\"0–100\" value=\"" + esc(d.score) + "\" style=\"width:100px\" /></div>" +
-        "<p class=\"hint\">Saving sends a copy to the trainee on Slack and asks for their acknowledgement and action plan.</p>" +
-        "<div class=\"card-actions\"><button class=\"primary small\" id=\"spotSaveBtn\" type=\"button\"" + (spot.busy ? " disabled" : "") + ">Save and send</button></div></div>";
+        (editing ? "<label class=\"spot-opt\"><input type=\"checkbox\" id=\"spotResend\"" + (spot.resend ? " checked" : "") + " /> Also send the updated copy to the trainee on Slack (their earlier reply is cleared)</label>"
+                 : "<p class=\"hint\">Saving sends a copy to the trainee on Slack and asks for their acknowledgement and action plan.</p>") +
+        "<div class=\"card-actions\"><button class=\"primary small\" id=\"spotSaveBtn\" type=\"button\"" + (spot.busy ? " disabled" : "") + ">" + (editing ? (spot.resend ? "Save and send" : "Save changes") : "Save and send") + "</button></div></div>";
     }
     var body;
     if (!list.length) body = "<p class=\"hint\">No cohort trainees here yet.</p>";
+    else if (spot.view === "cohort"){
+      var rows = spotCohortRows(list);
+      var avg = spotAvg(rows.map(function(r){ return r.c; }));
+      body = "<h3 class=\"card-title\">" + esc(cohort ? cohort.name : "All cohort trainees") + " <small class=\"muted\">" + rows.length + " spot check" + (rows.length === 1 ? "" : "s") + (avg != null ? " · average " + spotFmt(avg) + "%" : "") + "</small></h3>" +
+        (rows.length ? "<div class=\"speed-wrap\"><table class=\"preview\"><thead><tr><th>Trainee</th><th>Date</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th><th></th></tr></thead><tbody>" +
+          rows.map(function(r){
+            var c = r.c;
+            return "<tr><td>" + esc(r.t.name) + "</td><td>" + esc(spotDate(c.created_at)) + (c.edited_at ? " <small class=\"muted\">edited</small>" : "") + "</td><td><b>" + spotFmt(spotScore(c.score)) + "%</b></td><td>" + spotLink(c.ticket) + "</td><td>" + esc(c.comms) + "</td><td>" + esc(c.resolution) + "</td><td>" + (c.reply ? esc(c.reply).replace(/\n/g, "<br>") : "<span class=\"muted\">" + (c.slack_sent_at ? "No reply yet" : "Not sent") + "</span>") + "</td><td><button class=\"link-btn\" type=\"button\" data-spot-edit=\"" + esc(c.id) + "\">Edit</button></td></tr>";
+          }).join("") + "</tbody></table></div>" : "<p class=\"hint\">No spot checks recorded for this cohort yet.</p>");
+    }
     else body = "<div class=\"speed-wrap\"><table class=\"preview\"><thead><tr><th>Trainee</th><th>Spot checks</th><th>Average score</th><th>Latest</th></tr></thead><tbody>" +
       list.map(function(t){
         var cs = spotFor(t.id);
         return "<tr" + (t.cohort_status === "inactive" ? " class=\"is-inactive\"" : "") + "><td>" + (cs.length ? "<details><summary><b>" + esc(t.name) + "</b></summary>" + cs.map(spotCheckHtml).join("") + "</details>" : esc(t.name)) + "</td><td>" + cs.length + "</td><td><b>" + (cs.length ? spotFmt(spotAvg(cs)) + "%" : "—") + "</b></td><td>" + (cs[0] ? spotFmt(spotScore(cs[0].score)) + "% · " + esc(spotDate(cs[0].created_at)) : "—") + "</td></tr>";
-      }).join("") + "</tbody></table></div><p class=\"hint\">Open a trainee to see each spot check. There's no fixed number of spot checks per trainee.</p>";
+      }).join("") + "</tbody></table></div><p class=\"hint\">Open a trainee to see each spot check, edit it, and read their reply. There's no fixed number of spot checks per trainee.</p>";
     host.innerHTML = head + form + body;
   }
   document.addEventListener("click", function(e){
-    var t = e.target.closest && e.target.closest("#spotNewBtn, #spotSaveBtn, [data-spot-resend]");
+    var t = e.target.closest && e.target.closest("#spotNewBtn, #spotSaveBtn, #spotCopyBtn, #spotRepliesBtn, [data-spot-resend], [data-spot-edit], [data-spot-replies], [data-spot-view]");
     if (!t) return;
-    if (t.id === "spotNewBtn"){ spot.form = !spot.form; spot.msg = ""; if (spot.form && !spot.trainee) spot.trainee = ""; renderSpotPanel(true); }
+    if (t.id === "spotNewBtn"){
+      spot.form = !spot.form; spot.editId = ""; spot.resend = false; spot.msg = ""; spot.trainee = ""; spot.draft = Object.assign({}, BLANK_SPOT);
+      renderSpotPanel(true);
+    }
     else if (t.id === "spotSaveBtn") saveSpot();
+    else if (t.id === "spotCopyBtn") copySpotCohort();
+    else if (t.id === "spotRepliesBtn") checkSpotReplies(spotList().reduce(function(a, tr){ return a.concat(spotFor(tr.id).map(function(c){ return c.id; })); }, []));
+    else if (t.hasAttribute("data-spot-edit")) editSpot(t.getAttribute("data-spot-edit"));
+    else if (t.hasAttribute("data-spot-replies")) checkSpotReplies([t.getAttribute("data-spot-replies")]);
+    else if (t.hasAttribute("data-spot-view")){ spot.view = t.getAttribute("data-spot-view"); renderSpotPanel(true); }
     else resendSpot(t.getAttribute("data-spot-resend"));
   });
   document.addEventListener("input", function(e){
@@ -4836,6 +4967,7 @@
     var id = e.target && e.target.id;
     if (id === "spotCohort"){ spot.cohort = e.target.value; spot.trainee = ""; renderSpotPanel(true); }
     else if (id === "spotTrainee") spot.trainee = e.target.value;
+    else if (id === "spotResend"){ spot.resend = e.target.checked; renderSpotPanel(true); }
   });
 
   // ---- Shared data for other Trainer Desk apps (Settings → Roster is the one list) ----

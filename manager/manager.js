@@ -568,6 +568,7 @@
     assignmentsFor: (uid) => assigns.filter((a) => uid && targetOf(a) === uid),
     saveAssignment,
     deleteAssignment,
+    openTrainerWindow,
     render(el, kind) {
       insts[kind]?.off?.();
       const inst = (insts[kind] = { el, kind, off: null });

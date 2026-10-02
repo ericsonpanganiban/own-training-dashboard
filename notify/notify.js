@@ -865,6 +865,7 @@
       dbReady.then(() => setTimeout(() => runAll("open-app", PAGES.map((x) => x.source), true), 300));
     },
     overdueCount: () => myReminders().filter(isDue).length,
+    refresh: () => notify(),
     showPage(key) {
       if (!PAGES.some((x) => x.key === key) && key !== "reminders") return;
       ui.page = key;

@@ -144,7 +144,8 @@
         return null;
       }
     })();
-    if (saved?.id && saved.id !== ws.id) {
+    store.set(VIEW_KEY, null); // switching to another Trainer's dashboard is gone: Trainers open as windows now
+    if (false && saved?.id && saved.id !== ws.id) {
       ws.viewing = { id: String(saved.id), base: saved.kind === "root" ? "" : baseFor(saved.id, "own"), kind: saved.kind === "root" ? "root" : "own" };
       ws.readOnly = true;
     }
@@ -260,10 +261,13 @@
       store.set(VIEW_KEY, null);
       reload();
     },
+    // The owner switching between their Trainer dashboard and the Training Manager: no reload, the shell swaps.
     setPreview(on) {
+      if (!ws.isOwner) return;
+      ws.previewing = !!on;
       store.set(PREVIEW_KEY, on ? "1" : null);
-      store.set(VIEW_KEY, null);
-      reload();
+      setRole();
+      changed();
     },
     toast,
     animals: ANIMALS,

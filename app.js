@@ -498,29 +498,28 @@ function drawProfile(card) {
   const draw = () => {
     if (!card.isConnected) return;
     const me = WS.ws;
-    const others = (TM?.trainers() || []).filter((t) => t.id !== me.id);
-    const role = WS.viewing ? "Viewing another Trainer" : WS.role === "manager" ? "Training Manager" : "Trainer";
+    const others = (TM?.trainers() || []).filter((t) => !t.uid || t.uid !== me.id);
+    const role = WS.role === "manager" ? "Training Manager" : "Trainer";
     const picker = others.length
-      ? `<div class="profile-view"><label for="view-as">View another Trainer's dashboard <small class="muted">(read-only)</small></label>
-          <span><select id="view-as">${others.map((t) => `<option value="${escapeHtml(t.id)}" data-base="${escapeHtml(t.base || "own")}">${escapeHtml(t.name || "Trainer")}</option>`).join("")}</select>
+      ? `<div class="profile-view"><label for="view-as">View another Trainer <small class="muted">(read-only window)</small></label>
+          <span><select id="view-as">${others.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name || "Trainer")}</option>`).join("")}</select>
           <button type="button" class="btn" id="view-open">Open</button></span></div>`
       : `<p class="muted profile-note">Other Trainers will be listed here once they have opened the dashboard.</p>`;
     const picks = WS.animals.map((a) => `<button type="button" class="animal${WS.animal === a.key ? " is-on" : ""}" data-animal="${a.key}" style="background:${a.bg}" title="${escapeHtml(a.label)}" aria-label="${escapeHtml(a.label)}" aria-pressed="${WS.animal === a.key}">${a.emoji}</button>`).join("");
     card.innerHTML = `<div class="profile-head">
         ${WS.avatarHtml({ animal: WS.animal, photo: me.avatar, color: me.color, name: me.name }, "profile-av")}
         <div><b class="profile-name"></b><small class="muted">${escapeHtml(role)}</small></div></div>
-      ${WS.readOnly ? "" : `<div class="profile-pick"><span>Avatar</span><div class="animal-grid" role="group" aria-label="Choose an animal avatar">${picks}<button type="button" class="animal-none${WS.animal ? "" : " is-on"}" data-animal="" aria-pressed="${!WS.animal}" title="Use my profile photo">Photo</button></div></div>`}
-      ${WS.viewing ? `<div class="profile-view"><span>You're viewing another Trainer's dashboard.</span><button type="button" class="btn" id="view-back">Back to my dashboard</button></div>` : picker}`;
+      <div class="profile-pick"><span>Avatar</span><div class="animal-grid" role="group" aria-label="Choose an animal avatar">${picks}<button type="button" class="animal-none${WS.animal ? "" : " is-on"}" data-animal="" aria-pressed="${!WS.animal}" title="Use my profile photo">Photo</button></div></div>
+      ${picker}`;
     card.querySelector(".profile-name").textContent = me.name || "You";
   };
   draw();
   card.addEventListener("click", (e) => {
     const an = e.target.closest("[data-animal]");
     if (an) return void WS.setAnimal(an.dataset.animal);
-    if (e.target.closest("#view-back")) return WS.stopViewing();
     if (e.target.closest("#view-open")) {
       const opt = card.querySelector("#view-as")?.selectedOptions?.[0];
-      if (opt) WS.viewAs({ id: opt.value, base: opt.dataset.base });
+      if (opt) TM?.openTrainerWindow(opt.value);
     }
   });
   const offWs = WS.onChange(() => (card.isConnected ? draw() : offWs()));
@@ -531,7 +530,7 @@ function drawProfile(card) {
   });
 }
 
-// The avatar at the far right of the menu bar: who you are, and a list of Trainers to view (read-only).
+// The avatar at the far right of the menu bar: who you are, switching dashboards (owner), and other Trainers to look at.
 function buildAvatarMenu() {
   const WS = window.TrainerWS;
   const TM = window.TrainerManager;
@@ -560,10 +559,10 @@ function buildAvatarMenu() {
   const onKey = (e) => e.key === "Escape" && close();
   const draw = () => {
     if (!pop) return;
-    const trainers = (TM?.trainers() || []).filter((t) => t.id !== me.id);
-    const role = WS.viewing ? "Viewing another Trainer" : WS.role === "manager" ? "Training Manager" : "Trainer";
+    const trainers = (TM?.trainers() || []).filter((t) => !t.uid || t.uid !== me.id);
+    const role = WS.role === "manager" ? "Training Manager" : "Trainer";
     const av = (t) => WS.avatarHtml({ animal: t.animal, photo: t.avatar, color: t.color, name: t.name }, "ap-av");
-    const toggle = WS.isOwner && !WS.viewing
+    const toggle = WS.isOwner
       ? `<h6>Dashboard</h6>
          <button type="button" class="ap-item${WS.role === "manager" ? "" : " is-on"}" data-ap-mode="trainer"><span class="ap-ic">🧑‍🏫</span>My Trainer dashboard${WS.role === "manager" ? "" : "<small>current</small>"}</button>
          <button type="button" class="ap-item${WS.role === "manager" ? " is-on" : ""}" data-ap-mode="manager"><span class="ap-ic">📊</span>Training Manager${WS.role === "manager" ? "<small>current</small>" : ""}</button>`
@@ -572,11 +571,10 @@ function buildAvatarMenu() {
       <div class="ap-me">${WS.avatarHtml(mine(), "ap-av")}
         <div><b class="ap-name"></b><small>${escapeHtml(role)}</small></div></div>
       ${toggle}
-      ${WS.viewing ? `<button type="button" class="ap-item ap-back" data-ap-back>← Back to my dashboard</button>` : ""}
       <h6>View another Trainer <small>read-only</small></h6>
       ${
         trainers.length
-          ? `<ul class="ap-list">${trainers.map((t) => `<li><button type="button" class="ap-item${WS.viewing?.id === t.id ? " is-on" : ""}" data-ap-view="${escapeHtml(t.id)}" data-ap-base="${escapeHtml(t.base || "own")}">${av(t)}<span class="ap-tn"></span>${WS.viewing?.id === t.id ? `<small>viewing</small>` : ""}</button></li>`).join("")}</ul>`
+          ? `<ul class="ap-list">${trainers.map((t) => `<li><button type="button" class="ap-item" data-ap-view="${escapeHtml(t.id)}">${av(t)}<span class="ap-tn"></span></button></li>`).join("")}</ul>`
           : `<p class="ap-empty">Other Trainers appear here once they've opened the dashboard.</p>`
       }
       <button type="button" class="ap-item ap-settings" data-ap-settings>Profile &amp; appearance settings…</button>`;
@@ -594,9 +592,14 @@ function buildAvatarMenu() {
     pop.addEventListener("click", (e) => {
       const b = e.target.closest("button");
       if (!b) return;
-      if ("apBack" in b.dataset) return WS.stopViewing();
-      if (b.dataset.apMode) return b.dataset.apMode === "manager" ? (WS.role === "manager" ? close() : WS.setPreview(true)) : WS.role === "manager" ? WS.setPreview(false) : close();
-      if (b.dataset.apView) return WS.viewAs({ id: b.dataset.apView, base: b.dataset.apBase });
+      if (b.dataset.apMode) {
+        close();
+        return WS.setPreview(b.dataset.apMode === "manager");
+      }
+      if (b.dataset.apView) {
+        close();
+        return window.TrainerManager?.openTrainerWindow(b.dataset.apView);
+      }
       if ("apSettings" in b.dataset) {
         close();
         settings.settingsPage = "appearance";
@@ -3019,7 +3022,7 @@ function reorderDock() {
   markDockGroups();
 }
 
-function buildDock() {
+function populateDock() {
   dockOrder().forEach((id) => {
     const app = APPS[id];
     const btn = document.createElement("button");
@@ -3040,6 +3043,14 @@ function buildDock() {
   });
 
   markDockGroups();
+}
+// The same dock with a different set of apps (the owner switching between Trainer and Training Manager).
+function rebuildDock() {
+  dock.replaceChildren();
+  populateDock();
+}
+function buildDock() {
+  populateDock();
 
   // macOS-style magnification: icons grow toward the cursor. Targets update on
   // mousemove; a requestAnimationFrame loop eases each icon toward its target, so the
@@ -3157,11 +3168,25 @@ function tick() {
 }
 
 applySettings();
+// Switching between Trainer and Training Manager (the owner can) swaps the dock and closes open windows, with no page reload.
+let shownRole = null;
+function applyRole() {
+  const role = appRole();
+  if (shownRole === null || role === shownRole) return;
+  shownRole = role;
+  [...openWindows.keys()].forEach((id) => closeApp(id));
+  const brand = document.querySelector(".brand");
+  if (brand) brand.textContent = role === "manager" ? "Training Manager" : "Trainer";
+  rebuildDock();
+  window.TrainerNotify?.refresh?.();
+}
 // The dock depends on who is signed in (Trainer or Training Manager), so it waits for that to be known.
 {
   const start = () => {
     const brand = document.querySelector(".brand");
     if (brand && appRole() === "manager") brand.textContent = "Training Manager";
+    shownRole = appRole();
+    window.TrainerWS?.onChange(applyRole);
     buildDock();
     // The Manager's script loads after this one, so wait for the whole page.
     if (document.readyState === "complete") buildAvatarMenu();

@@ -1156,13 +1156,27 @@ async function buildSummary() {
     const tally = { pass: 0, fail: 0, none: 0, resigned: 0, terminated: 0 };
     let speed = { sum: 0, n: 0 };
     let qz = { sum: 0, n: 0 };
-    members.forEach((t) => {
-      const k = traineeStatusOf(t)?.key;
+    const people = members.map((t) => {
+      const st = traineeStatusOf(t);
+      const k = st?.key;
       tally[k === "pass" || k === "fail" || k === "resigned" || k === "terminated" ? k : "none"]++;
       const vals = cc.traineeSpeed(t.id).weeks.map((w) => w.value).filter((v) => v != null);
-      if (vals.length) speed = { sum: speed.sum + vals.reduce((a, b) => a + b, 0) / vals.length, n: speed.n + 1 };
+      const spd = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+      if (spd != null) speed = { sum: speed.sum + spd, n: speed.n + 1 };
       const q = quiz?.[t.id];
-      if (q?.taken) qz = { sum: qz.sum + (q.weighted ?? q.avg), n: qz.n + 1 };
+      const qv = q?.taken ? q.weighted ?? q.avg : null;
+      if (qv != null) qz = { sum: qz.sum + qv, n: qz.n + 1 };
+      const qa = t.crm_name ? cc.qaSummary([t.crm_name]) : null;
+      return {
+        name: t.name || "",
+        active: !isInactive(t),
+        ts: k || "",
+        auto: !!st?.auto,
+        qa: qa?.total ? Math.round((qa.pass / qa.total) * 100) : null,
+        speed: spd == null ? null : Math.round(spd * 10) / 10,
+        quiz: qv == null ? null : Math.round(qv),
+        att: window.TrainerAttendance?.points ? window.TrainerAttendance.points(c.id, t.id) : null,
+      };
     });
     const crms = members.map((t) => t.crm_name).filter(Boolean);
     const qa = crms.length ? cc.qaSummary(crms) : null;
@@ -1180,7 +1194,8 @@ async function buildSummary() {
       qa: { pass: Math.round((qa?.pass || 0) * 100) / 100, total: qa?.total || 0 },
       speed: { sum: Math.round(speed.sum * 100) / 100, n: speed.n },
       quiz: { sum: Math.round(qz.sum * 100) / 100, n: qz.n },
-      goals: { qa: goal(g.qa), quiz: goal(g.quiz), speed: goal(g.speed) },
+      goals: { qa: goal(g.qa), quiz: goal(g.quiz), speed: goal(g.speed), attendance: g.attendance === "" || g.attendance == null ? null : Number(g.attendance) },
+      people,
     };
   });
   return { cohorts: rows, overdue: window.TrainerNotion?.overdueCount?.() || 0 };

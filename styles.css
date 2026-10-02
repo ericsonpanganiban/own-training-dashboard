@@ -1697,3 +1697,20 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .animal:focus-visible, .animal-none:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .mg-av, .ap-av { font-size: 17px; }
 .profile-av { font-size: 24px; }
+
+.mg-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.mg-tw-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.mg-tw-head small { display: block; }
+.mg-kpis-sm { margin-bottom: 14px; }
+.mg-cohort-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.mg-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.mg-chip { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: color-mix(in srgb, var(--window-fg) 8%, var(--window-bg)); }
+.mg-chip small { font-weight: 500; opacity: 0.75; }
+.mg-chip.met { background: var(--success-bg); color: var(--success-ink); }
+.mg-chip.miss { background: var(--danger-bg); color: var(--danger-ink); }
+.mg-table td.met { color: var(--success-ink); font-weight: 700; }
+.mg-table td.miss { color: var(--danger-ink); font-weight: 700; }
+.mg-table tr.is-inactive td { opacity: 0.55; }
+.mg-hits { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow: auto; }
+.mg-hit { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; }
+.mg-add-note { margin: 0; font-size: 12px; }

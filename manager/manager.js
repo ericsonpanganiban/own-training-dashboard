@@ -11,13 +11,14 @@
   const notify = () => listeners.forEach((f) => { try { f(); } catch {} });
   let dir = []; // [{ id, base, summary, summary_at, updated_at }]
   let people = {}; // id -> { name, avatarUrl, color }
+  let added = []; // Trainers a manager added by name before they opened the dashboard: added/<id>
   let loaded = false;
   let started = false;
 
   async function resolveNames() {
     const user = await window.TrainerUse("user");
     if (!user?.profiles) return;
-    const ids = dir.map((d) => d.id);
+    const ids = [...new Set([...dir.map((d) => d.id), ...added.map((d) => d.id)])];
     if (!ids.length) return;
     try {
       people = await user.profiles(ids);
@@ -32,6 +33,14 @@
       loaded = true;
       return notify();
     }
+    db.collection("added").onSnapshot(
+      (snap) => {
+        added = snap.docs.map((d) => ({ id: d.id, ...JSON.parse(JSON.stringify(d.data() || {})) }));
+        notify();
+        resolveNames();
+      },
+      () => {}
+    );
     db.collection("trainers").onSnapshot(
       (snap) => {
         dir = snap.docs.map((d) => ({ id: d.id, ...JSON.parse(JSON.stringify(d.data() || {})) }));
@@ -66,11 +75,13 @@
   }
   // One row per Trainer who has published a summary.
   function trainers() {
-    return dir
+    const have = new Set(dir.map((d) => d.id));
+    const all = [...dir, ...added.filter((a) => !have.has(a.id)).map((a) => ({ id: a.id, base: "own", pending: true }))];
+    return all
       .map((d) => {
         const cs = d.summary?.cohorts || [];
         const p = people[d.id] || {};
-        return { id: d.id, base: d.base, animal: d.animal || "", name: p.name || "", avatar: p.avatarUrl || "", color: p.color || "", cohorts: cs, overdue: d.summary?.overdue || 0, at: d.summary_at || "", has: !!d.summary, ...rollup(cs) };
+        return { id: d.id, base: d.base, animal: d.animal || "", name: p.name || "", avatar: p.avatarUrl || "", color: p.color || "", cohorts: cs, overdue: d.summary?.overdue || 0, at: d.summary_at || "", has: !!d.summary, pending: !!d.pending, ...rollup(cs) };
       })
       .sort((a, b) => (a.name || "~").localeCompare(b.name || "~"));
   }
@@ -112,7 +123,8 @@
       : !list.length
         ? `<p class="muted">No Trainers have published their numbers yet. Each Trainer's dashboard publishes a summary the first time it's opened.</p>`
         : "";
-  const viewBtn = (t) => `<button type="button" class="btn btn-small" data-mg-view="${esc(t.id)}" data-mg-base="${esc(t.base || "own")}">View dashboard</button>`;
+  const viewBtn = (t) =>
+    `<button type="button" class="btn btn-small" data-mg-open="${esc(t.id)}">Open</button>${t.pending ? ` <button type="button" class="btn btn-small" data-mg-remove="${esc(t.id)}" title="Remove from your list">Remove</button>` : ""}`;
 
   function overview(list) {
     const all = rollup(list.flatMap((t) => t.cohorts));
@@ -195,6 +207,121 @@
       }`;
   }
 
+  // ---- A Trainer's window: their cohorts and trainees, read-only, as a window on the manager's desktop ----
+  const TS = { pass: ["Projected to pass", "ok"], fail: ["Projected to fail", "bad"], resigned: ["Resigned", "warn"], terminated: ["Terminated", "dark"] };
+  const goalClass = (v, goal, dir) => (goal == null || goal === "" || v == null ? "" : (dir === "min" ? v >= goal : v <= goal) ? "met" : "miss");
+  function trainerWindowHtml(t) {
+    if (!t) return `<p class="muted">This Trainer isn't in the list any more.</p>`;
+    const head = `<div class="mg-tw-head">${avatar(t)}<div><b>${esc(nameOf(t))}</b><small class="muted">Read-only · ${t.has ? `updated ${esc(ago(t.at))}` : "hasn't published yet"}</small></div></div>`;
+    if (!t.has) return `${head}<p class="muted">${esc(nameOf(t))} hasn't opened the dashboard yet, so there's nothing to show. Their cohorts and trainees appear here after they do.</p>`;
+    const kp = `<div class="mg-kpis mg-kpis-sm">${kpi(t.active, "Active trainees", `${t.inactive} inactive`)}${kpi(fmt(t.qa, "%"), "QA")}${kpi(fmt(t.speed), "Speed")}${kpi(fmt(t.quiz, "%"), "Quiz")}${kpi(t.fail, "Projected fail", `${t.pass} pass`)}${kpi(t.overdue, "Overdue reminders")}</div>`;
+    const cohort = (c) => {
+      const g = c.goals || {};
+      const chip = (label, v, goal, dir, unit) => `<span class="mg-chip ${goalClass(v, goal, dir)}">${label} ${fmt(v, unit)}${goal != null ? ` <small>goal ${dir === "min" ? "≥" : "≤"} ${goal}${unit}</small>` : ""}</span>`;
+      const rows = (c.people || [])
+        .slice()
+        .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name))
+        .map((p) => {
+          const st = TS[p.ts];
+          return `<tr class="${p.active ? "" : "is-inactive"}"><td>${esc(p.name)}</td><td>${p.active ? "Active" : "Inactive"}</td><td>${st ? `<span class="tstatus ts-${esc(p.ts)}">${esc(st[0])}${p.auto ? " <small>auto</small>" : ""}</span>` : `<span class="muted">—</span>`}</td><td class="${goalClass(p.qa, g.qa, "min")}">${fmt(p.qa, "%")}</td><td class="${goalClass(p.speed, g.speed, "max")}">${fmt(p.speed)}</td><td class="${goalClass(p.quiz, g.quiz, "min")}">${fmt(p.quiz, "%")}</td><td class="${goalClass(p.att, g.attendance, "max")}">${fmt(p.att)}</td></tr>`;
+        })
+        .join("");
+      return `<section class="mg-panel"><div class="mg-cohort-h"><b>${esc(c.name)}</b><span class="muted">${esc([c.department, c.start && `starts ${c.start}`, c.status].filter(Boolean).join(" · "))}</span></div>
+        <div class="mg-chips">${chip("QA", pct(c.qa), g.qa, "min", "%")}${chip("Speed", mean(c.speed), g.speed, "max", "")}${chip("Quiz", mean(c.quiz), g.quiz, "min", "%")}</div>
+        ${rows ? `<div class="mg-table-wrap"><table class="mg-table"><thead><tr><th>Trainee</th><th>Status</th><th>Projection</th><th>QA</th><th>Speed</th><th>Quiz</th><th>Attendance pts</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p class="muted">No trainees in this cohort.</p>`}</section>`;
+    };
+    return `${head}${kp}${t.cohorts.length ? t.cohorts.map(cohort).join("") : `<p class="muted">No cohorts yet.</p>`}`;
+  }
+  const windows = {}; // app key -> unsubscribe
+  function openTrainerWindow(id) {
+    const key = `mgt_${id}`;
+    const t0 = trainers().find((x) => x.id === id);
+    const title = `${t0 ? nameOf(t0) : "Trainer"} · Trainer`;
+    if (typeof APPS !== "undefined" && !APPS[key]) {
+      APPS[key] = {
+        title,
+        icon: '<circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>',
+        color: "#3b82f6",
+        custom: true,
+        render(el) {
+          el.classList.add("flush", "mg-host");
+          const paint = () => (el.innerHTML = `<div class="mg-root">${trainerWindowHtml(trainers().find((x) => x.id === id))}</div>`);
+          paint();
+          windows[key]?.();
+          windows[key] = window.TrainerManager.onChange(paint);
+        },
+        onClose() {
+          windows[key]?.();
+          delete windows[key];
+        },
+      };
+    }
+    if (typeof APPS !== "undefined" && APPS[key]) APPS[key].title = title;
+    start();
+    openApp(key);
+  }
+
+  // ---- Add Trainer: name someone so they're on your list before they've opened the dashboard ----
+  function openAddTrainer(inst) {
+    const win = inst.el.closest(".window");
+    if (!win || win.querySelector(".sheet")) return;
+    const sheet = document.createElement("div");
+    sheet.className = "sheet";
+    sheet.innerHTML = `<form class="sheet-card" novalidate>
+      <h3>Add Trainer</h3>
+      <label class="field"><span>Search by name</span><input type="search" id="mg-add-q" placeholder="Start typing a name" autocomplete="off" /></label>
+      <div id="mg-add-hits" class="mg-hits"></div>
+      <p class="muted mg-add-note">Adding someone puts them on this list. To let them save their own cohorts and data, also share this dashboard with them as a Contributor (Share menu).</p>
+      <p class="sheet-status" id="mg-add-status" role="status"></p>
+      <div class="sheet-actions"><button type="button" class="btn-primary" data-cancel>Done</button></div></form>`;
+    win.appendChild(sheet);
+    const q = sheet.querySelector("#mg-add-q");
+    const hits = sheet.querySelector("#mg-add-hits");
+    const status = sheet.querySelector("#mg-add-status");
+    const close = () => sheet.remove();
+    sheet.querySelector("[data-cancel]").addEventListener("click", close);
+    sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+    sheet.querySelector("form").addEventListener("submit", (e) => e.preventDefault());
+    const known = () => new Set([...dir.map((d) => d.id), ...added.map((d) => d.id)]);
+    let timer = null;
+    q.addEventListener("input", () => {
+      clearTimeout(timer);
+      const text = q.value.trim();
+      timer = setTimeout(async () => {
+        if (!text) return void (hits.innerHTML = "");
+        const user = await window.TrainerUse("user");
+        const found = user?.search ? await user.search(text) : [];
+        const have = known();
+        hits.innerHTML = found.length
+          ? found.map((h) => `<div class="mg-hit"><span class="mg-hit-name"></span><button type="button" class="btn btn-small" data-mg-pick="${esc(h.id)}"${have.has(h.id) ? " disabled" : ""}>${have.has(h.id) ? "On your list" : "Add"}</button></div>`).join("")
+          : `<p class="muted">Nobody found. Names only search people in your organization.</p>`;
+        hits.querySelectorAll(".mg-hit-name").forEach((el, i) => (el.textContent = found[i].name || "Someone"));
+      }, 250);
+    });
+    hits.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-mg-pick]");
+      if (!b) return;
+      b.disabled = true;
+      status.textContent = "Adding…";
+      try {
+        const db = await window.TrainerUse("db");
+        await db.doc(`added/${b.dataset.mgPick}`).set({ id: b.dataset.mgPick, added_by: WS()?.id || "", added_at: new Date().toISOString() });
+        b.textContent = "On your list";
+        status.textContent = "Added.";
+      } catch {
+        b.disabled = false;
+        status.textContent = "Couldn't add them. Try again.";
+      }
+    });
+    q.focus();
+  }
+  async function removeAdded(id) {
+    try {
+      const db = await window.TrainerUse("db");
+      await db.doc(`added/${id}`).delete();
+    } catch {}
+  }
+
   // ---- Reports ----
   const csvCellM = (v) => {
     let t = v == null ? "" : String(v);
@@ -226,7 +353,7 @@
     if (!inst?.el) return;
     const list = trainers();
     const body = empty(list) || { overview, trainers: trainersTable, cohorts: cohortsTable, performance, reports }[inst.kind](list);
-    inst.el.innerHTML = `<div class="mg-root"><div class="mg-top"><div><h3>${esc(TITLES[inst.kind])}</h3><span class="muted">All Trainers · read-only</span></div></div>${body}</div>`;
+    inst.el.innerHTML = `<div class="mg-root"><div class="mg-top"><div><h3>${esc(TITLES[inst.kind])}</h3><span class="muted">All Trainers · read-only</span></div>${inst.kind === "trainers" ? `<button type="button" class="btn-primary" data-mg-add-open>+ Add Trainer</button>` : ""}</div>${body}</div>`;
   }
   const drawAll = () => Object.values(insts).forEach(draw);
   const statusEl = (kind) => insts[kind]?.el?.querySelector(`[data-mg-status="${kind}"]`);
@@ -268,7 +395,9 @@
       el.addEventListener("click", (e) => {
         const b = e.target.closest("button");
         if (!b) return;
-        if (b.dataset.mgView) return WS()?.viewAs({ id: b.dataset.mgView, base: b.dataset.mgBase });
+        if (b.dataset.mgOpen) return openTrainerWindow(b.dataset.mgOpen);
+        if (b.dataset.mgRemove) return void removeAdded(b.dataset.mgRemove);
+        if ("mgAddOpen" in b.dataset) return openAddTrainer(inst);
         if (b.dataset.mgMetric) return void ((ui.metric = b.dataset.mgMetric), drawAll());
         if (b.dataset.mgCopy) return void copyReport(b.dataset.mgCopy);
         if (b.dataset.mgExport) return void exportReport(b.dataset.mgExport);

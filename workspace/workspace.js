@@ -11,7 +11,7 @@
 //   config/managers { ids: [...] }                                                 written by the owner
 (function () {
   const rawUse = (name) => Promise.resolve().then(() => (window.claude ? window.claude.use(name) : null)).catch(() => null);
-  const SHARED = [/^courseware(\/|$)/, /^config(\/|$)/, /^trainers(\/|$)/, /^workspaces(\/|$)/, /^data\/users(\/|$)/, /^settings\/dashboard_(defaults|wallpaper)$/];
+  const SHARED = [/^added(\/|$)/, /^courseware(\/|$)/, /^config(\/|$)/, /^trainers(\/|$)/, /^workspaces(\/|$)/, /^data\/users(\/|$)/, /^settings\/dashboard_(defaults|wallpaper)$/];
   const isShared = (p) => SHARED.some((r) => r.test(p));
   const VIEW_KEY = "trainer.viewAs";
   const PREVIEW_KEY = "trainer.previewManager";

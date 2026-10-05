@@ -1781,7 +1781,7 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .td-table .td-c { text-align: center; }
 .td-x { background: none; border: 0; cursor: pointer; color: inherit; opacity: .5; font-size: 14px; padding: 0 2px; }
 .td-x:hover { opacity: 1; }
-.td-person { padding: 18px 22px; }
+.td-person { padding: 18px 22px; box-sizing: border-box; height: 100%; overflow-y: auto; }
 .td-person h3 { margin: 0 0 10px; font-size: 18px; }
 .td-person h4 { margin: 16px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
 .td-kv { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }

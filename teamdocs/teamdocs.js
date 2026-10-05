@@ -297,5 +297,11 @@
     card.querySelector(".td-tab.on")?.focus();
   }
 
+  // Any trainee name marked data-td-trainee (the cohort's trainee list, Settings → Roster) opens the same window.
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-td-trainee]");
+    if (b) openTrainee(b.dataset.tdTrainee);
+  });
+
   window.TeamDocs = { open, openTrainee };
 })();

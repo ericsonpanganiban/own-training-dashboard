@@ -2232,7 +2232,7 @@
       rosterHtml =
         "<div class=\"roster-table-wrap\"><table class=\"preview\"><thead><tr><th>Name</th><th>Work email</th><th>CRM name</th><th>Team lead</th><th>Department</th><th></th></tr></thead><tbody>" +
           state.trainees.map(function(t){
-            return "<tr><td>" + esc(t.name) + "</td><td>" + esc(t.email || "") + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td>" +
+            return "<tr><td><button type=\"button\" class=\"td-name\" data-td-trainee=\"" + esc(t.id) + "\" title=\"Open " + esc(t.name) + "'s details\">" + esc(t.name) + "</button></td><td>" + esc(t.email || "") + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td>" +
               "<td class=\"kebab-cell\"><button class=\"kebab-btn\" data-kebab-trainee=\"" + esc(t.id) + "\" title=\"More options\" type=\"button\">⋮</button></td></tr>";
           }).join("") +
         "</tbody></table></div>";

@@ -1420,7 +1420,7 @@ function traineeGroupsHtml(c, members) {
   const item = (t) => {
     const active = !isInactive(t);
     return `<li class="${active ? "" : "is-inactive"}">
-      <span>${escapeHtml(t.name)} ${statusBadgeHtml(t)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span>
+      <span><button type="button" class="td-name" data-td-trainee="${escapeHtml(t.id)}" title="Open ${escapeHtml(t.name)}'s details">${escapeHtml(t.name)}</button> ${statusBadgeHtml(t)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span>
       <span class="member-actions">
         <button type="button" class="status-pill${active ? " on" : ""}" data-toggle-active="${escapeHtml(t.id)}" aria-pressed="${active}" title="${active ? "Click to set Inactive" : "Click to set Active"}">${active ? "Active" : "Inactive"}</button>
         <button type="button" class="outline-btn" data-performance="${escapeHtml(t.id)}">Performance</button>

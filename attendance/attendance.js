@@ -168,7 +168,10 @@
             return mcp
               .callTool(SLACK, "slack_search_users", { query: local, keywords: [local], natural_language_query: "" })
               .then((r) => {
-                const hit = parseUserSearch(r?.payload?.results).find((u) => u.email === email);
+                const found = parseUserSearch(r?.payload?.results);
+                // The full email, or else the one result with the same name before the @ (the roster and Slack can use different domains).
+                const sameLocal = found.filter((u) => u.email.split("@")[0] === local);
+                const hit = found.find((u) => u.email === email) || (sameLocal.length === 1 ? sameLocal[0] : null);
                 if (!hit) return;
                 t.slack_user_id = hit.userId;
                 return cc().updateTrainee(t.id, { slack_user_id: hit.userId });
@@ -251,26 +254,44 @@
 
   // Grades the active trainees, saves the grades on the check-in, and writes them into the
   // matching day of the grid. A check-in sent outside the 20 days only updates its own record.
-  const normName = (n) => String(n || "").toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean).sort().join(" ");
+  const nameTokens = (n) => String(n || "").toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter((w) => w.length > 1);
+  // The same person if one name's words are all in the other (Slack may add a middle initial or drop a middle name).
+  const sameName = (a, b) => {
+    const x = nameTokens(a), y = nameTokens(b);
+    if (x.length < 2 || y.length < 2) return false;
+    const [small, big] = x.length <= y.length ? [x, y] : [y, x];
+    return small.every((w) => big.includes(w));
+  };
+  // A trainee Slack search couldn't match is matched from the thread itself: each reply shows the replier's email and
+  // name. Tried in turn: the same email, the same name before the @ (a different domain), then the same name.
+  // The match is saved on the trainee so it only happens once.
+  function learnFromThread(members, map) {
+    const people = map.__people || {};
+    const taken = new Set(members.map((t) => t.slack_user_id).filter(Boolean));
+    const saved = [];
+    const tries = [
+      (t, p) => t.email && p.email && t.email.trim().toLowerCase() === p.email,
+      (t, p) => t.email && p.email && t.email.trim().toLowerCase().split("@")[0] === p.email.split("@")[0],
+      (t, p) => sameName(t.name, p.name),
+    ];
+    members.filter((t) => !t.slack_user_id).forEach((t) => {
+      for (const test of tries) {
+        const hits = Object.entries(people).filter(([id, p]) => !taken.has(id) && test(t, p));
+        if (hits.length !== 1) continue;
+        t.slack_user_id = hits[0][0];
+        taken.add(hits[0][0]);
+        saved.push(cc().updateTrainee(t.id, { slack_user_id: hits[0][0] }).catch(() => {}));
+        break;
+      }
+    });
+    return Promise.all(saved);
+  }
   function checkReplies(cohort, session) {
     const members = membersOf(cohort).filter((t) => !isInactive(t));
     return resolveSlackIds(members)
       .then(() => replyMap(session))
       .then((map) => {
-        // A trainee the email search couldn't match is matched from the thread itself: the reply carries the
-        // replier's work email (or at least their name). The match is saved so it only happens once.
-        const people = map.__people || {};
-        const taken = new Set(members.map((t) => t.slack_user_id).filter(Boolean));
-        const learned = [];
-        members.filter((t) => !t.slack_user_id).forEach((t) => {
-          const email = (t.email || "").trim().toLowerCase();
-          const hit = Object.entries(people).find(([id, p]) => !taken.has(id) && ((email && p.email === email) || (p.name && normName(p.name) === normName(t.name))));
-          if (!hit) return;
-          t.slack_user_id = hit[0];
-          taken.add(hit[0]);
-          learned.push(cc().updateTrainee(t.id, { slack_user_id: hit[0] }).catch(() => {}));
-        });
-        return Promise.all(learned).then(() => map);
+        return learnFromThread(members, map).then(() => map);
       })
       .then((map) => {
         const base = session.sentAtTs ? parseFloat(session.sentAtTs) * 1000 : session.sentAt;
@@ -303,6 +324,7 @@
     const members = membersOf(cohort).filter((t) => !isInactive(t));
     return resolveSlackIds(members)
       .then(() => replyMap(session))
+      .then((map) => learnFromThread(members, map).then(() => map))
       .then((map) => {
         const missing = members.filter((t) => !(t.slack_user_id && map[t.slack_user_id]));
         if (!missing.length) return 0;

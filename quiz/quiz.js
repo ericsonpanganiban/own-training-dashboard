@@ -740,7 +740,8 @@
         <div class="stat"><div class="value">${scored.length ? `${passed}<span class="of"> / ${scored.length}</span>` : "—"}</div><div class="label">Passed (${pass}% or more)</div></div>
         <div class="stat"><div class="value">${pending}</div><div class="label">Answers to review</div><div class="hint">${pending ? "Open a trainee to mark them" : "Nothing waiting"}</div></div>
       </div>
-      <div class="review-tools"><button type="button" class="btn" data-all-answers${scored.length ? "" : " disabled"}>View all answers</button><small class="muted">Every trainee's answer to each question on one page.</small></div>
+      <div class="review-tools"><button type="button" class="btn" data-all-answers${scored.length ? "" : " disabled"}>View all answers</button><small class="muted">Every trainee's answer to each question on one page.</small>
+        <button type="button" class="btn-primary" data-send-all-results${scored.length ? "" : " disabled"} title="Send each trainee their result on Slack">Send results to all</button></div>
       ${analysisPanelHtml(cohort)}
       <h4 class="quiz-h">By question</h4>
       <ul class="quiz-byq">${perQ
@@ -1892,6 +1893,7 @@
       queueSave();
       return draw();
     }
+    if ("sendAllResults" in ds) return bulkResults();
     if ("send" in ds) return confirmSend();
     if ("check" in ds) return checkReplies();
     if ("allAnswers" in ds || "results" in ds) {
@@ -2006,6 +2008,74 @@
     s.addEventListener("click", (e) => (e.target === s || e.target.closest("[data-cancel]")) && close());
     s.addEventListener("keydown", (e) => e.key === "Escape" && close());
     return { s, close };
+  }
+
+  // Send every trainee in this cohort their result (the same message as "Send result to trainee"), one DM each.
+  // Trainees whose answers still need review, and ones who already got theirs, are left out unless ticked.
+  function bulkResults() {
+    const run = runs.find((r) => r.id === ui.runId);
+    if (!run) return;
+    const quiz = run.quiz;
+    const quizId = ui.selected;
+    const answered = Object.entries(run.recipients || {}).filter(([tid]) => run.responses?.[tid]?.text);
+    const pendingOf = (tid) => score(quiz, run.responses[tid].results).pending;
+    const nPending = answered.filter(([tid]) => pendingOf(tid) && !run.responses[tid].feedback_sent_at).length;
+    const nSent = answered.filter(([tid]) => run.responses[tid].feedback_sent_at).length;
+    const x = sheet(`<h3 data-crumb="Send results">Send results to the cohort</h3>
+      <p class="muted">Each trainee gets their own result as a Slack DM from you, the same message as “Send result to trainee”: their score, each answer, and the correct answer where they missed.</p>
+      <label class="aa-filter"><input type="checkbox" data-inc-pending /> Include trainees with answers still to review (${nPending})</label>
+      <label class="aa-filter"><input type="checkbox" data-inc-sent /> Send again to trainees who already got their result (${nSent})</label>
+      <p data-count></p>
+      <p class="sheet-status" data-status role="status"></p>
+      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-primary" data-go>Send</button></div>`);
+    if (!x) return;
+    const pick = () => {
+      const incP = x.s.querySelector("[data-inc-pending]").checked, incS = x.s.querySelector("[data-inc-sent]").checked;
+      return answered.filter(([tid]) => (incP || !pendingOf(tid)) && (incS || !run.responses[tid].feedback_sent_at));
+    };
+    const refresh = () => {
+      const n = pick().length;
+      x.s.querySelector("[data-count]").innerHTML = n ? `<b>${plural(n, "trainee")}</b> will get their result.` : `<span class="muted">Nobody to send to with these choices.</span>`;
+      const go = x.s.querySelector("[data-go]");
+      go.disabled = !n;
+      go.textContent = n ? `Send to ${plural(n, "trainee")}` : "Send";
+    };
+    x.s.addEventListener("change", refresh);
+    refresh();
+    x.s.querySelector("[data-go]").addEventListener("click", async (e) => {
+      const go = e.currentTarget;
+      const status = x.s.querySelector("[data-status]");
+      const s = slack();
+      if (!s) return void (status.textContent = "Slack isn't available right now.");
+      const list = pick();
+      go.disabled = true;
+      x.s.querySelectorAll("input").forEach((i) => (i.disabled = true));
+      const cur = { ...run, responses: { ...run.responses } };
+      const failed = [];
+      let ok = 0;
+      for (const [i, [tid, rec]] of list.entries()) {
+        status.textContent = `Sending ${i + 1} of ${list.length}: ${rec.name}…`;
+        try {
+          const trainee = cc()?.data().trainees.find((t) => t.id === tid);
+          const userId = rec.slack_user_id || (trainee ? await s.userIdFor(trainee) : null);
+          if (!userId) throw Object.assign(new Error("Couldn't find them on Slack"), { plain: true });
+          await s.call("slack_send_message", { channel_id: userId, message: feedbackMessage(quiz, run.responses[tid], rec.name) });
+          cur.responses[tid] = { ...run.responses[tid], feedback_sent_at: new Date().toISOString() };
+          ok++;
+        } catch (err) {
+          failed.push(`${rec.name} (${err?.plain ? err.message : s.errorText(err)})`);
+        }
+      }
+      if (ok) {
+        const i = runs.findIndex((r) => r.id === cur.id);
+        if (i > -1) runs[i] = cur;
+        patchAllRuns(quizId, cur);
+        await saveRun(quizId, cur).catch(() => {});
+      }
+      ui.note = escapeHtml(`Results sent to ${plural(ok, "trainee")} on Slack ✓${failed.length ? ` Couldn't reach ${failed.join("; ")}.` : ""}`);
+      x.close();
+      draw();
+    });
   }
 
   function confirmDelete() {

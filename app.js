@@ -2531,6 +2531,9 @@ function openMenu(anchor, items) {
   const w = win.getBoundingClientRect();
   menu.style.top = `${a.bottom - w.top + 4}px`;
   menu.style.right = `${w.right - a.right}px`;
+  // Near the bottom of the window the menu would be cut off: open it above the button instead.
+  const mh = menu.offsetHeight;
+  if (a.bottom + 4 + mh > w.bottom - 4) menu.style.top = `${Math.max(4, a.top - w.top - mh - 4)}px`;
   const close = () => {
     menu.remove();
     document.removeEventListener("pointerdown", outside, true);

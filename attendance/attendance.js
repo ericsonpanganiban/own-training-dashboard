@@ -114,7 +114,7 @@
       .map((b) => {
         const from = b.match(/^From:\s*(.+?)\s*(?:<([^>]*)>)?\s*(?:\(([^)]+)\))?\s*$/m);
         const ts = b.match(/^Message TS:\s*(\S+)/m);
-        return { name: from?.[1]?.trim() || "", userId: from?.[3]?.trim() || "", ts: ts?.[1]?.trim() || null };
+        return { name: from?.[1]?.trim() || "", email: (from?.[2] || "").trim().toLowerCase(), userId: from?.[3]?.trim() || "", ts: ts?.[1]?.trim() || null };
       })
       .filter((r) => r.ts);
   }
@@ -237,21 +237,41 @@
       .then((mcp) => mcp.callTool(SLACK, "slack_read_thread", { channel_id: session.channelId, message_ts: session.sentAtTs, response_format: "detailed" }, { cache: false }))
       .then((r) => {
         const map = {};
+        const people = {}; // who replied: Slack user ID → name and email, as the thread shows them
         parseThreadReplies(r?.payload?.messages).forEach((reply) => {
           if (!reply.userId) return;
           const ms = parseFloat(reply.ts) * 1000;
           if (!map[reply.userId] || ms < map[reply.userId]) map[reply.userId] = ms;
+          people[reply.userId] = { name: reply.name, email: reply.email };
         });
+        Object.defineProperty(map, "__people", { value: people, enumerable: false });
         return map;
       });
   }
 
   // Grades the active trainees, saves the grades on the check-in, and writes them into the
   // matching day of the grid. A check-in sent outside the 20 days only updates its own record.
+  const normName = (n) => String(n || "").toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean).sort().join(" ");
   function checkReplies(cohort, session) {
     const members = membersOf(cohort).filter((t) => !isInactive(t));
     return resolveSlackIds(members)
       .then(() => replyMap(session))
+      .then((map) => {
+        // A trainee the email search couldn't match is matched from the thread itself: the reply carries the
+        // replier's work email (or at least their name). The match is saved so it only happens once.
+        const people = map.__people || {};
+        const taken = new Set(members.map((t) => t.slack_user_id).filter(Boolean));
+        const learned = [];
+        members.filter((t) => !t.slack_user_id).forEach((t) => {
+          const email = (t.email || "").trim().toLowerCase();
+          const hit = Object.entries(people).find(([id, p]) => !taken.has(id) && ((email && p.email === email) || (p.name && normName(p.name) === normName(t.name))));
+          if (!hit) return;
+          t.slack_user_id = hit[0];
+          taken.add(hit[0]);
+          learned.push(cc().updateTrainee(t.id, { slack_user_id: hit[0] }).catch(() => {}));
+        });
+        return Promise.all(learned).then(() => map);
+      })
       .then((map) => {
         const base = session.sentAtTs ? parseFloat(session.sentAtTs) * 1000 : session.sentAt;
         const responses = {};
@@ -261,8 +281,12 @@
           responses[t.id] = { status: sessionStatus(delayMin), replyAtMs: replyMs || null, delayMin, matched: !!t.slack_user_id };
         });
         const graded = { ...session, responses, checkedAt: Date.now() };
+        const replied = members.filter((t) => responses[t.id].replyAtMs).length;
+        const summary = { replies: Object.keys(map).length, replied, unmatched: members.filter((t) => !t.slack_user_id).map((t) => t.name || "Trainee"), total: members.length };
         return saveSession(cohort.id, graded).then(() => {
           const dayIndex = sessionDayIndex(cohort, session);
+          summary.day = dayIndex === -1 ? null : dayIndex + 1;
+          graded.summary = summary;
           if (dayIndex === -1) return graded;
           const fresh = cc().data().cohorts.find((c) => c.id === cohort.id) || cohort;
           const all = JSON.parse(JSON.stringify(fresh.attendance_days || {}));
@@ -683,7 +707,14 @@
     run(cohortId, "check", () => {
       ui.status.set(`${cohortId}:action`, "Reading replies…");
       return checkReplies(cohort, session)
-        .then(() => ui.status.set(`${cohortId}:action`, "Replies graded ✓"))
+        .then((g) => {
+          const m = g?.summary;
+          if (!m) return ui.status.set(`${cohortId}:action`, "Replies graded ✓");
+          const parts = [`${m.replies} ${m.replies === 1 ? "reply" : "replies"} found in the thread`, `${m.replied} of ${m.total} trainees matched`];
+          parts.push(m.day ? `Day ${m.day} updated` : "this check-in is outside the 20 training days, so the grid wasn't changed");
+          if (m.unmatched.length) parts.push(`no Slack match for ${m.unmatched.join(", ")}`);
+          ui.status.set(`${cohortId}:action`, `${parts.join(" · ")}${m.replies ? "" : ". Trainees must reply inside the check-in's thread"}`);
+        })
         .catch((err) => ui.status.set(`${cohortId}:action`, slackError(err)))
         .then(() => refreshSessions(cohortId));
     });

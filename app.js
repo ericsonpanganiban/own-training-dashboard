@@ -487,7 +487,13 @@ APPS.mgPerformance = mgApp("performance", "Performance", '<path d="M3 20h18"/><r
 APPS.mgReports = mgApp("reports", "Reports", '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/>', "#ef4444");
 const MANAGER_ORDER = ["mgOverview", "mgTrainers", "mgCohorts", "mgPerformance", "mgReports", "notion", "courseware", "settings"];
 const appRole = () => window.TrainerWS?.role || "trainer";
-const visibleAppIds = () => (appRole() === "manager" ? MANAGER_ORDER.filter((id) => APPS[id]) : Object.keys(APPS).filter((id) => !id.startsWith("mg")));
+const VIEWER_APPS = ["myClass", "cohorts", "attendance", "coaching", "courseware"];
+const visibleAppIds = () =>
+  appRole() === "manager"
+    ? MANAGER_ORDER.filter((id) => APPS[id])
+    : window.TrainerWS?.isViewer
+    ? VIEWER_APPS.filter((id) => APPS[id])
+    : Object.keys(APPS).filter((id) => !id.startsWith("mg") && !id.startsWith("td_"));
 
 // Your avatar, your role, and a way to look at another Trainer's dashboard (read-only).
 function drawProfile(card) {
@@ -926,6 +932,77 @@ const SETTINGS_PAGES = [
       });
       slot.querySelector("#mgr-preview").addEventListener("click", () => WS?.setPreview(!WS.ws.previewing));
       drawList();
+    },
+  },
+  {
+    id: "viewers",
+    ownerOnly: true,
+    title: "Viewers",
+    color: "#0ea5e9",
+    icon: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    // Who can look at your classes without changing anything. Only the artifact owner changes this.
+    render(slot) {
+      slot.innerHTML = `<div class="settings-page app-body"><h3>Viewers</h3>
+        <p class="muted">Viewers see your dashboard (cohorts, classes, trainees, performance, attendance) but can't change anything or send anything. Share this dashboard with them from the Share menu first, then add them here. Only you can change this list.</p>
+        <div id="vw-list"></div>
+        <div class="form-row"><label for="vw-q">Add a viewer</label><input id="vw-q" type="search" placeholder="Search by name" autocomplete="off" /></div>
+        <div id="vw-hits"></div>
+        <p class="sheet-status" id="vw-status" role="status"></p></div>`;
+      const list = slot.querySelector("#vw-list");
+      const hits = slot.querySelector("#vw-hits");
+      const status = slot.querySelector("#vw-status");
+      let ids = [];
+      const load = async () => {
+        try {
+          const db = await window.TrainerUse("db");
+          const snap = await db.doc("config/viewers").get();
+          ids = snap.exists && Array.isArray(snap.data()?.ids) ? snap.data().ids.map(String) : [];
+        } catch {}
+        drawList();
+      };
+      const save = async (next) => {
+        status.textContent = "Saving…";
+        try {
+          const db = await window.TrainerUse("db");
+          await db.doc("config/viewers").set({ ids: next, updated_at: new Date().toISOString() });
+          ids = next;
+          status.textContent = "Saved. Viewers get the view-only dashboard the next time they open it.";
+          drawList();
+        } catch {
+          status.textContent = "Couldn't save the list. Try again.";
+        }
+      };
+      const drawList = async () => {
+        const user = await window.TrainerUse("user");
+        const ps = ids.length && user?.profiles ? await user.profiles(ids) : {};
+        list.innerHTML = ids.length
+          ? `<ul class="mgr-people">${ids.map((id) => `<li><span class="vw-name"></span><button type="button" class="btn btn-small" data-vw-remove="${escapeHtml(id)}">Remove</button></li>`).join("")}</ul>`
+          : `<p class="muted">No viewers yet.</p>`;
+        list.querySelectorAll(".vw-name").forEach((el, i) => (el.textContent = ps[ids[i]]?.name || "Someone"));
+      };
+      list.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-vw-remove]");
+        if (b) save(ids.filter((x) => x !== b.dataset.vwRemove));
+      });
+      let timer = null;
+      slot.querySelector("#vw-q").addEventListener("input", (e) => {
+        clearTimeout(timer);
+        const q = e.target.value.trim();
+        timer = setTimeout(async () => {
+          if (!q) return void (hits.innerHTML = "");
+          const user = await window.TrainerUse("user");
+          const found = user?.search ? await user.search(q) : [];
+          hits.innerHTML = found.length
+            ? `<ul class="mgr-people">${found.map((h) => `<li><span class="vw-hit"></span><button type="button" class="btn btn-small" data-vw-add="${escapeHtml(h.id)}"${ids.includes(h.id) ? " disabled" : ""}>${ids.includes(h.id) ? "Added" : "Add as viewer"}</button></li>`).join("")}</ul>`
+            : `<p class="muted">Nobody found. Names only search people who have opened this dashboard or are in your organization.</p>`;
+          hits.querySelectorAll(".vw-hit").forEach((el, i) => (el.textContent = found[i].name || "Someone"));
+        }, 250);
+      });
+      hits.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-vw-add]");
+        if (b && !ids.includes(b.dataset.vwAdd)) save([...ids, b.dataset.vwAdd]).then(() => ((slot.querySelector("#vw-q").value = ""), (hits.innerHTML = "")));
+      });
+      load();
     },
   },
 ];

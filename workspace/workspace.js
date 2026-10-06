@@ -59,6 +59,7 @@
     readOnly: false,
     managerIds: [],
     isManagerId: false,
+    isViewer: false, // someone the owner added in Settings → Viewers: the owner's dashboard, read-only
     previewing: false, // the owner looking at the Training Manager
     role: "trainer", // "trainer" | "manager": what shell to show
     db: null, // the real database
@@ -181,6 +182,18 @@
         }
       });
     }
+    // A Viewer sees the owner's dashboard (the database root) and can't change anything.
+    if (db && ws.id && !ws.isOwner && !ws.isManagerId) {
+      try {
+        const snap = await db.doc("config/viewers").get();
+        const ids = snap.exists && Array.isArray(snap.data()?.ids) ? snap.data().ids.map(String) : [];
+        if (ids.includes(ws.id)) {
+          ws.isViewer = true;
+          ws.viewing = { id: "", base: "", kind: "root", viewer: true };
+          ws.readOnly = true;
+        }
+      } catch {}
+    }
     setRole();
     // A Trainer's own entry in the directory (the Training Manager lists Trainers from these).
     if (db && ws.id && !ws.viewing) {
@@ -196,11 +209,14 @@
   function drawBanner() {
     document.getElementById("ws-banner")?.remove();
     document.body.classList.toggle("ws-readonly", ws.readOnly);
+    if (ws.readOnly) installViewGuard();
     if (!ws.viewing) return;
     const bar = document.createElement("div");
     bar.id = "ws-banner";
     bar.setAttribute("role", "status");
-    bar.innerHTML = ws.viewing
+    bar.innerHTML = ws.isViewer
+      ? `<span class="wb-text">View only · you can look at the classes, trainees and results, but can't make changes</span>`
+      : ws.viewing
       ? `<span class="wb-text" data-ws-who>Viewing a Trainer's dashboard · read-only</span><button type="button" data-ws-back>${ws.isManagerId || ws.previewing ? "Back to Training Manager" : "Back to my dashboard"}</button>`
       : `<span class="wb-text">Previewing the Training Manager</span><button type="button" data-ws-exit-preview>Exit preview</button>`;
     document.body.appendChild(bar);
@@ -209,7 +225,7 @@
       if (e.target.closest("[data-ws-exit-preview]")) api.setPreview(false);
     });
     // The name of whoever is being viewed.
-    if (ws.viewing) {
+    if (ws.viewing && !ws.isViewer) {
       rawUse("user")
         .then((u) => u?.profiles([ws.viewing.id]))
         .then((ps) => {
@@ -219,6 +235,31 @@
         })
         .catch(() => {});
     }
+  }
+
+  // While read-only, buttons that would change something say so instead of opening a form that can't be saved
+  // (the database refuses the writes anyway). Anything for looking (opening rows, Performance, Copy, tabs) works.
+  const WRITE_TEXT = /^(\+|add\b|edit\b|delete\b|remove\b|save\b|send\b|mark\b|reopen\b|set\b|create\b|import\b|pull\b|check\b|re-check\b|ping\b|analy[sz]e\b|generate\b|export\b|invite\b|new\b|resend\b|post\b|submit\b|rename\b|move\b|clear\b|reset\b|apply\b|assign\b|archive\b|restore\b|update\b|confirm\b|override\b|publish\b|⋮|×)/i;
+  const WRITE_SEL = "[data-trainee-menu], [data-cohort-menu], .kebab, .kebab-btn, [data-toggle-active], [data-complete-cohort], [data-att-send], [data-att-check], [data-att-ping], .att-export, [data-add-trainee], .square-btn.kebab";
+  let guardInstalled = false;
+  function installViewGuard() {
+    if (guardInstalled) return;
+    guardInstalled = true;
+    document.addEventListener(
+      "click",
+      (e) => {
+        if (!ws.readOnly) return;
+        const b = e.target.closest && e.target.closest("button, [role=menuitem]");
+        if (!b || b.closest("#ws-banner, .dock, [data-copy-view]")) return;
+        const text = (b.innerText || b.getAttribute("aria-label") || "").trim();
+        if (b.matches(WRITE_SEL) || WRITE_TEXT.test(text)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          toast(ws.isViewer ? "View only: you can't make changes." : "You're viewing another Trainer's dashboard, which is read-only.");
+        }
+      },
+      true
+    );
   }
 
   const reload = () => {
@@ -243,6 +284,9 @@
     },
     get isOwner() {
       return ws.isOwner;
+    },
+    get isViewer() {
+      return ws.isViewer;
     },
     get id() {
       return ws.id;

@@ -947,6 +947,9 @@ const SETTINGS_PAGES = [
         <div id="vw-list"></div>
         <div class="form-row"><label for="vw-q">Add a viewer</label><input id="vw-q" type="search" placeholder="Search by name" autocomplete="off" /></div>
         <div id="vw-hits"></div>
+        <h3 style="margin-top:18px">Opened the dashboard</h3>
+        <p class="muted"><small>Everyone who has opened this dashboard, named or not. Use this when someone doesn't show up in the search: ask them to open the link once, then add them from here.</small></p>
+        <div id="vw-opened"></div>
         <p class="sheet-status" id="vw-status" role="status"></p></div>`;
       const list = slot.querySelector("#vw-list");
       const hits = slot.querySelector("#vw-hits");
@@ -972,7 +975,32 @@ const SETTINGS_PAGES = [
           status.textContent = "Couldn't save the list. Try again.";
         }
       };
+      // Everyone with an entry in the Trainers directory (each person writes theirs when they open the dashboard).
+      const drawOpened = async () => {
+        const box = slot.querySelector("#vw-opened");
+        try {
+          const db = await window.TrainerUse("db");
+          const qs = await db.collection("trainers").get();
+          const mine = window.TrainerWS?.id;
+          const managers = window.TrainerWS?.managerIds || [];
+          const people = qs.docs
+            .map((d) => ({ id: d.data()?.id || d.id, base: d.data()?.base, at: d.data()?.updated_at || "" }))
+            .filter((p) => /^u_/.test(p.id) && p.id !== mine && p.base !== "root" && !ids.includes(p.id) && !managers.includes(p.id));
+          if (!people.length) return void (box.innerHTML = `<p class="muted">Nobody else has opened it yet.</p>`);
+          const user = await window.TrainerUse("user");
+          const ps = user?.profiles ? await user.profiles(people.map((p) => p.id)) : {};
+          box.innerHTML = `<ul class="mgr-people">${people.map((p) => `<li><span class="vw-op"></span><button type="button" class="btn btn-small" data-vw-add="${escapeHtml(p.id)}">Add as viewer</button></li>`).join("")}</ul>`;
+          box.querySelectorAll(".vw-op").forEach((el, i) => {
+            const p = people[i];
+            const when = p.at ? new Date(p.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+            el.textContent = `${ps[p.id]?.name || "Unnamed account"}${when ? ` · last opened ${when}` : ""}`;
+          });
+        } catch {
+          box.innerHTML = `<p class="muted">Couldn't load who has opened it.</p>`;
+        }
+      };
       const drawList = async () => {
+        drawOpened();
         const user = await window.TrainerUse("user");
         const ps = ids.length && user?.profiles ? await user.profiles(ids) : {};
         list.innerHTML = ids.length
@@ -997,6 +1025,10 @@ const SETTINGS_PAGES = [
             : `<p class="muted">Nobody found. Names only search people who have opened this dashboard or are in your organization.</p>`;
           hits.querySelectorAll(".vw-hit").forEach((el, i) => (el.textContent = found[i].name || "Someone"));
         }, 250);
+      });
+      slot.querySelector("#vw-opened").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-vw-add]");
+        if (b && !ids.includes(b.dataset.vwAdd)) save([...ids, b.dataset.vwAdd]);
       });
       hits.addEventListener("click", (e) => {
         const b = e.target.closest("[data-vw-add]");

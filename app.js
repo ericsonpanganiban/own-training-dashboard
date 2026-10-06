@@ -947,25 +947,31 @@ const SETTINGS_PAGES = [
         <div id="vw-list"></div>
         <div class="form-row"><label for="vw-q">Add a viewer</label><input id="vw-q" type="search" placeholder="Search by name" autocomplete="off" /></div>
         <div id="vw-hits"></div>
+        <div class="form-row"><label for="vw-email">Or add by work email</label><span><input id="vw-email" type="email" placeholder="name@company.com" autocomplete="off" /> <button type="button" class="btn btn-small" id="vw-email-add">Add</button></span></div>
+        <p class="muted"><small>Use this when someone doesn't show up in the search (for example, their Claude account has no display name). They need access to the dashboard first, from the Share menu.</small></p>
         <p class="sheet-status" id="vw-status" role="status"></p></div>`;
       const list = slot.querySelector("#vw-list");
       const hits = slot.querySelector("#vw-hits");
       const status = slot.querySelector("#vw-status");
       let ids = [];
+      let emails = [];
       const load = async () => {
         try {
           const db = await window.TrainerUse("db");
           const snap = await db.doc("config/viewers").get();
-          ids = snap.exists && Array.isArray(snap.data()?.ids) ? snap.data().ids.map(String) : [];
+          const d = (snap.exists && snap.data()) || {};
+          ids = Array.isArray(d.ids) ? d.ids.map(String) : [];
+          emails = Array.isArray(d.emails) ? d.emails.map(String) : [];
         } catch {}
         drawList();
       };
-      const save = async (next) => {
+      const save = async (next, nextEmails = emails) => {
         status.textContent = "Saving…";
         try {
           const db = await window.TrainerUse("db");
-          await db.doc("config/viewers").set({ ids: next, updated_at: new Date().toISOString() });
+          await db.doc("config/viewers").set({ ids: next, emails: nextEmails, updated_at: new Date().toISOString() });
           ids = next;
+          emails = nextEmails;
           status.textContent = "Saved. Viewers get the view-only dashboard the next time they open it.";
           drawList();
         } catch {
@@ -975,14 +981,24 @@ const SETTINGS_PAGES = [
       const drawList = async () => {
         const user = await window.TrainerUse("user");
         const ps = ids.length && user?.profiles ? await user.profiles(ids) : {};
-        list.innerHTML = ids.length
-          ? `<ul class="mgr-people">${ids.map((id) => `<li><span class="vw-name"></span><button type="button" class="btn btn-small" data-vw-remove="${escapeHtml(id)}">Remove</button></li>`).join("")}</ul>`
+        list.innerHTML = ids.length || emails.length
+          ? `<ul class="mgr-people">${ids.map((id) => `<li><span class="vw-name"></span><button type="button" class="btn btn-small" data-vw-remove="${escapeHtml(id)}">Remove</button></li>`).join("")}${emails.map((e) => `<li><span class="vw-mail"></span><button type="button" class="btn btn-small" data-vw-remove-email="${escapeHtml(e)}">Remove</button></li>`).join("")}</ul>`
           : `<p class="muted">No viewers yet.</p>`;
         list.querySelectorAll(".vw-name").forEach((el, i) => (el.textContent = ps[ids[i]]?.name || "Someone"));
+        list.querySelectorAll(".vw-mail").forEach((el, i) => (el.textContent = `${emails[i]} (by email)`));
       };
       list.addEventListener("click", (e) => {
         const b = e.target.closest("[data-vw-remove]");
         if (b) save(ids.filter((x) => x !== b.dataset.vwRemove));
+        const m = e.target.closest("[data-vw-remove-email]");
+        if (m) save(ids, emails.filter((x) => x !== m.dataset.vwRemoveEmail));
+      });
+      slot.querySelector("#vw-email-add").addEventListener("click", () => {
+        const input = slot.querySelector("#vw-email");
+        const v = input.value.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return void (status.textContent = "Type a full work email.");
+        if (emails.includes(v)) return void (status.textContent = "That email is already a viewer.");
+        save(ids, [...emails, v]).then(() => (input.value = ""));
       });
       let timer = null;
       slot.querySelector("#vw-q").addEventListener("input", (e) => {

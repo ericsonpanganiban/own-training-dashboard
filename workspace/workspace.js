@@ -50,6 +50,7 @@
     ready: null,
     id: "", // this viewer's id, "" when the platform gives none
     name: "",
+    email: "", // this viewer's email when the platform shares it
     avatar: "",
     color: "",
     isOwner: false,
@@ -133,6 +134,7 @@
     } catch {}
     ws.id = me?.id || "";
     ws.name = me?.name || "";
+    ws.email = (me?.email || "").trim().toLowerCase();
     ws.avatar = me?.avatarUrl || "";
     ws.color = me?.color || "";
     ws.isOwner = !!me?.isOwner;
@@ -186,8 +188,11 @@
     if (db && ws.id && !ws.isOwner && !ws.isManagerId) {
       try {
         const snap = await db.doc("config/viewers").get();
-        const ids = snap.exists && Array.isArray(snap.data()?.ids) ? snap.data().ids.map(String) : [];
-        if (ids.includes(ws.id)) {
+        const d = (snap.exists && snap.data()) || {};
+        const ids = Array.isArray(d.ids) ? d.ids.map(String) : [];
+        const emails = Array.isArray(d.emails) ? d.emails.map((e) => String(e).trim().toLowerCase()) : [];
+        // Added by name (their id) or by work email, for people the name search can't offer.
+        if (ids.includes(ws.id) || (ws.email && emails.includes(ws.email))) {
           ws.isViewer = true;
           ws.viewing = { id: "", base: "", kind: "root", viewer: true };
           ws.readOnly = true;

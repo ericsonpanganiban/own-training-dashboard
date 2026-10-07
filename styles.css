@@ -995,9 +995,9 @@ body[data-wallpaper="photo"] { background: #1f2023 var(--wallpaper-photo) center
 .app-body .att-grid .att-empty { font-size: 12px; }
 .app-body .att-day { max-width: 112px; padding: 2px 3px; border-radius: 5px; font-size: 11.5px; }
 .app-body .att-day.v-ontime { border-color: #16a34a; }
-.app-body .att-day.v-late25, .app-body .att-day.v-late50 { border-color: #d97706; }
-.app-body .att-day.v-late75, .app-body .att-day.v-late100, .app-body .att-day.v-absent { border-color: #dc2626; }
-.app-body .att-day.v-ncns { border-color: #dc2626; background: color-mix(in srgb, #dc2626 12%, var(--window-bg)); }
+/* Late is orange, Absent and NCNS are red; On time stays white. */
+.app-body .att-day.v-late25, .app-body .att-day.v-late50, .app-body .att-day.v-late75, .app-body .att-day.v-late100 { background-color: #f59e0b; border-color: #d97706; color: #1f1300; font-weight: 600; }
+.app-body .att-day.v-absent, .app-body .att-day.v-ncns { background-color: #dc2626; border-color: #b91c1c; color: #fff; font-weight: 600; }
 .grid-scroll-slider { width: 100%; margin-top: 6px; accent-color: var(--accent); }
 .app-body .att-controls { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .app-body .att-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

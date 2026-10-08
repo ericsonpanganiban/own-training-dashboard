@@ -1446,27 +1446,42 @@
     const material = picked.text;
     const cut = picked.cut;
     setAi("Claude is writing questions…");
-    const prompt = [
-      "You write quiz questions for new customer-support trainees at a home-cleaning company.",
-      `Trainer's request: ${request}`,
-      `Write ${ai.count} questions. Allowed types: ${types.map((k) => `${k} (${TYPES[k]})`).join(", ")}.`,
-      material
-        ? "Base every question and answer ONLY on the material below. Don't invent policy details that aren't in it. In \"source\", name the material (and section) each question comes from."
-        : "No material was given, so keep to general, widely true customer-support practice, and leave \"source\" empty.",
-      "Stay on the trainer's topic: every question must be about what the request asks for, even if the material covers other things too. If the material has too little on that topic to write the full number of questions, write fewer rather than going off-topic.",
-      "Rules: one clear correct answer per question; multiple choice has 3-4 plausible choices; true/false statements are unambiguous; short answers have an answer key saying what a correct answer must include.",
-      'Reply with JSON only: {"questions":[{"type":"mc","prompt":"…","choices":["…","…","…"],"answer":0,"points":1,"source":"…"},{"type":"tf","prompt":"…","answer":true,"points":1,"source":"…"},{"type":"short","prompt":"…","answer":"what a correct answer must say","points":1,"source":"…"}]}',
-      "For mc, \"answer\" is the 0-based index of the correct choice.",
-      material ? `\n--- MATERIAL ---\n${material}` : "",
-    ].join("\n");
+    // `avoid` lists questions already written, so a top-up round asks for different ones.
+    const buildPrompt = (n, avoid) =>
+      [
+        "You write quiz questions for new customer-support trainees at a home-cleaning company.",
+        `Trainer's request: ${request}`,
+        `Write ${n} questions. Allowed types: ${types.map((k) => `${k} (${TYPES[k]})`).join(", ")}.`,
+        material
+          ? "Base every question and answer ONLY on the material below. Don't invent policy details that aren't in it. In \"source\", name the material (and section) each question comes from."
+          : "No material was given, so keep to general, widely true customer-support practice, and leave \"source\" empty.",
+        "Stay on the trainer's topic: every question must be about what the request asks for, even if the material covers other things too. Cover different facts, rules and situations from the material rather than rewording the same point. If the material really has too little on the topic, write fewer rather than going off-topic or repeating.",
+        "Rules: one clear correct answer per question; multiple choice has 3-4 plausible choices; true/false statements are unambiguous; short answers have an answer key saying what a correct answer must include.",
+        'Reply with JSON only: {"questions":[{"type":"mc","prompt":"…","choices":["…","…","…"],"answer":0,"points":1,"source":"…"},{"type":"tf","prompt":"…","answer":true,"points":1,"source":"…"},{"type":"short","prompt":"…","answer":"what a correct answer must say","points":1,"source":"…"}]}',
+        "For mc, \"answer\" is the 0-based index of the correct choice.",
+        avoid.length ? `\nThese questions are already written. Do not repeat or reword them:\n${avoid.map((q) => `- ${q.prompt.slice(0, 140)}`).join("\n")}` : "",
+        material ? `\n--- MATERIAL ---\n${material}` : "",
+      ].join("\n");
+    const norm = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 80);
     try {
-      const out = await sample.json(prompt, { modelTier: "default" });
-      const qs = cleanSuggestions(out);
+      let qs = [];
+      let dropped = 0;
+      // Claude sometimes writes a few fewer than asked, and a malformed one is dropped: ask again for just the gap.
+      for (let round = 0; round < 3 && qs.length < ai.count; round++) {
+        if (round) setAi(`Claude wrote ${qs.length} of ${ai.count}, asking for ${ai.count - qs.length} more…`);
+        const out = await sample.json(buildPrompt(round ? ai.count - qs.length + 2 : ai.count, qs), { modelTier: "default" });
+        const got = cleanSuggestions(out);
+        dropped += Math.max(0, (out?.questions || []).length - got.length);
+        const seen = new Set(qs.map((q) => norm(q.prompt)));
+        for (const q of got) if (!seen.has(norm(q.prompt)) && qs.length < ai.count) (qs.push(q), seen.add(norm(q.prompt)));
+        if (!got.length) break;
+      }
       ai.suggestions = qs;
       ai.added = "";
+      const short = qs.length < ai.count;
       setAi(
         qs.length
-          ? `${plural(qs.length, "question")} suggested. Untick any you don't want, then add them to a quiz.${cut ? (picked.used ? ` The material was long, so Claude was given the ${plural(picked.used, "section")} that best match your request (of ${picked.of}).` : " The material was long and nothing in it matched your request's words, so only the first part was used. Try naming the topic the way the document does.") : ""}${skipped.length ? ` Couldn't read: ${skipped.join(", ")}.` : ""}`
+          ? `${plural(qs.length, "question")} suggested${short ? ` (you asked for ${ai.count}; ${material ? "the material doesn't seem to have more distinct points on this topic" : "Claude had no more to add"})` : ""}. Untick any you don't want, then add them to a quiz.${cut ? (picked.used ? ` The material was long, so Claude was given the ${plural(picked.used, "section")} that best match your request (of ${picked.of}).` : " The material was long and nothing in it matched your request's words, so only the first part was used. Try naming the topic the way the document does.") : ""}${skipped.length ? ` Couldn't read: ${skipped.join(", ")}.` : ""}`
           : "Claude didn't return usable questions. Try rewording the request."
       );
     } catch (e) {

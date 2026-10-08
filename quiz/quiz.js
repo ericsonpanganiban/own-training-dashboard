@@ -1273,6 +1273,61 @@
   // material. Claude suggests questions with answers; picked ones are added to a new or existing quiz.
   const ai = { request: "", count: 5, types: { mc: true, tf: true, short: true }, use: new Set(), paste: "", busy: false, status: "", suggestions: [], target: "new", added: "" };
   const MATERIAL_LIMIT = 40000; // characters of material per request (a Claude call from a page is capped)
+  // When the material is longer than one request can hold, keep the parts that match the request rather than the
+  // top of the document: split each resource into chunks (carrying their nearest heading), score each by how often
+  // the request's words appear (a heading match counts triple), and fill the budget with the best, in document order.
+  const STOP = new Set("a an and are as at be by can create do for from get give how i in into is it make me my of on or our questions question quiz quizzes should some that the their them these this to up use want with write about based only please more most each also any all new trainee trainees".split(" "));
+  const stemOf = (w) => (w.length > 4 ? w.slice(0, 4) : w);
+  function topicStems(request) {
+    return [...new Set(String(request).toLowerCase().match(/[a-z]{2,}/g)?.filter((w) => !STOP.has(w)).map(stemOf) || [])];
+  }
+  function chunkMaterial(title, text) {
+    const lines = String(text).split(/\n/);
+    const isHeading = (l) => { const t = l.trim(); return t.length > 1 && t.length < 90 && (/^#{1,6}\s/.test(t) || /^(\d+[.)]|[A-Z][A-Za-z0-9&/ ,'()-]+)$/.test(t) && !/[.:;]$/.test(t) && t.split(/\s+/).length <= 10); };
+    const chunks = [];
+    let heading = "", buf = "", head = "";
+    const flush = () => { if (buf.trim()) chunks.push({ title, heading: head, text: buf.trim() }); buf = ""; };
+    for (const l of lines) {
+      if (isHeading(l)) { flush(); heading = l.replace(/^#+\s*/, "").trim(); head = heading; buf = ""; continue; }
+      if (buf.length + l.length > 1800) { flush(); head = heading; }
+      buf += l + "\n";
+    }
+    flush();
+    return chunks;
+  }
+  function pickRelevant(parts, request, limit) {
+    const total = parts.reduce((n, x) => n + x.text.length, 0);
+    if (total <= limit) return { text: parts.map((x) => x.full).join("\n\n"), cut: false, used: 0, of: 0 };
+    const stems = topicStems(request);
+    const chunks = parts.flatMap((x, pi) => chunkMaterial(x.title, x.text).map((c, ci) => ({ ...c, order: pi * 100000 + ci })));
+    const hasWord = (low, st) => new RegExp(`(^|[^a-z])${st}`).test(low);
+    const count = (low, st) => (low.match(new RegExp(`(^|[^a-z])${st}`, "g")) || []).length;
+    chunks.forEach((c) => {
+      const low = c.text.toLowerCase(), hl = c.heading.toLowerCase();
+      c.score = stems.reduce((n, st) => n + (hasWord(low, st) ? 1 + Math.log2(1 + count(low, st)) : 0) + (hasWord(hl, st) ? 3 : 0), 0);
+    });
+    const ranked = chunks.filter((c) => c.score > 0).sort((a, b) => b.score - a.score);
+    let used = [], size = 0;
+    for (const c of ranked) {
+      const len = c.text.length + c.heading.length + c.title.length + 20;
+      if (size + len > limit) continue;
+      used.push(c);
+      size += len;
+    }
+    if (!used.length) return { text: parts.map((x) => x.full).join("\n\n").slice(0, limit), cut: true, used: 0, of: chunks.length };
+    // The rest of a matched section (its later chunks) comes along while there's room.
+    const keys = new Set(used.filter((c) => c.heading).map((c) => `${c.title}|${c.heading}`));
+    for (const c of chunks) {
+      if (used.includes(c) || !c.heading || !keys.has(`${c.title}|${c.heading}`)) continue;
+      const len = c.text.length + c.heading.length + c.title.length + 20;
+      if (size + len > limit) continue;
+      used.push(c);
+      size += len;
+    }
+    used.sort((a, b) => a.order - b.order);
+    return { text: used.map((c) => `### ${c.title}${c.heading ? ` › ${c.heading}` : ""}\n${c.text}`).join("\n\n"), cut: true, used: used.length, of: chunks.length };
+  }
+
   const isDriveLink = (u) => /(docs|drive)\.google\.com\//.test(u || "");
 
   function aiBoxHtml() {
@@ -1377,18 +1432,19 @@
       if (isDriveLink(x.url) && cc()?.readDriveText) {
         try {
           const text = await cc().readDriveText(x.url);
-          parts.push(`### ${x.title}${x.note ? ` (${x.note})` : ""}\n${text}`);
+          parts.push({ title: x.title, text, full: `### ${x.title}${x.note ? ` (${x.note})` : ""}\n${text}` });
           continue;
         } catch (e) {
           skipped.push(`${x.title} (${e?.message || "couldn't be read"})`);
         }
       }
-      parts.push(`### ${x.title}\n${x.note ? `Note: ${x.note}\n` : ""}(Only the title${x.note ? " and note" : ""} of this resource is available.)`);
+      const stub = `### ${x.title}\n${x.note ? `Note: ${x.note}\n` : ""}(Only the title${x.note ? " and note" : ""} of this resource is available.)`;
+      parts.push({ title: x.title, text: stub, full: stub });
     }
-    if (ai.paste.trim()) parts.push(`### Pasted material\n${ai.paste.trim()}`);
-    let material = parts.join("\n\n");
-    const cut = material.length > MATERIAL_LIMIT;
-    if (cut) material = material.slice(0, MATERIAL_LIMIT);
+    if (ai.paste.trim()) parts.push({ title: "Pasted material", text: ai.paste.trim(), full: `### Pasted material\n${ai.paste.trim()}` });
+    const picked = pickRelevant(parts, request, MATERIAL_LIMIT);
+    const material = picked.text;
+    const cut = picked.cut;
     setAi("Claude is writing questions…");
     const prompt = [
       "You write quiz questions for new customer-support trainees at a home-cleaning company.",
@@ -1397,6 +1453,7 @@
       material
         ? "Base every question and answer ONLY on the material below. Don't invent policy details that aren't in it. In \"source\", name the material (and section) each question comes from."
         : "No material was given, so keep to general, widely true customer-support practice, and leave \"source\" empty.",
+      "Stay on the trainer's topic: every question must be about what the request asks for, even if the material covers other things too. If the material has too little on that topic to write the full number of questions, write fewer rather than going off-topic.",
       "Rules: one clear correct answer per question; multiple choice has 3-4 plausible choices; true/false statements are unambiguous; short answers have an answer key saying what a correct answer must include.",
       'Reply with JSON only: {"questions":[{"type":"mc","prompt":"…","choices":["…","…","…"],"answer":0,"points":1,"source":"…"},{"type":"tf","prompt":"…","answer":true,"points":1,"source":"…"},{"type":"short","prompt":"…","answer":"what a correct answer must say","points":1,"source":"…"}]}',
       "For mc, \"answer\" is the 0-based index of the correct choice.",
@@ -1409,7 +1466,7 @@
       ai.added = "";
       setAi(
         qs.length
-          ? `${plural(qs.length, "question")} suggested. Untick any you don't want, then add them to a quiz.${cut ? " The material was long, so only the first part was used." : ""}${skipped.length ? ` Couldn't read: ${skipped.join(", ")}.` : ""}`
+          ? `${plural(qs.length, "question")} suggested. Untick any you don't want, then add them to a quiz.${cut ? (picked.used ? ` The material was long, so Claude was given the ${plural(picked.used, "section")} that best match your request (of ${picked.of}).` : " The material was long and nothing in it matched your request's words, so only the first part was used. Try naming the topic the way the document does.") : ""}${skipped.length ? ` Couldn't read: ${skipped.join(", ")}.` : ""}`
           : "Claude didn't return usable questions. Try rewording the request."
       );
     } catch (e) {

@@ -1339,7 +1339,7 @@
         <h4 class="ai-title">✨ Ask Claude for quiz questions</h4>
         <textarea data-ai-request rows="3" placeholder="e.g. 8 questions on the refund policy for week-1 trainees. Mostly multiple choice, focus on the 24-hour rule.">${escapeHtml(ai.request)}</textarea>
         <div class="ai-opts">
-          <label>How many <input type="number" min="1" max="25" data-ai-count value="${ai.count}" /></label>
+          <label>How many <input type="number" min="1" max="30" data-ai-count value="${ai.count}" /></label>
           <span class="ai-types">Types:
             ${Object.entries(TYPES).map(([k, v]) => `<label><input type="checkbox" data-ai-type="${k}"${ai.types[k] ? " checked" : ""} /> ${v}</label>`).join("")}
           </span>
@@ -1774,7 +1774,7 @@
     if ("findAny" in ds || "findRow" in ds) return findFilter(t);
     if ("aiRequest" in ds) return void (ai.request = t.value);
     if ("aiPaste" in ds) return void (ai.paste = t.value);
-    if ("aiCount" in ds) return void (ai.count = Math.min(25, Math.max(1, Math.round(Number(t.value) || 5))));
+    if ("aiCount" in ds) return void (ai.count = Math.min(30, Math.max(1, Math.round(Number(t.value) || 5))));
     if (!d) return;
     if ("fTitle" in ds) {
       d.title = t.value;

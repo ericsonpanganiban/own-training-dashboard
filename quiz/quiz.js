@@ -1410,6 +1410,7 @@
           <textarea data-ai-paste rows="5" placeholder="Paste an SOP, policy or module text. Questions will come only from it.">${escapeHtml(ai.paste)}</textarea></details>
         <div class="ai-actions">
           <button type="button" class="btn-primary" data-ai-go${ai.busy ? " disabled" : ""}>${ai.busy ? "Thinking…" : ai.suggestions.length ? "Suggest again" : "Suggest questions"}</button>
+          ${ai.suggestions.length || ai.request || ai.paste || ai.use.size ? `<button type="button" class="btn" data-ai-new title="Clear this page and start a new set of questions">Start new</button>` : ""}
           <span class="sheet-status" role="status">${escapeHtml(ai.status)}</span>
         </div>
         ${
@@ -1965,6 +1966,15 @@
       return draw();
     }
     if ("aiGo" in ds) return suggestQuestions();
+    if ("aiNew" in ds) {
+      if (ai.busy) return;
+      // A clean slate: the request, count, types, ticked resources, pasted material and every suggestion.
+      Object.assign(ai, { request: "", count: 5, types: { mc: true, tf: true, short: true }, use: new Set(), paste: "", status: "", suggestions: [], target: "new", added: "" });
+      draw();
+      const main = ui.el?.querySelector(".quiz-main");
+      if (main) main.scrollTop = 0;
+      return ui.el?.querySelector("[data-ai-request]")?.focus();
+    }
     if ("aiAdd" in ds) return addSuggestions();
     if (ds.openQuiz) {
       ui.section = "buckets";

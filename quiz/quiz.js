@@ -328,6 +328,23 @@
     return db ? db.doc("quiz_settings/weights").set({ types, updated_at: new Date().toISOString() }) : Promise.resolve();
   }
   const typeOf = (quiz) => quizTypes.find((t) => t.id === quiz?.category) || null;
+  // Quiz Buckets sorts quizzes by track first (CP Gen, C Side), then by type (Weekly, then Short).
+  const TRACKS = [
+    { id: "cp_gen", name: "CP Gen" },
+    { id: "c_side", name: "C Side" },
+  ];
+  const trackOf = (quiz) => TRACKS.find((t) => t.id === quiz?.track) || null;
+  const SORT_KEY = "trainer.quizBucketSort";
+  const bucketSort = () => {
+    try {
+      return localStorage.getItem(SORT_KEY) === "recent" ? "recent" : "track";
+    } catch {
+      return "track";
+    }
+  };
+  const byTitle = (a, b) => String(a.title || "").localeCompare(String(b.title || ""), undefined, { numeric: true, sensitivity: "base" });
+  // Weekly first, then Short, then any other type, then quizzes with no type.
+  const typeRank = (id) => (id === "weekly" ? 0 : id === "short" ? 1 : 2);
   const savedSection = (() => {
     try {
       return localStorage.getItem(SECTION_KEY);
@@ -426,23 +443,52 @@
 
   // The quiz list inside Quiz Buckets.
   function bucketListHtml() {
-    const list = allQuizzes();
+    // The quiz being edited uses its unsaved draft, so a changed track or type regroups it at once.
+    const list = allQuizzes().map((q) => (ui.draft?.id === q.id ? { ...q, ...ui.draft } : q));
+    const sort = bucketSort();
+    const item = (q, withTrack) => `<li><button type="button" data-pick="${escapeHtml(q.id)}"${q.id === ui.selected ? ' aria-current="true"' : ""}>
+                      <b>${escapeHtml(q.title || "Untitled quiz")}</b>
+                      <small>${withTrack ? `${trackOf(q) ? `${escapeHtml(trackOf(q).name)} · ` : "No track · "}` : ""}${typeOf(q) ? `${escapeHtml(typeOf(q).name)} · ` : "No type · "}${plural((q.questions || []).length, "question")}${escapeHtml(lastRunAvg(q.id))}</small></button></li>`;
+    // CP Gen, then C Side (always shown), then anything with no track; inside each, Weekly then Short.
+    const grouped = () => {
+      const sections = [...TRACKS.map((t) => ({ name: t.name, id: t.id, always: true })), { name: "No track yet", id: "", always: false }];
+      return sections
+        .map((sec) => {
+          const mine = list.filter((q) => (trackOf(q)?.id || "") === sec.id);
+          if (!mine.length && !sec.always) return "";
+          const typeIds = [...new Set(mine.map((q) => typeOf(q)?.id || ""))].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : typeRank(a) - typeRank(b)));
+          return `<section class="bucket-track"><h4>${escapeHtml(sec.name)} <small>${mine.length}</small></h4>${
+            mine.length
+              ? typeIds
+                  .map((tid) => {
+                    const qs = mine.filter((q) => (typeOf(q)?.id || "") === tid).sort(byTitle);
+                    const label = tid ? quizTypes.find((t) => t.id === tid)?.name || tid : "No type";
+                    return `<h5>${escapeHtml(label)} <small>${qs.length}</small></h5><ul class="quiz-list">${qs.map((q) => item(q, false)).join("")}</ul>`;
+                  })
+                  .join("")
+              : `<p class="muted quiz-side-note">No quizzes yet.</p>`
+          }</section>`;
+        })
+        .join("");
+    };
     return `
       <aside class="bucket-list">
         <button type="button" class="btn-primary quiz-new" data-new>+ New quiz</button>
+        <label class="bucket-sort">Sort
+          <select data-bucket-sort>
+            <option value="track"${sort === "track" ? " selected" : ""}>By track and type</option>
+            <option value="recent"${sort === "recent" ? " selected" : ""}>Recently edited</option>
+          </select></label>
         ${
           !quizzesLoaded
             ? `<p class="muted quiz-side-note">Loading…</p>`
             : !list.length
               ? `<p class="muted quiz-side-note">No quizzes yet.</p>`
-              : `<ul class="quiz-list">${list
-                  .map(
-                    (q) => `<li><button type="button" data-pick="${escapeHtml(q.id)}"${q.id === ui.selected ? ' aria-current="true"' : ""}>
-                      <b>${escapeHtml(q.title || "Untitled quiz")}</b>
-                      <small>${typeOf(q) ? `${escapeHtml(typeOf(q).name)} · ` : "No type · "}${plural((q.questions || []).length, "question")}${escapeHtml(lastRunAvg(q.id))}</small></button></li>`
-                  )
-                  .join("")}</ul>`
+              : sort === "track"
+                ? grouped()
+                : `<ul class="quiz-list">${list.map((q) => item(q, true)).join("")}</ul>`
         }
+        ${quizzesLoaded && sort === "track" && list.some((q) => !trackOf(q)) ? `<p class="muted quiz-side-note">Set a Track on a quiz (CP Gen or C Side) to move it into the right group.</p>` : ""}
       </aside>`;
   }
 
@@ -510,6 +556,11 @@
               ${quizTypes.map((t) => `<option value="${escapeHtml(t.id)}"${d.category === t.id ? " selected" : ""}>${escapeHtml(t.name)} · ${Number(t.weight) || 0}% of the weighted average</option>`).join("")}
             </select></label>
           <button type="button" class="linkish quiz-type-edit" data-edit-weights>Edit types & weights</button>
+          <label class="quiz-type">Track
+            <select data-f-track>
+              <option value=""${trackOf(d) ? "" : " selected"}>— Choose a track —</option>
+              ${TRACKS.map((t) => `<option value="${t.id}"${d.track === t.id ? " selected" : ""}>${t.name}</option>`).join("")}
+            </select></label>
         </div>
         ${typeOf(d) ? "" : `<p class="warn-text quiz-type-warn">Pick a type so this quiz counts toward the weighted average.</p>`}
       </div>
@@ -1822,6 +1873,17 @@
       return draw();
     }
     if ("pickQuiz" in ds) return select(t.value);
+    if ("bucketSort" in ds) {
+      try {
+        localStorage.setItem(SORT_KEY, t.value);
+      } catch {}
+      return draw();
+    }
+    if ("fTrack" in ds && d) {
+      d.track = t.value || null;
+      queueSave();
+      return draw();
+    }
     if ("fType" in ds && d) {
       d.category = t.value || null;
       queueSave();

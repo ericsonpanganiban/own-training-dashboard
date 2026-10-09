@@ -1791,3 +1791,11 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .td-field span { display: block; margin-bottom: 3px; opacity: .75; }
 .td-field input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 13.5px; }
 .td-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+
+/* Quiz Buckets: grouped by track (CP Gen, C Side) and type (Weekly, Short) */
+.bucket-sort { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.bucket-sort select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--window-fg); font: inherit; font-size: 12.5px; font-weight: 400; }
+.bucket-track { margin-top: 8px; }
+.bucket-track h4 { margin: 0 0 2px; padding: 6px 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; border-radius: 6px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.bucket-track h4 small, .bucket-track h5 small { font-weight: 400; opacity: .7; margin-left: 4px; }
+.bucket-track h5 { margin: 8px 0 2px 8px; font-size: 11px; font-weight: 700; color: var(--muted); }

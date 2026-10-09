@@ -759,7 +759,8 @@
     const controls = `<div class="quiz-run-row">${back}${cohortSelect}${quizSelect}
         <label>Sent
           <select data-run>${cruns.map((r) => `<option value="${escapeHtml(r.id)}"${r.id === run.id ? " selected" : ""}>${escapeHtml(stamp(r.sent_at))}</option>`).join("")}</select></label>
-        <button type="button" class="btn-primary" data-check${ui.busy ? " disabled" : ""}>${ui.busy === "check" ? "Checking replies…" : "↻ Check replies"}</button>
+        <button type="button" class="btn-primary" data-check${ui.busy || run.closed ? " disabled" : ""}${run.closed ? ' title="This check is closed. Reopen it to read new replies."' : ""}>${ui.busy === "check" ? "Checking replies…" : "↻ Check replies"}</button>
+        ${run.closed ? `<button type="button" class="btn" data-reopen-check${ui.busy ? " disabled" : ""}>Reopen check</button>` : `<button type="button" class="btn" data-close-check${ui.busy ? " disabled" : ""} title="Score everyone with no submission as 0">Close check</button>`}
       </div>${note}`;
     return controls + (ui.checkView === "all" ? allAnswersHtml(run, cohort) : resultsHtml(run, cohort));
   }
@@ -771,28 +772,32 @@
     const sent = recs.filter(([, r]) => r.sent);
     // Answers typed in by hand count too, even for someone Slack couldn't reach.
     const reachable = recs.filter(([tid, r]) => r.sent || resp[tid]?.text);
-    const answered = reachable.filter(([tid]) => resp[tid]?.text);
-    const scored = answered.map(([tid]) => resp[tid]);
+    const answered = reachable.filter(([tid]) => resp[tid]?.text && resp[tid].source !== "closed");
+    // Trainees scored 0 because the check was closed on them count toward the average and Passed, not Replied.
+    const closedZero = recs.filter(([tid]) => resp[tid]?.source === "closed");
+    const scored = [...answered, ...closedZero].map(([tid]) => resp[tid]);
+    const realScored = answered.map(([tid]) => resp[tid]);
     const avg = scored.length ? Math.round(scored.reduce((a, x) => a + x.pct, 0) / scored.length) : null;
     const pass = quiz.passing ?? 80;
     const passed = scored.filter((x) => x.pct >= pass).length;
     const pending = scored.reduce((a, x) => a + (x.pending || 0), 0);
     const perQ = quiz.questions.map((q, i) => {
-      const got = scored.filter((x) => x.results?.[q.id]?.correct === true).length;
-      return { q, i, got, of: scored.length };
+      const got = realScored.filter((x) => x.results?.[q.id]?.correct === true).length;
+      return { q, i, got, of: realScored.length };
     });
     const rows = recs
       .map(([tid, r]) => ({ tid, r, x: resp[tid] }))
       .sort((a, b) => (b.x?.pct ?? -1) - (a.x?.pct ?? -1) || a.r.name.localeCompare(b.r.name));
     return `
       <div class="stats quiz-stats">
-        <div class="stat"><div class="value">${answered.length}<span class="of"> / ${reachable.length}</span></div><div class="label">Replied</div>${sent.length < recs.length ? `<div class="hint">${plural(recs.length - sent.length, "trainee")} not reached on Slack</div>` : ""}</div>
+        <div class="stat"><div class="value">${answered.length}<span class="of"> / ${reachable.length}</span></div><div class="label">Replied</div>${closedZero.length ? `<div class="hint">${plural(closedZero.length, "trainee")} scored 0 (no submission)</div>` : ""}${sent.length < recs.length ? `<div class="hint">${plural(recs.length - sent.length, "trainee")} not reached on Slack</div>` : ""}</div>
         <div class="stat"><div class="value">${avg === null ? "—" : `${avg}%`}</div><div class="label">Average score</div></div>
         <div class="stat"><div class="value">${scored.length ? `${passed}<span class="of"> / ${scored.length}</span>` : "—"}</div><div class="label">Passed (${pass}% or more)</div></div>
         <div class="stat"><div class="value">${pending}</div><div class="label">Answers to review</div><div class="hint">${pending ? "Open a trainee to mark them" : "Nothing waiting"}</div></div>
       </div>
       <div class="review-tools"><button type="button" class="btn" data-all-answers${scored.length ? "" : " disabled"}>View all answers</button><small class="muted">Every trainee's answer to each question on one page.</small>
         <button type="button" class="btn-primary" data-send-all-results${scored.length ? "" : " disabled"} title="Send each trainee their result on Slack">Send results to all</button></div>
+      ${run.closed ? `<p class="quiz-closed-note">🔒 Check closed ${escapeHtml(stamp(run.closed_at))}. Trainees with no submission were scored 0%. Replies that arrive later aren't counted unless you reopen the check.</p>` : ""}
       ${analysisPanelHtml(cohort)}
       <h4 class="quiz-h">By question</h4>
       <ul class="quiz-byq">${perQ
@@ -804,7 +809,9 @@
       <div class="by-trainee-head"><h4 class="quiz-h">By trainee</h4><input type="search" data-find-row placeholder="Find a trainee" aria-label="Find a trainee" autocomplete="off" /></div>
       <table class="quiz-table" data-find-table><thead><tr><th>Trainee</th><th>Status</th><th>Score</th><th></th></tr></thead><tbody>${rows
         .map(({ tid, r, x }) => {
-          const status = x?.text
+          const status = x?.source === "closed"
+            ? `<span class="chip bad">No submission</span> <small class="muted">scored 0</small>`
+            : x?.text
             ? (x.pending ? `<span class="chip warn">${plural(x.pending, "answer")} to review</span>` : x.pct >= pass ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${pass}%</span>`) +
               (x.source === "manual" ? ` <small class="muted">entered by hand</small>` : "") +
               (x.feedback_sent_at ? ` <small class="muted" title="Result sent ${escapeHtml(stamp(x.feedback_sent_at))}">· result sent ✓</small>` : "")
@@ -812,14 +819,14 @@
               ? `<span class="chip bad">Not sent</span> <small class="muted">${escapeHtml(r.error || "")}</small>`
               : `<span class="chip">No reply yet</span>`;
           return `<tr data-name="${escapeHtml(r.name.toLowerCase())}"><td>${escapeHtml(r.name)}</td><td>${status}</td><td>${x?.text ? `<b>${x.pct}%</b> <small class="muted">${x.earned}/${x.total} pts</small>` : "—"}</td>
-            <td><button type="button" class="btn btn-small" data-view="${escapeHtml(tid)}">${x?.text ? "View answers" : "Enter answers"}</button></td></tr>`;
+            <td><button type="button" class="btn btn-small" data-view="${escapeHtml(tid)}">${x?.source === "closed" ? "View / enter answers" : x?.text ? "View answers" : "Enter answers"}</button></td></tr>`;
         })
         .join("")}</tbody></table>
       <p class="muted quiz-send-help">Scores use the quiz as it was sent on ${escapeHtml(stamp(run.sent_at))}, so later edits to the questions don't change them.</p>`;
   }
 
   // ---- Reviewing answers: every answer on one page, and Claude's read on common mistakes ----
-  const answeredOf = (run) => Object.entries(run.responses || {}).filter(([, x]) => x?.text);
+  const answeredOf = (run) => Object.entries(run.responses || {}).filter(([, x]) => x?.text && x.source !== "closed");
   const keyText = (q) => (q.type === "mc" ? `${LETTERS[q.answer]}) ${q.choices[q.answer]}` : q.type === "tf" ? (q.answer ? "True" : "False") : String(q.answer || ""));
   const resultChip = (r) =>
     r?.correct === true ? `<span class="chip ok">Correct</span>` : r?.correct === false ? `<span class="chip bad">Wrong</span>` : `<span class="chip warn">To review</span>`;
@@ -1042,6 +1049,8 @@
 
   // The result message a trainee gets on Slack: score, then every question with their answer and the result.
   function feedbackMessage(quiz, resp, name) {
+    if (resp.source === "closed")
+      return `**📝 Your result: ${quiz.title || "Quiz"}**\nHi ${String(name || "").split(" ")[0] || "there"}! No answers were submitted before this quiz closed, so it was scored **0%**. If you think this is a mistake, please reply and let me know.`;
     const pass = quiz.passing ?? 80;
     const sc = score(quiz, resp.results);
     const lines = [`**📝 Your result: ${quiz.title || "Quiz"}**`, `Hi ${String(name || "").split(" ")[0] || "there"}! You scored **${sc.pct}%** (${sc.earned}/${sc.total} points). ${sc.pct >= pass ? "Passed ✅" : `The passing score is ${pass}%.`}`];
@@ -2039,6 +2048,8 @@
     }
     if ("sendAllResults" in ds) return bulkResults();
     if ("send" in ds) return confirmSend();
+    if ("closeCheck" in ds) return closeCheck();
+    if ("reopenCheck" in ds) return reopenCheck();
     if ("check" in ds) return checkReplies();
     if ("allAnswers" in ds || "results" in ds) {
       ui.checkView = "allAnswers" in ds ? "all" : "";
@@ -2319,10 +2330,12 @@
   }
 
   // ---- Checking replies ----
+  // Returns { responses, failed } once saved, or null when it couldn't read or save.
   async function checkReplies() {
     const run = runs.find((r) => r.id === ui.runId);
     const s = slack();
-    if (!run || !s) return;
+    if (!run || !s) return null;
+    let result = null;
     ui.busy = "check";
     ui.note = "Reading replies on Slack…";
     draw();
@@ -2330,7 +2343,7 @@
     let failed = 0;
     for (const [tid, rec] of Object.entries(run.recipients || {})) {
       if (!rec.sent || !rec.slack_user_id) continue;
-      if (run.responses?.[tid]?.source === "manual") continue; // typed in by hand; keep it
+      if (run.responses?.[tid]?.source === "manual" || run.responses?.[tid]?.source === "closed") continue; // typed in by hand, or closed at 0; keep it
       try {
         const text = await traineeReplies(rec);
         if (text) replies[tid] = text;
@@ -2343,13 +2356,94 @@
     draw();
     try {
       const responses = await gradeReplies(run, replies, "slack");
-      await saveRun(ui.selected, { ...run, responses });
+      const saved = { ...run, responses };
+      await saveRun(ui.selected, saved);
+      const at = runs.findIndex((r) => r.id === run.id);
+      if (at > -1) runs[at] = saved;
+      patchAllRuns(ui.selected, saved);
+      result = { responses, failed };
       const waiting = Object.values(responses).reduce((a, x) => a + (x.pending || 0), 0);
       ui.note = escapeHtml(
         `${n ? `Checked ${plural(n, "reply")} ✓` : "No new replies yet."}${failed ? ` Couldn't read ${failed} DM${failed === 1 ? "" : "s"}; try again.` : ""}${waiting ? ` ${plural(waiting, "short answer")} still need${waiting === 1 ? "s" : ""} your review.` : ""}`
       );
     } catch {
       ui.note = "Couldn't save the results. Try again.";
+    }
+    ui.busy = "";
+    draw();
+    return result;
+  }
+
+  // Closing a check: read the replies one last time, then score everyone who still has no submission as 0.
+  function closeCheck() {
+    const run = runs.find((r) => r.id === ui.runId);
+    if (!run) return;
+    const quizId = ui.selected;
+    const missing = Object.entries(run.recipients || {}).filter(([tid]) => !run.responses?.[tid]?.text);
+    const unsent = missing.filter(([, r]) => !r.sent).length;
+    const x = sheet(`<h3 data-crumb="Close check">Close this check?</h3>
+      <p class="muted">${escapeHtml(run.quiz?.title || "This quiz")} · ${escapeHtml(run.cohort_name || "")}. Replies are read one last time, then everyone with no submission is scored <b>0%</b> and counts in the averages. Replies that arrive after this aren't counted unless you reopen the check.</p>
+      <p><b>${plural(missing.length - unsent, "trainee")}</b> ${missing.length - unsent === 1 ? "has" : "have"} no submission yet.</p>
+      ${unsent ? `<label class="aa-filter"><input type="checkbox" data-inc-unsent /> Also score the ${plural(unsent, "trainee")} this quiz couldn't be sent to (no Slack match)</label>` : ""}
+      <p class="sheet-status" data-status role="status"></p>
+      <div class="sheet-actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-danger" data-go>Close check</button></div>`);
+    if (!x) return;
+    x.s.querySelector("[data-go]").addEventListener("click", async (e) => {
+      const go = e.currentTarget;
+      const status = x.s.querySelector("[data-status]");
+      go.disabled = true;
+      status.textContent = "Reading replies one last time…";
+      const res = await checkReplies();
+      if (!res || res.failed) {
+        go.disabled = false;
+        status.textContent = res ? `Couldn't read ${plural(res.failed, "DM")}. Try again so nobody who replied gets a 0.` : "Couldn't read replies. Try again.";
+        return;
+      }
+      const includeUnsent = !!x.s.querySelector("[data-inc-unsent]")?.checked;
+      const base = runs.find((r) => r.id === run.id) || { ...run, responses: res.responses };
+      const cur = { ...base, responses: { ...(base.responses || {}) } };
+      const now = new Date().toISOString();
+      let zeroed = 0;
+      for (const [tid, rec] of Object.entries(cur.recipients || {})) {
+        if (cur.responses[tid]?.text || (!rec.sent && !includeUnsent)) continue;
+        const results = {};
+        (cur.quiz?.questions || []).forEach((q) => (results[q.id] = { answer: "", correct: false, by: "closed", reason: "No submission before the check closed" }));
+        cur.responses[tid] = { text: "(no submission)", results, source: "closed", checked_at: now, ...score(cur.quiz, results) };
+        zeroed++;
+      }
+      cur.closed = true;
+      cur.closed_at = now;
+      status.textContent = "Saving…";
+      try {
+        await saveRun(quizId, cur);
+      } catch {
+        go.disabled = false;
+        return void (status.textContent = "Couldn't save. Try again.");
+      }
+      const i = runs.findIndex((r) => r.id === cur.id);
+      if (i > -1) runs[i] = cur;
+      patchAllRuns(quizId, cur);
+      ui.note = escapeHtml(`Check closed. ${zeroed ? `${plural(zeroed, "trainee")} with no submission scored 0%.` : "Everyone had submitted."}`);
+      x.close();
+      draw();
+    });
+  }
+  async function reopenCheck() {
+    const run = runs.find((r) => r.id === ui.runId);
+    if (!run) return;
+    const cur = { ...run, responses: Object.fromEntries(Object.entries(run.responses || {}).filter(([, x]) => x?.source !== "closed")) };
+    delete cur.closed;
+    delete cur.closed_at;
+    ui.busy = "check";
+    draw();
+    try {
+      await saveRun(ui.selected, cur);
+      const i = runs.findIndex((r) => r.id === cur.id);
+      if (i > -1) runs[i] = cur;
+      patchAllRuns(ui.selected, cur);
+      ui.note = "Check reopened. The 0 scores for trainees with no submission were removed.";
+    } catch {
+      ui.note = "Couldn't reopen the check. Try again.";
     }
     ui.busy = "";
     draw();
@@ -2380,7 +2474,7 @@
       const sc = resp ? score(quiz, resp.results) : null;
       x.s.querySelector(".sheet-card").innerHTML = `
         <h3>${escapeHtml(rec.name)} · ${escapeHtml(quiz.title)}</h3>
-        <p class="muted">${resp?.text ? `<b>${sc.pct}%</b> · ${sc.earned}/${sc.total} points${sc.pending ? ` · ${plural(sc.pending, "answer")} to review` : ""} · ${resp.source === "manual" ? "entered by hand" : "from Slack"} · checked ${escapeHtml(stamp(resp.checked_at))}${resp.feedback_sent_at ? ` · <b>result sent ${escapeHtml(stamp(resp.feedback_sent_at))}</b>` : ""}` : "No answers yet."}</p>
+        <p class="muted">${resp?.text ? `<b>${sc.pct}%</b> · ${sc.earned}/${sc.total} points${sc.pending ? ` · ${plural(sc.pending, "answer")} to review` : ""} · ${resp.source === "closed" ? "no submission, scored 0 when the check closed" : resp.source === "manual" ? "entered by hand" : "from Slack"} · checked ${escapeHtml(stamp(resp.checked_at))}${resp.feedback_sent_at ? ` · <b>result sent ${escapeHtml(stamp(resp.feedback_sent_at))}</b>` : ""}` : "No answers yet."}</p>
         ${
           sending
             ? `<p class="quiz-send-help">Goes to ${escapeHtml(rec.name)} as a Slack DM from you. Change anything before sending, like adding a note of your own.</p>
@@ -2610,7 +2704,8 @@
           .map(({ quizId, r, x }) => {
             const quiz = r.quiz || {};
             const answered = !!(x?.text && x.total);
-            const missed = answered
+            const closedZero = x?.source === "closed";
+            const missed = answered && !closedZero
               ? (quiz.questions || [])
                   .filter((q) => x.results?.[q.id]?.correct === false)
                   .map((q) => ({ question: q.prompt, answer: x.results[q.id].answer || "", correct: keyText(q) }))
@@ -2620,7 +2715,7 @@
               type: typeOf(quizById.get(quizId))?.name || "",
               typeId: typeOf(quizById.get(quizId))?.id || "",
               sent_at: r.sent_at || "",
-              status: answered ? "Answered" : r.recipients[traineeId].sent ? "No reply yet" : "Not sent",
+              status: closedZero ? "No submission (0)" : answered ? "Answered" : r.recipients[traineeId].sent ? "No reply yet" : "Not sent",
               pct: answered ? x.pct : null,
               earned: answered ? x.earned : null,
               total: answered ? x.total : null,

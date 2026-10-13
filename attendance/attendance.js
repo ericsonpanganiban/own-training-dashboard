@@ -381,11 +381,11 @@
       const points = totalPoints(t, days, dates, today);
       row.push(points);
       rows.push(row);
-      stats.push([t.name || "Trainee", status, c.graded, c.ontime, c.late, c.absent, c.ncns, rate(c.ontime, c.graded), points]);
+      stats.push([t.name || "Trainee", status, c.graded, c.ontime, c.late, c.absent, c.ncns, rate(c.ontime, c.graded), points, noteOf(cohort, t.id)]);
       ["ontime", "late", "absent", "ncns", "graded"].forEach((k) => (sum[k] += c[k]));
       sum.points += points;
     });
-    rows.push([], ["Per-Trainee Attendance Analysis"], ["Trainee", "Status", "Days Graded", "On-time Days", "Late Days", "Absent Days", "NCNS Days", "On-time Rate", "Total Points"], ...stats);
+    rows.push([], ["Per-Trainee Attendance Analysis"], ["Trainee", "Status", "Days Graded", "On-time Days", "Late Days", "Absent Days", "NCNS Days", "On-time Rate", "Total Points", "Attendance Note"], ...stats);
     rows.push(
       [],
       ["Cohort Summary"],
@@ -457,6 +457,41 @@
     setTimeout(() => t.remove(), 4500);
   }
 
+  const noteOf = (cohort, tid) => String(cohort.attendance_notes?.[tid] || "").trim();
+
+  // The trainer's attendance note on one trainee, opened from their Total Points.
+  function openNote(cohortId, traineeId) {
+    const cohort = cohortById(cohortId);
+    const t = cc().data().trainees.find((x) => x.id === traineeId);
+    if (!cohort || !t) return;
+    const s = openSheet(
+      `<h3>Attendance note · ${escapeHtml(t.name || "Trainee")}</h3>
+       <p class="muted att-sub">${escapeHtml(cohort.name)}. Only you and other trainers see this.</p>
+       <textarea class="att-compose" rows="6" placeholder="e.g. Late Day 3: transport issue, approved. Absent Day 7: sick, medical cert sent."></textarea>
+       <p class="sheet-status" role="status"></p>
+       <div class="sheet-actions"><span class="att-spacer"></span><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-primary" data-save-note>Save note</button></div>`,
+      true
+    );
+    if (!s) return;
+    const text = s.sheet.querySelector("textarea");
+    text.value = noteOf(cohort, traineeId);
+    text.focus();
+    s.sheet.querySelector("[data-save-note]").addEventListener("click", (ev) => {
+      ev.target.disabled = true;
+      const notes = { ...(cohortById(cohortId).attendance_notes || {}) };
+      const v = text.value.trim();
+      if (v) notes[traineeId] = v;
+      else delete notes[traineeId];
+      cc()
+        .updateCohort(cohortId, { attendance_notes: notes })
+        .then(() => s.close())
+        .catch(() => {
+          ev.target.disabled = false;
+          s.sheet.querySelector(".sheet-status").textContent = "Couldn't save. Try again.";
+        });
+    });
+  }
+
   function gridHtml(cohort, members) {
     if (!members.length) return `<p class="muted">No trainees in this cohort yet. Add them from Cohorts with + Add Trainee.</p>`;
     const dates = trainingDays(cohort);
@@ -473,7 +508,7 @@
           (o) => `<option value="${o.value}"${o.value === cur ? " selected" : ""}>${escapeHtml(o.label)}</option>`
         ).join("")}</select></td>`;
       }).join("");
-      return `<tr class="${isInactive(t) ? "is-inactive" : ""}"><td class="att-name">${escapeHtml(t.name || "Trainee")}</td><td class="att-total">${totalPoints(t, days, dates, today).toFixed(2)}</td>${cells}</tr>`;
+      return `<tr class="${isInactive(t) ? "is-inactive" : ""}"><td class="att-name">${escapeHtml(t.name || "Trainee")}</td><td class="att-total"><button type="button" class="att-note-link${noteOf(cohort, t.id) ? " has-note" : ""}" data-att-note="${escapeHtml(cohort.id)}|${escapeHtml(t.id)}" title="${noteOf(cohort, t.id) ? escapeHtml(noteOf(cohort, t.id)) : "Add an attendance note"}">${totalPoints(t, days, dates, today).toFixed(2)}${noteOf(cohort, t.id) ? '<span aria-hidden="true"> ●</span>' : ""}</button></td>${cells}</tr>`;
     };
     const group = (label, list, empty) =>
       `<tr class="att-group"><td colspan="${cols}"><span>${label} (${list.length})</span></td></tr>` +
@@ -676,6 +711,7 @@
       ui.open.has(d.attToggle) ? ui.open.delete(d.attToggle) : ui.open.add(d.attToggle);
       draw();
     } else if ("attCohorts" in d) openApp("cohorts");
+    else if (d.attNote) openNote(...d.attNote.split("|"));
     else if (d.attSaveChannel) saveChannel(d.attSaveChannel);
     else if (d.attSend) openCompose(d.attSend);
     else if (d.attCheck) doCheck(d.attCheck);

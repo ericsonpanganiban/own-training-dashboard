@@ -813,7 +813,7 @@
             ? `<span class="chip bad">No submission</span> <small class="muted">scored 0</small>`
             : x?.text
             ? (x.pending ? `<span class="chip warn">${plural(x.pending, "answer")} to review</span>` : x.pct >= pass ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${pass}%</span>`) +
-              (x.source === "manual" ? ` <small class="muted">entered by hand</small>` : "") +
+              (x.source === "manual" || x.source === "score" ? ` <small class="muted">entered by hand</small>` : "") +
               (x.feedback_sent_at ? ` <small class="muted" title="Result sent ${escapeHtml(stamp(x.feedback_sent_at))}">· result sent ✓</small>` : "")
             : !r.sent
               ? `<span class="chip bad">Not sent</span> <small class="muted">${escapeHtml(r.error || "")}</small>`
@@ -1230,7 +1230,7 @@
       const pass = quiz.passing ?? 80;
       const type = typeOf(quizById.get(quizId));
       const status = x?.text
-        ? `<span class="chip ok">Answered</span>${x.source === "manual" ? ` <small class="muted">entered by hand</small>` : ""}`
+        ? `<span class="chip ok">Answered</span>${x.source === "manual" || x.source === "score" ? ` <small class="muted">entered by hand</small>` : ""}`
         : !rec.sent
           ? `<span class="chip bad">Not sent</span> <small class="muted">${escapeHtml(rec.error || "")}</small>`
           : `<span class="chip">No reply yet</span>`;
@@ -2362,7 +2362,7 @@
     let failed = 0;
     for (const [tid, rec] of Object.entries(run.recipients || {})) {
       if (!rec.sent || !rec.slack_user_id) continue;
-      if (run.responses?.[tid]?.source === "manual" || run.responses?.[tid]?.source === "closed") continue; // typed in by hand, or closed at 0; keep it
+      if (["manual", "closed", "score"].includes(run.responses?.[tid]?.source)) continue; // typed in by hand, or closed at 0; keep it
       try {
         const text = await traineeReplies(rec);
         if (text) replies[tid] = text;
@@ -2493,7 +2493,7 @@
       const sc = resp ? score(quiz, resp.results) : null;
       x.s.querySelector(".sheet-card").innerHTML = `
         <h3>${escapeHtml(rec.name)} · ${escapeHtml(quiz.title)}</h3>
-        <p class="muted">${resp?.text ? `<b>${sc.pct}%</b> · ${sc.earned}/${sc.total} points${sc.pending ? ` · ${plural(sc.pending, "answer")} to review` : ""} · ${resp.source === "closed" ? "no submission, scored 0 when the check closed" : resp.source === "manual" ? "entered by hand" : "from Slack"} · checked ${escapeHtml(stamp(resp.checked_at))}${resp.feedback_sent_at ? ` · <b>result sent ${escapeHtml(stamp(resp.feedback_sent_at))}</b>` : ""}` : "No answers yet."}</p>
+        <p class="muted">${resp?.text ? `<b>${sc.pct}%</b> · ${sc.earned}/${sc.total} points${sc.pending ? ` · ${plural(sc.pending, "answer")} to review` : ""} · ${resp.source === "closed" ? "no submission, scored 0 when the check closed" : resp.source === "manual" || resp.source === "score" ? "score entered by hand" : "from Slack"} · checked ${escapeHtml(stamp(resp.checked_at))}${resp.feedback_sent_at ? ` · <b>result sent ${escapeHtml(stamp(resp.feedback_sent_at))}</b>` : ""}` : "No answers yet."}</p>
         ${
           sending
             ? `<p class="quiz-send-help">Goes to ${escapeHtml(rec.name)} as a Slack DM from you. Change anything before sending, like adding a note of your own.</p>
@@ -2729,7 +2729,9 @@
                   .filter((q) => x.results?.[q.id]?.correct === false)
                   .map((q) => ({ question: q.prompt, answer: x.results[q.id].answer || "", correct: keyText(q) }))
               : [];
+            const typed = x?.source === "score";
             return {
+              quizId, runId: r.id, scoreEntered: typed, note: typed ? x.note || "" : "",
               title: quiz.title || quizById.get(quizId)?.title || "Quiz",
               type: typeOf(quizById.get(quizId))?.name || "",
               typeId: typeOf(quizById.get(quizId))?.id || "",
@@ -2750,6 +2752,21 @@
         items.sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""));
         return { avg: st.taken ? Math.round(st.sum / st.taken) : null, weighted: st.weighted, taken: st.taken, sent: st.sent, items, types: quizTypes.map((t) => ({ id: t.id, name: t.name, weight: Number(t.weight) || 0 })) };
       });
+    },
+    // Give a quiz the trainee never answered a score by hand (pct 0–100), or clear it again (pct null).
+    async setRunScore(quizId, runId, traineeId, pct, note) {
+      await loadAllRuns();
+      const run = (allRuns?.[quizId] || []).find((r) => r.id === runId);
+      if (!run) throw new Error("Quiz run not found");
+      const responses = { ...(run.responses || {}) };
+      if (pct == null) {
+        if (responses[traineeId]?.source === "score") delete responses[traineeId];
+      } else {
+        responses[traineeId] = { text: "(score entered by hand)", results: {}, source: "score", note: note || "", checked_at: new Date().toISOString(), pct, earned: pct, total: 100, pending: 0 };
+      }
+      const cur = { ...run, responses };
+      await saveRun(quizId, cur);
+      patchAllRuns(quizId, cur);
     },
     // For tests and reuse.
     _parseAnswers: parseAnswers,

@@ -136,3 +136,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 `quizzes/{id}/runs/{runId}` (each send keeps the quiz as sent, so later edits don't change old scores).
 
 **Entered quiz scores.** Performance → Quiz has **+ Add score** for a quiz taken outside the Claude-made ones: pick Short or Weekly, type the score (`85`, `85%` or `8/10`), a date and a **Note** (what the score was for). Entries are saved on the trainee (`manual_quiz_scores`), show an "Entered by hand" tag with the note and **Edit / Remove**, appear in the Short / Weekly summary tables, and count in the averages and weighted average everywhere. Copy includes a Note column.
+
+**Score for unanswered quizzes.** In Performance → Quiz, a quiz marked *No reply yet* has **Enter score** (score + note). It is saved on that quiz run's response (`source: "score"`), counts in averages and the weighted average, shows "Entered by hand" with the note, and has Edit / Remove (Remove returns it to *No reply yet*). Check replies and Close check leave it alone.

@@ -1992,11 +1992,11 @@ function openPerformance(content, traineeId) {
     const types = (d.types || []).filter((t) => /short|weekly/i.test(`${t.id} ${t.name}`));
     const opts = (types.length ? types : d.types || []).map((t) => `<option value="${escapeHtml(t.id)}"${t.id === f.type ? " selected" : ""}>${escapeHtml(t.name)}</option>`).join("");
     return `<form class="quiz-manual-form" data-manual-form>
-      <h4>${f.id ? "Edit entered score" : "Enter a score by hand"}</h4>
+      <h4>${f.run ? `Enter a score for ${escapeHtml(f.runTitle)}` : f.id ? "Edit entered score" : "Enter a score by hand"}</h4>
       <div class="quiz-manual-row">
-        <label>Quiz type<select data-mf="type">${opts}</select></label>
+        ${f.run ? "" : `<label>Quiz type<select data-mf="type">${opts}</select></label>`}
         <label>Score<input data-mf="score" value="${escapeHtml(f.score)}" placeholder="85, 85% or 8/10" inputmode="text" autocomplete="off"></label>
-        <label>Date<input type="date" data-mf="date" value="${escapeHtml(f.date)}"></label>
+        ${f.run ? "" : `<label>Date<input type="date" data-mf="date" value="${escapeHtml(f.date)}"></label>`}
       </div>
       <label>Note <small class="muted">what this score was for</small><input data-mf="note" value="${escapeHtml(f.note)}" placeholder="e.g. Retake of Week 2 on paper, billing refunds" autocomplete="off"></label>
       ${f.error ? `<p class="bad-text" role="alert">${escapeHtml(f.error)}</p>` : ""}
@@ -2029,11 +2029,15 @@ function openPerformance(content, traineeId) {
     const card = (x) => `
       <section class="quiz-perf">
         <div class="quiz-perf-head"><b>${escapeHtml(x.title)}</b>${x.type ? ` <span class="chip">${escapeHtml(x.type)}</span>` : ""}
-          ${x.manual ? `<span class="chip">Entered by hand</span>` : ""}
+          ${x.manual || x.scoreEntered ? `<span class="chip">Entered by hand</span>` : ""}
           <span class="muted">${escapeHtml(x.manual ? x.sent_at : fmtStamp(x.sent_at))}</span>
-          <span class="quiz-perf-score">${x.pct == null ? `<span class="muted">${escapeHtml(x.status)}</span>` : `<b>${x.pct}%</b> ${x.manual ? "" : `<small class="muted">${x.earned}/${x.total} pts</small>`} ${x.pending ? `<span class="chip warn">${x.pending} to review</span>` : x.pct >= x.passing ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${x.passing}%</span>`}`}</span></div>
+          <span class="quiz-perf-score">${x.pct == null ? `<span class="muted">${escapeHtml(x.status)}</span>` : `<b>${x.pct}%</b> ${x.manual || x.scoreEntered ? "" : `<small class="muted">${x.earned}/${x.total} pts</small>`} ${x.pending ? `<span class="chip warn">${x.pending} to review</span>` : x.pct >= x.passing ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${x.passing}%</span>`}`}</span></div>
         ${
-          x.manual
+          x.scoreEntered
+            ? `<p class="quiz-manual-note">${x.note ? `<b>Note:</b> ${escapeHtml(x.note)}` : `<span class="muted">No note.</span>`} <button type="button" class="linkish" data-run-score="${escapeHtml(x.quizId)}|${escapeHtml(x.runId)}">Edit</button> <button type="button" class="linkish" data-run-score-clear="${escapeHtml(x.quizId)}|${escapeHtml(x.runId)}">Remove</button></p>`
+            : x.pct == null && !x.manual && x.runId && x.status !== "No submission (0)"
+            ? `<p class="quiz-manual-note"><button type="button" class="btn btn-small" data-run-score="${escapeHtml(x.quizId)}|${escapeHtml(x.runId)}">Enter score</button> <small class="muted">for a quiz they did outside Slack</small></p>`
+            : x.manual
             ? `<p class="quiz-manual-note">${x.note ? `<b>Note:</b> ${escapeHtml(x.note)}` : `<span class="muted">No note.</span>`} <button type="button" class="linkish" data-manual-edit="${escapeHtml(x.id)}">Edit</button> <button type="button" class="linkish" data-manual-del="${escapeHtml(x.id)}">Remove</button></p>`
             : x.pct == null
             ? ""
@@ -2177,6 +2181,14 @@ function openPerformance(content, traineeId) {
       const m = manualList().find((x) => x.id === b.dataset.manualEdit);
       if (!m) return;
       view.quizForm = { id: m.id, type: m.type, score: String(m.pct), date: m.date || "", note: m.note || "", error: "" };
+    } else if (b.dataset.runScore) {
+      const [qid, rid] = b.dataset.runScore.split("|");
+      const it = (view.quiz?.data?.items || []).find((x) => x.quizId === qid && x.runId === rid);
+      if (!it) return;
+      view.quizForm = { run: b.dataset.runScore, runTitle: it.title, type: "", score: it.scoreEntered ? String(it.pct) : "", date: "", note: it.note || "", error: "" };
+    } else if (b.dataset.runScoreClear) {
+      const [qid, rid] = b.dataset.runScoreClear.split("|");
+      return void window.TrainerQuiz.setRunScore(qid, rid, traineeId, null).then(() => { view.quiz = null; loadQuiz(); draw(); });
     } else if (b.dataset.manualDel) {
       return void saveManualList(manualList().filter((x) => x.id !== b.dataset.manualDel));
     } else if ("manualCancel" in b.dataset) view.quizForm = null;
@@ -2204,6 +2216,12 @@ function openPerformance(content, traineeId) {
     const pct = parseScore(f.score);
     if (pct == null) {
       f.error = "Enter a score from 0 to 100, like 85, 85% or 8/10.";
+      return draw();
+    }
+    if (f.run) {
+      const [qid, rid] = f.run.split("|");
+      view.quizForm = null;
+      window.TrainerQuiz.setRunScore(qid, rid, traineeId, pct, f.note.trim()).then(() => { view.quiz = null; loadQuiz(); }, () => { view.quizForm = f; f.error = "Couldn't save. Try again."; draw(); });
       return draw();
     }
     if (!f.type) {

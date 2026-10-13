@@ -1801,3 +1801,10 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .bucket-track h5 { margin: 8px 0 2px 8px; font-size: 11px; font-weight: 700; color: var(--muted); }
 
 .quiz-closed-note { margin: 8px 0; padding: 8px 12px; border-radius: 8px; background: var(--warning-bg); color: var(--warning-ink); font-size: 12.5px; }
+
+.quiz-manual-form { border: 1px solid var(--line, #ddd); border-radius: 8px; padding: 12px; margin-bottom: 12px; display: grid; gap: 8px; }
+.quiz-manual-form label { display: grid; gap: 4px; font-size: 13px; }
+.quiz-manual-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.quiz-manual-row label { flex: 1 1 140px; }
+.quiz-manual-acts { display: flex; gap: 8px; }
+.quiz-manual-note { margin: 6px 0 0; }

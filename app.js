@@ -1986,21 +1986,56 @@ function openPerformance(content, traineeId) {
         .join("")}</tbody></table></div>`;
   };
 
+  const manualForm = (d) => {
+    const f = view.quizForm;
+    if (!f) return "";
+    const types = (d.types || []).filter((t) => /short|weekly/i.test(`${t.id} ${t.name}`));
+    const opts = (types.length ? types : d.types || []).map((t) => `<option value="${escapeHtml(t.id)}"${t.id === f.type ? " selected" : ""}>${escapeHtml(t.name)}</option>`).join("");
+    return `<form class="quiz-manual-form" data-manual-form>
+      <h4>${f.id ? "Edit entered score" : "Enter a score by hand"}</h4>
+      <div class="quiz-manual-row">
+        <label>Quiz type<select data-mf="type">${opts}</select></label>
+        <label>Score<input data-mf="score" value="${escapeHtml(f.score)}" placeholder="85, 85% or 8/10" inputmode="text" autocomplete="off"></label>
+        <label>Date<input type="date" data-mf="date" value="${escapeHtml(f.date)}"></label>
+      </div>
+      <label>Note <small class="muted">what this score was for</small><input data-mf="note" value="${escapeHtml(f.note)}" placeholder="e.g. Retake of Week 2 on paper, billing refunds" autocomplete="off"></label>
+      ${f.error ? `<p class="bad-text" role="alert">${escapeHtml(f.error)}</p>` : ""}
+      <div class="quiz-manual-acts"><button type="submit" class="btn btn-primary">Save score</button> <button type="button" class="btn" data-manual-cancel>Cancel</button></div>
+    </form>`;
+  };
+  const parseScore = (v) => {
+    const t = String(v || "").trim().replace(/\s*%$/, "");
+    const m = /^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/.exec(t);
+    const n = m ? (Number(m[2]) > 0 ? (Number(m[1]) / Number(m[2])) * 100 : NaN) : /^\d+(?:\.\d+)?$/.test(t) ? Number(t) : NaN;
+    return Number.isFinite(n) && n >= 0 && n <= 100 ? Math.round(n * 10) / 10 : null;
+  };
+  const manualList = () => {
+    const t = cc.data().trainees.find((x) => x.id === traineeId);
+    return Array.isArray(t?.manual_quiz_scores) ? t.manual_quiz_scores.slice() : [];
+  };
+  const saveManualList = async (list) => {
+    await cc.updateTrainee(traineeId, { manual_quiz_scores: list });
+    view.manualSig = JSON.stringify(manualList());
+    view.quiz = null;
+    loadQuiz();
+  };
   const quizBody = () => {
     const q = view.quiz;
     if (!window.TrainerQuiz) return `<p class="muted">Quiz isn't available right now.</p>`;
     if (!q || q.loading) return `<p class="muted">Loading quiz scores…</p>`;
     if (q.error) return `<p class="muted">Couldn't load quiz scores. Try Refresh.</p>`;
     const d = q.data;
-    if (!d.items.length) return `<p class="muted">No quizzes sent to this trainee yet. Send one from the Quiz app.</p>`;
     const missed = d.items.reduce((n, x) => n + x.missed.length, 0);
     const card = (x) => `
       <section class="quiz-perf">
         <div class="quiz-perf-head"><b>${escapeHtml(x.title)}</b>${x.type ? ` <span class="chip">${escapeHtml(x.type)}</span>` : ""}
-          <span class="muted">${escapeHtml(fmtStamp(x.sent_at))}</span>
-          <span class="quiz-perf-score">${x.pct == null ? `<span class="muted">${escapeHtml(x.status)}</span>` : `<b>${x.pct}%</b> <small class="muted">${x.earned}/${x.total} pts</small> ${x.pending ? `<span class="chip warn">${x.pending} to review</span>` : x.pct >= x.passing ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${x.passing}%</span>`}`}</span></div>
+          ${x.manual ? `<span class="chip">Entered by hand</span>` : ""}
+          <span class="muted">${escapeHtml(x.manual ? x.sent_at : fmtStamp(x.sent_at))}</span>
+          <span class="quiz-perf-score">${x.pct == null ? `<span class="muted">${escapeHtml(x.status)}</span>` : `<b>${x.pct}%</b> ${x.manual ? "" : `<small class="muted">${x.earned}/${x.total} pts</small>`} ${x.pending ? `<span class="chip warn">${x.pending} to review</span>` : x.pct >= x.passing ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${x.passing}%</span>`}`}</span></div>
         ${
-          x.pct == null
+          x.manual
+            ? `<p class="quiz-manual-note">${x.note ? `<b>Note:</b> ${escapeHtml(x.note)}` : `<span class="muted">No note.</span>`} <button type="button" class="linkish" data-manual-edit="${escapeHtml(x.id)}">Edit</button> <button type="button" class="linkish" data-manual-del="${escapeHtml(x.id)}">Remove</button></p>`
+            : x.pct == null
             ? ""
             : x.missed.length
               ? `<ul class="quiz-opps">${x.missed
@@ -2016,9 +2051,9 @@ function openPerformance(content, traineeId) {
           <div class="stat"><div class="value">${d.weighted == null ? "—" : `${d.weighted}%`}</div><div class="label">Weighted average</div><div class="hint">by quiz type</div></div>
           <div class="stat"><div class="value">${missed}</div><div class="label">Opportunities</div><div class="hint">questions missed</div></div>
         </div>
-        <div class="perf-tabs"><button type="button" class="btn btn-small" data-quiz-refresh>↻ Refresh</button></div>
+        <div class="perf-tabs"><button type="button" class="btn btn-small" data-manual-add>+ Add score</button> <button type="button" class="btn btn-small" data-quiz-refresh>↻ Refresh</button></div>
       </div>
-      <div class="perf-detail">${summaryHtml(d)}${d.items.map(card).join("")}</div>`;
+      <div class="perf-detail">${manualForm(d)}${d.items.length ? summaryHtml(d) : `<p class="muted">No quizzes sent to this trainee yet. Send one from the Quiz app, or use + Add score to enter one taken elsewhere.</p>`}${d.items.map(card).join("")}</div>`;
   };
   // Scores by quiz type, in the order taken. A weekly quiz always has two slots; short quizzes have no fixed count.
   const summaryHtml = (d) => {
@@ -2064,8 +2099,8 @@ function openPerformance(content, traineeId) {
     }
     if (view.mode === "quiz") {
       const d = view.quiz?.data;
-      const rows = [["Trainee", "Quiz", "Type", "Sent", "Status", "Score %", "Points", "Opportunities (missed questions)"]];
-      (d?.items || []).forEach((x) => rows.push([name, x.title, x.type, fmtStamp(x.sent_at), x.status, x.pct ?? "", x.pct == null ? "" : `${x.earned}/${x.total}`, x.missed.map((m) => m.question).join(" | ")]));
+      const rows = [["Trainee", "Quiz", "Type", "Sent", "Status", "Score %", "Points", "Opportunities (missed questions)", "Note"]];
+      (d?.items || []).forEach((x) => rows.push([name, x.title, x.type, x.manual ? x.sent_at : fmtStamp(x.sent_at), x.status, x.pct ?? "", x.pct == null || x.manual ? "" : `${x.earned}/${x.total}`, x.missed.map((m) => m.question).join(" | "), x.note || ""]));
       return rows;
     }
     const rows = [["Trainee", "Week", "Source", "Audits", "Passed", "Scored", "QA %"]];
@@ -2107,7 +2142,17 @@ function openPerformance(content, traineeId) {
     setCrumbs(appId, [...(cohort ? [{ label: cohort.name }] : []), { label: p.name || "Trainee" }, { label: "Performance" }]);
   };
 
-  const unsubscribe = cc.onChange(() => sheet.isConnected && draw());
+  const unsubscribe = cc.onChange(() => {
+    if (!sheet.isConnected) return;
+    // Entered scores arriving from the database (after a save) change the quiz numbers.
+    const sig = JSON.stringify(manualList());
+    if (view.manualSig !== undefined && sig !== view.manualSig) {
+      view.manualSig = sig;
+      view.quiz = null;
+      if (view.mode === "quiz") loadQuiz();
+    }
+    draw();
+  });
   const close = () => {
     unsubscribe();
     sheet.remove();
@@ -2120,8 +2165,21 @@ function openPerformance(content, traineeId) {
     else if (b.dataset.tab) view.tab = b.dataset.tab;
     else if (b.dataset.mode) {
       view.mode = b.dataset.mode;
-      if (view.mode === "quiz" && !view.quiz) loadQuiz();
+      if (view.mode === "quiz" && !view.quiz) {
+        view.manualSig = JSON.stringify(manualList());
+        loadQuiz();
+      }
     } else if ("copyView" in b.dataset) return void copyView();
+    else if ("manualAdd" in b.dataset) {
+      const ty = (view.quiz?.data?.types || []).find((t) => /weekly/i.test(`${t.id} ${t.name}`)) || (view.quiz?.data?.types || [])[0];
+      view.quizForm = { id: "", type: ty?.id || "", score: "", date: isoDate(new Date()), note: "", error: "" };
+    } else if (b.dataset.manualEdit) {
+      const m = manualList().find((x) => x.id === b.dataset.manualEdit);
+      if (!m) return;
+      view.quizForm = { id: m.id, type: m.type, score: String(m.pct), date: m.date || "", note: m.note || "", error: "" };
+    } else if (b.dataset.manualDel) {
+      return void saveManualList(manualList().filter((x) => x.id !== b.dataset.manualDel));
+    } else if ("manualCancel" in b.dataset) view.quizForm = null;
     else if ("quizRefresh" in b.dataset) {
       view.quiz = null;
       loadQuiz();
@@ -2132,6 +2190,33 @@ function openPerformance(content, traineeId) {
     draw();
     const key = b.dataset.week ? "week" : b.dataset.tab ? "tab" : b.dataset.sweek ? "sweek" : "mode";
     card.querySelector(`[data-${key}="${CSS.escape(b.dataset[key])}"]`)?.focus();
+  });
+  card.addEventListener("input", (e) => {
+    const k = e.target.dataset?.mf;
+    if (k && view.quizForm) view.quizForm[k] = e.target.value;
+  });
+  card.addEventListener("submit", (e) => {
+    const form = e.target.closest("[data-manual-form]");
+    if (!form) return;
+    e.preventDefault();
+    const f = view.quizForm;
+    if (!f) return;
+    const pct = parseScore(f.score);
+    if (pct == null) {
+      f.error = "Enter a score from 0 to 100, like 85, 85% or 8/10.";
+      return draw();
+    }
+    if (!f.type) {
+      f.error = "Pick a quiz type.";
+      return draw();
+    }
+    const entry = { id: f.id || `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, type: f.type, pct, note: f.note.trim(), date: f.date || isoDate(new Date()) };
+    const list = manualList();
+    const i = list.findIndex((x) => x.id === entry.id);
+    if (i >= 0) list[i] = entry;
+    else list.push(entry);
+    view.quizForm = null;
+    saveManualList(list);
   });
   sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
   draw();

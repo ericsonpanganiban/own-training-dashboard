@@ -1107,9 +1107,28 @@
   // Per trainee: quizzes sent/taken, the average within each quiz type, and the weighted average.
   // A quiz counts under the type it has now, so re-typing a quiz updates past scores too. Types a
   // trainee has no scores in are left out and the remaining weights are scaled up to 100%.
+  // Scores the trainer typed in by hand (quizzes taken outside Claude-made ones), kept on the trainee.
+  const manualScoresOf = (tid) => {
+    const t = (cc()?.data().trainees || []).find((x) => x.id === tid);
+    return Array.isArray(t?.manual_quiz_scores) ? t.manual_quiz_scores.filter((m) => m && Number.isFinite(Number(m.pct))) : [];
+  };
   function traineeQuizStats(tid) {
     const out = { sent: 0, taken: 0, sum: 0, latest: null, byType: {}, untyped: 0, weighted: null };
     const quizById = new Map(allQuizzes().map((q) => [q.id, q]));
+    manualScoresOf(tid).forEach((m) => {
+      const pct = Number(m.pct);
+      out.sent++;
+      out.taken++;
+      out.sum += pct;
+      const type = quizTypes.find((t) => t.id === m.type);
+      if (type) {
+        const b = (out.byType[type.id] = out.byType[type.id] || { sum: 0, n: 0 });
+        b.sum += pct;
+        b.n++;
+      } else out.untyped++;
+      const at = m.date || "";
+      if (!out.latest || at > out.latest.at) out.latest = { at, title: m.title || "Entered score", pct, pass: pct >= 80 };
+    });
     Object.entries(allRuns || {}).forEach(([quizId, list]) =>
       list.forEach((r) => {
         if (!r.recipients?.[tid]) return;
@@ -2724,6 +2743,11 @@
               missed,
             };
           });
+        manualScoresOf(traineeId).forEach((m) => {
+          const ty = quizTypes.find((t) => t.id === m.type);
+          items.push({ manual: true, id: m.id, title: m.title || "Entered score", note: m.note || "", type: ty?.name || "", typeId: ty?.id || "", sent_at: m.date || "", status: "Entered", pct: Number(m.pct), earned: null, total: null, passing: 80, pending: 0, missed: [] });
+        });
+        items.sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""));
         return { avg: st.taken ? Math.round(st.sum / st.taken) : null, weighted: st.weighted, taken: st.taken, sent: st.sent, items, types: quizTypes.map((t) => ({ id: t.id, name: t.name, weight: Number(t.weight) || 0 })) };
       });
     },

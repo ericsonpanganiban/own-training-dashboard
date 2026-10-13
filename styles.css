@@ -1812,3 +1812,7 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .att-note-link { background: none; border: 0; padding: 0; font: inherit; color: var(--accent, #2f6fed); cursor: pointer; font-variant-numeric: tabular-nums; }
 .att-note-link:hover { filter: brightness(1.15); }
 .att-note-link.has-note { font-weight: 600; }
+
+.att-note-list { max-height: 240px; overflow-y: auto; display: grid; gap: 8px; margin-bottom: 10px; }
+.att-note-entry { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.att-note-entry p { margin: 4px 0 0; white-space: pre-wrap; }

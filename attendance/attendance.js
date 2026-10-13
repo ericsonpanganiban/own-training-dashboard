@@ -457,38 +457,72 @@
     setTimeout(() => t.remove(), 4500);
   }
 
-  const noteOf = (cohort, tid) => String(cohort.attendance_notes?.[tid] || "").trim();
+  // A trainee's notes are a list of entries, oldest first: [{ id, text, at }]. An older single text note counts as one entry.
+  const notesOf = (cohort, tid) => {
+    const v = cohort.attendance_notes?.[tid];
+    if (Array.isArray(v)) return v.filter((n) => n && String(n.text || "").trim());
+    return String(v || "").trim() ? [{ id: "legacy", text: String(v).trim(), at: "" }] : [];
+  };
+  const noteDate = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Earlier");
+  const noteOf = (cohort, tid) => notesOf(cohort, tid).map((n) => `${n.at ? `${n.at.slice(0, 10)}: ` : ""}${n.text}`).join(" | ");
 
-  // The trainer's attendance note on one trainee, opened from their Total Points.
+  // The trainer's attendance notes on one trainee, opened from their Total Points. Each save adds an entry.
   function openNote(cohortId, traineeId) {
     const cohort = cohortById(cohortId);
     const t = cc().data().trainees.find((x) => x.id === traineeId);
     if (!cohort || !t) return;
     const s = openSheet(
-      `<h3>Attendance note · ${escapeHtml(t.name || "Trainee")}</h3>
-       <p class="muted att-sub">${escapeHtml(cohort.name)}. Only you and other trainers see this.</p>
-       <textarea class="att-compose" rows="6" placeholder="e.g. Late Day 3: transport issue, approved. Absent Day 7: sick, medical cert sent."></textarea>
+      `<h3>Attendance notes · ${escapeHtml(t.name || "Trainee")}</h3>
+       <p class="muted att-sub">${escapeHtml(cohort.name)}. Each note you save is its own entry.</p>
+       <div class="att-note-list" data-note-list></div>
+       <textarea class="att-compose" rows="4" placeholder="New note, e.g. Late Day 3: transport issue, approved."></textarea>
        <p class="sheet-status" role="status"></p>
-       <div class="sheet-actions"><span class="att-spacer"></span><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-primary" data-save-note>Save note</button></div>`,
+       <div class="sheet-actions"><span class="att-spacer"></span><button type="button" class="btn" data-cancel>Close</button><button type="button" class="btn-primary" data-save-note>Add note</button></div>`,
       true
     );
     if (!s) return;
     const text = s.sheet.querySelector("textarea");
-    text.value = noteOf(cohort, traineeId);
+    const list = s.sheet.querySelector("[data-note-list]");
+    const status = s.sheet.querySelector(".sheet-status");
+    const save = (entries) => {
+      const notes = { ...(cohortById(cohortId)?.attendance_notes || {}) };
+      if (entries.length) notes[traineeId] = entries;
+      else delete notes[traineeId];
+      return cc().updateCohort(cohortId, { attendance_notes: notes });
+    };
+    let current = notesOf(cohort, traineeId);
+    const render = () => {
+      const entries = current.slice().reverse();
+      list.innerHTML = entries.length
+        ? entries.map((n) => `<div class="att-note-entry"><small class="muted">${escapeHtml(noteDate(n.at))}</small> <button type="button" class="linkish" data-del-note="${escapeHtml(n.id)}">Remove</button><p>${escapeHtml(n.text)}</p></div>`).join("")
+        : `<p class="muted">No notes yet.</p>`;
+    };
+    render();
     text.focus();
     s.sheet.querySelector("[data-save-note]").addEventListener("click", (ev) => {
-      ev.target.disabled = true;
-      const notes = { ...(cohortById(cohortId).attendance_notes || {}) };
       const v = text.value.trim();
-      if (v) notes[traineeId] = v;
-      else delete notes[traineeId];
-      cc()
-        .updateCohort(cohortId, { attendance_notes: notes })
-        .then(() => s.close())
-        .catch(() => {
+      if (!v) return void (status.textContent = "Type a note first.");
+      ev.target.disabled = true;
+      const entries = [...current, { id: `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, text: v, at: new Date().toISOString() }];
+      save(entries).then(
+        () => {
+          current = entries;
+          text.value = "";
+          status.textContent = "Saved ✓";
           ev.target.disabled = false;
-          s.sheet.querySelector(".sheet-status").textContent = "Couldn't save. Try again.";
-        });
+          render();
+        },
+        () => {
+          ev.target.disabled = false;
+          status.textContent = "Couldn't save. Try again.";
+        }
+      );
+    });
+    list.addEventListener("click", (ev) => {
+      const id = ev.target.closest("[data-del-note]")?.dataset.delNote;
+      if (!id) return;
+      const rest = current.filter((n) => n.id !== id);
+      save(rest).then(() => ((current = rest), render()), () => (status.textContent = "Couldn't remove. Try again."));
     });
   }
 

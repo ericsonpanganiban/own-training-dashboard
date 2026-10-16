@@ -1816,3 +1816,6 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .att-note-list { max-height: 240px; overflow-y: auto; display: grid; gap: 8px; margin-bottom: 10px; }
 .att-note-entry { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 .att-note-entry p { margin: 4px 0 0; white-space: pre-wrap; }
+
+.nt-read-card { max-width: 640px; width: calc(100% - 32px); max-height: 80%; display: flex; flex-direction: column; }
+.nt-read-body { overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; margin: 8px 0 12px; }

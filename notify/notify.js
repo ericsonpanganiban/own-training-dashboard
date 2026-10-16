@@ -306,7 +306,7 @@
       .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1**$2**")
       .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
       .trim()
-      .slice(0, 3500);
+      .slice(0, 12000);
   const firstUrl = (t) => (String(t || "").match(/<(https?:[^|>]+)(?:\|[^>]*)?>/) || String(t || "").match(/(https?:\/\/\S+)/) || [])[1] || "";
   // A channel ID, or a Slack link that contains one (…/archives/C0123ABCD45).
   function parseChannelInput(raw) {
@@ -627,6 +627,7 @@
                           ${(n.forwarded || []).length ? `<div class="nt-fwd">${n.forwarded.map((f) => `<span class="chip ok" title="${esc(when(f.at))}">Forwarded to ${esc(f.cohort)} ✓</span>`).join("")}</div>` : ""}
                           <div class="nt-item-foot"><small class="muted">${esc(when(n.at))}${n.from ? ` · ${esc(n.from)}` : ""}</small>
                             ${n.link ? `<a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">Open</a>` : ""}
+                            <button type="button" class="linkish" data-nt-read="${esc(n.id)}">Read entire message</button>
                             <button type="button" class="linkish" data-nt-forward="${esc(n.id)}">Forward to a cohort…</button>
                             <button type="button" class="linkish" data-nt-toggle="${esc(n.id)}">${n.read ? "Mark unread" : "Mark read"}</button></div>
                         </li>`
@@ -725,6 +726,31 @@
     s.addEventListener("click", (e) => (e.target === s || e.target.closest("[data-cancel]")) && close());
     s.addEventListener("keydown", (e) => e.key === "Escape" && close());
     return { s, close };
+  }
+  // The whole message in a floating window (the card only shows the first lines).
+  const mdHtml = (t) =>
+    esc(t)
+      .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
+      .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+  function openRead(noteId) {
+    const n = notes.find((x) => x.id === noteId);
+    const win = ui.el?.closest(".window");
+    if (!n || !win || win.querySelector(".sheet")) return;
+    const text = (n.full || [n.title, n.body].filter(Boolean).join("\n\n")).trim();
+    const s = document.createElement("div");
+    s.className = "sheet";
+    s.innerHTML = `<div class="sheet-card nt-read-card" role="dialog" aria-label="Full message">
+      <h3>${esc(n.title)}</h3>
+      <p class="muted"><small>${esc(when(n.at))}${n.from ? ` · ${esc(n.from)}` : ""}</small></p>
+      <div class="nt-read-body">${mdHtml(text)}</div>
+      <div class="sheet-actions">${n.link ? `<a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer" class="btn">Open in Slack</a>` : ""}<span class="att-spacer"></span><button type="button" class="btn-primary" data-cancel>Close</button></div></div>`;
+    win.appendChild(s);
+    const close = () => s.remove();
+    s.addEventListener("click", (e) => (e.target === s || e.target.closest("[data-cancel]")) && close());
+    s.addEventListener("keydown", (e) => e.key === "Escape" && close());
+    s.querySelector("[data-cancel]").focus();
+    if (!n.read) markRead([n.id]);
   }
   function openForward(noteId) {
     const n = notes.find((x) => x.id === noteId);
@@ -848,6 +874,7 @@
         if ("ntCancel" in ds) return ((ui.editing = false), (ui.msg = ""), draw());
         if ("ntCheck" in ds) return void runAll("manual", PAGES.map((x) => x.source));
         if ("ntReadAll" in ds) return markRead(notes.filter((n) => n.source === pageNow().source && !n.read).map((n) => n.id));
+        if (ds.ntRead) return openRead(ds.ntRead);
         if (ds.ntForward) return openForward(ds.ntForward);
         if (ds.ntToggle) {
           const n = notes.find((x) => x.id === ds.ntToggle);

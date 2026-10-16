@@ -1986,20 +1986,6 @@ function openPerformance(content, traineeId) {
         .join("")}</tbody></table></div>`;
   };
 
-  // Spot checks recorded with the Quiz category (Metrics and Coaching → Spot Check) show here with the quizzes.
-  const quizSpotHtml = () => {
-    const sc = cc.traineeSpot(traineeId);
-    const list = sc.checks.filter((x) => x.category === "quiz");
-    if (!list.length) return "";
-    const vals = list.map((x) => Number(x.score)).filter((v) => Number.isFinite(v));
-    const avg = vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : null;
-    const day = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
-    const link = (u) => (/^https?:\/\//i.test(u) ? `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">Open ticket</a>` : escapeHtml(u));
-    return `<section class="quiz-summary-wrap"><h4>Quiz spot checks <small class="muted">${list.length} · average ${avg == null ? "—" : `${avg}%`}</small></h4>
-      <table class="quiz-summary"><thead><tr><th>Date</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th></tr></thead><tbody>${list
-        .map((x) => `<tr><td>${escapeHtml(day(x.created_at))}</td><td class="${Number(x.score) >= 80 ? "q-ok" : "q-bad"}"><b>${Number(x.score)}%</b></td><td>${link(x.ticket)}</td><td style="text-align:left">${escapeHtml(x.comms)}</td><td style="text-align:left">${escapeHtml(x.resolution)}</td><td style="text-align:left">${x.reply ? escapeHtml(x.reply) : `<span class="muted">${x.slack_sent_at ? "No reply yet" : "Not sent"}</span>`}</td></tr>`)
-        .join("")}</tbody></table></section>`;
-  };
   const manualForm = (d) => {
     const f = view.quizForm;
     if (!f) return "";
@@ -2027,9 +2013,10 @@ function openPerformance(content, traineeId) {
     const t = cc.data().trainees.find((x) => x.id === traineeId);
     return Array.isArray(t?.manual_quiz_scores) ? t.manual_quiz_scores.slice() : [];
   };
+  const quizSig = () => JSON.stringify([manualList(), cc.traineeSpot(traineeId).checks.filter((x) => x.category === "quiz").map((x) => [x.id, x.score, x.created_at])]);
   const saveManualList = async (list) => {
     await cc.updateTrainee(traineeId, { manual_quiz_scores: list });
-    view.manualSig = JSON.stringify(manualList());
+    view.manualSig = quizSig();
     view.quiz = null;
     loadQuiz();
   };
@@ -2043,11 +2030,13 @@ function openPerformance(content, traineeId) {
     const card = (x) => `
       <section class="quiz-perf">
         <div class="quiz-perf-head"><b>${escapeHtml(x.title)}</b>${x.type ? ` <span class="chip">${escapeHtml(x.type)}</span>` : ""}
-          ${x.manual || x.scoreEntered ? `<span class="chip">Entered by hand</span>` : ""}
+          ${x.manual || x.scoreEntered ? `<span class="chip">Entered by hand</span>` : x.spot ? `<span class="chip">From Spot Check</span>` : ""}
           <span class="muted">${escapeHtml(x.manual ? x.sent_at : fmtStamp(x.sent_at))}</span>
-          <span class="quiz-perf-score">${x.pct == null ? `<span class="muted">${escapeHtml(x.status)}</span>` : `<b>${x.pct}%</b> ${x.manual || x.scoreEntered ? "" : `<small class="muted">${x.earned}/${x.total} pts</small>`} ${x.pending ? `<span class="chip warn">${x.pending} to review</span>` : x.pct >= x.passing ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${x.passing}%</span>`}`}</span></div>
+          <span class="quiz-perf-score">${x.pct == null ? `<span class="muted">${escapeHtml(x.status)}</span>` : `<b>${x.pct}%</b> ${x.manual || x.scoreEntered || x.spot ? "" : `<small class="muted">${x.earned}/${x.total} pts</small>`} ${x.pending ? `<span class="chip warn">${x.pending} to review</span>` : x.pct >= x.passing ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${x.passing}%</span>`}`}</span></div>
         ${
-          x.scoreEntered
+          x.spot
+            ? `<p class="quiz-manual-note">${/^https?:\/\//i.test(x.ticket) ? `<a href="${escapeHtml(x.ticket)}" target="_blank" rel="noopener">Open ticket</a> · ` : ""}${x.note ? escapeHtml(x.note) : ""} <small class="muted">Recorded in Metrics and Coaching → Spot Check (Quiz category)</small></p>`
+            : x.scoreEntered
             ? `<p class="quiz-manual-note">${x.note ? `<b>Note:</b> ${escapeHtml(x.note)}` : `<span class="muted">No note.</span>`} <button type="button" class="linkish" data-run-score="${escapeHtml(x.quizId)}|${escapeHtml(x.runId)}">Edit</button> <button type="button" class="linkish" data-run-score-clear="${escapeHtml(x.quizId)}|${escapeHtml(x.runId)}">Remove</button></p>`
             : x.pct == null && !x.manual && x.runId && x.status !== "No submission (0)"
             ? `<p class="quiz-manual-note"><button type="button" class="btn btn-small" data-run-score="${escapeHtml(x.quizId)}|${escapeHtml(x.runId)}">Enter score</button> <small class="muted">for a quiz they did outside Slack</small></p>`
@@ -2071,7 +2060,7 @@ function openPerformance(content, traineeId) {
         </div>
         <div class="perf-tabs"><button type="button" class="btn btn-small" data-manual-add>+ Add score</button> <button type="button" class="btn btn-small" data-quiz-refresh>↻ Refresh</button></div>
       </div>
-      <div class="perf-detail">${manualForm(d)}${quizSpotHtml()}${d.items.length ? summaryHtml(d) : `<p class="muted">No quizzes sent to this trainee yet. Send one from the Quiz app, or use + Add score to enter one taken elsewhere.</p>`}${d.items.map(card).join("")}</div>`;
+      <div class="perf-detail">${manualForm(d)}${d.items.length ? summaryHtml(d) : `<p class="muted">No quizzes sent to this trainee yet. Send one from the Quiz app, or use + Add score to enter one taken elsewhere.</p>`}${d.items.map(card).join("")}</div>`;
   };
   // Scores by quiz type, in the order taken. A weekly quiz always has two slots; short quizzes have no fixed count.
   const summaryHtml = (d) => {
@@ -2105,7 +2094,7 @@ function openPerformance(content, traineeId) {
           const detail = parts
             ? `<div class="quiz-week-parts"><b>Week ${on}</b> <small class="muted">starts ${escapeHtml(wkStart.toLocaleDateString(undefined, { month: "short", day: "numeric" }))} · ${parts.length} part${parts.length === 1 ? "" : "s"} · average ${avgOf(parts)}%</small>
                 <table class="quiz-summary"><thead><tr><th>Part</th><th>Date</th><th>Score</th></tr></thead><tbody>${parts
-                  .map((x, i) => `<tr><td style="text-align:left">${i + 1}. ${escapeHtml(x.title)}${x.manual || x.scoreEntered ? ` <small class="muted">entered by hand</small>` : ""}${x.note ? `<br><small class="muted">${escapeHtml(x.note)}</small>` : ""}</td><td>${escapeHtml(x.manual ? x.sent_at : fmtStamp(x.sent_at))}</td><td class="${x.pct >= x.passing ? "q-ok" : "q-bad"}"><b>${x.pct}%</b></td></tr>`)
+                  .map((x, i) => `<tr><td style="text-align:left">${i + 1}. ${escapeHtml(x.title)}${x.manual || x.scoreEntered ? ` <small class="muted">entered by hand</small>` : x.spot ? ` <small class="muted">spot check</small>` : ""}${x.note ? `<br><small class="muted">${escapeHtml(x.note)}</small>` : ""}</td><td>${escapeHtml(x.manual ? x.sent_at : fmtStamp(x.sent_at))}</td><td class="${x.pct >= x.passing ? "q-ok" : "q-bad"}"><b>${x.pct}%</b></td></tr>`)
                   .join("")}</tbody></table></div>`
             : "";
           return `<table class="quiz-summary"><thead><tr><th>${escapeHtml(t.name)}${t.weight ? ` <small class="muted">${t.weight}% of weighted</small>` : ""}</th>${heads}<th>Average</th></tr></thead><tbody><tr><th scope="row">Score</th>${cells}<td class="q-avg">${avg == null ? "—" : `<b>${avg}%</b>`}</td></tr></tbody></table>${detail}`;
@@ -2190,7 +2179,7 @@ function openPerformance(content, traineeId) {
   const unsubscribe = cc.onChange(() => {
     if (!sheet.isConnected) return;
     // Entered scores arriving from the database (after a save) change the quiz numbers.
-    const sig = JSON.stringify(manualList());
+    const sig = quizSig();
     if (view.manualSig !== undefined && sig !== view.manualSig) {
       view.manualSig = sig;
       view.quiz = null;
@@ -2211,7 +2200,7 @@ function openPerformance(content, traineeId) {
     else if (b.dataset.mode) {
       view.mode = b.dataset.mode;
       if (view.mode === "quiz" && !view.quiz) {
-        view.manualSig = JSON.stringify(manualList());
+        view.manualSig = quizSig();
         loadQuiz();
       }
     } else if ("copyView" in b.dataset) return void copyView();

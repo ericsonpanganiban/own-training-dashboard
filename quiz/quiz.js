@@ -1112,10 +1112,19 @@
     const t = (cc()?.data().trainees || []).find((x) => x.id === tid);
     return Array.isArray(t?.manual_quiz_scores) ? t.manual_quiz_scores.filter((m) => m && Number.isFinite(Number(m.pct))) : [];
   };
+  // Spot checks recorded under the Quiz category count as weekly quiz scores.
+  const weeklyTypeId = () => (quizTypes.find((t) => /weekly/i.test(`${t.id} ${t.name}`)) || { id: "weekly" }).id;
+  const spotQuizScoresOf = (tid) => {
+    const sc = cc()?.traineeSpot?.(tid);
+    return (sc?.checks || [])
+      .filter((x) => x.category === "quiz" && Number.isFinite(Number(x.score)))
+      .map((x) => ({ id: `spot:${x.id}`, spot: true, type: weeklyTypeId(), pct: Number(x.score), date: x.created_at || "", title: "Spot check", note: [x.comms && `Comms: ${x.comms}`, x.resolution && `Resolution: ${x.resolution}`].filter(Boolean).join(" · "), ticket: x.ticket || "" }));
+  };
+  const allExtraScoresOf = (tid) => [...manualScoresOf(tid), ...spotQuizScoresOf(tid)];
   function traineeQuizStats(tid) {
     const out = { sent: 0, taken: 0, sum: 0, latest: null, byType: {}, untyped: 0, weighted: null };
     const quizById = new Map(allQuizzes().map((q) => [q.id, q]));
-    manualScoresOf(tid).forEach((m) => {
+    allExtraScoresOf(tid).forEach((m) => {
       const pct = Number(m.pct);
       out.sent++;
       out.taken++;
@@ -2745,9 +2754,9 @@
               missed,
             };
           });
-        manualScoresOf(traineeId).forEach((m) => {
+        allExtraScoresOf(traineeId).forEach((m) => {
           const ty = quizTypes.find((t) => t.id === m.type);
-          items.push({ manual: true, id: m.id, title: m.title || "Entered score", note: m.note || "", type: ty?.name || "", typeId: ty?.id || "", sent_at: m.date || "", status: "Entered", pct: Number(m.pct), earned: null, total: null, passing: 80, pending: 0, missed: [] });
+          items.push({ manual: !m.spot, spot: !!m.spot, ticket: m.ticket || "", id: m.id, title: m.title || "Entered score", note: m.note || "", type: ty?.name || "", typeId: ty?.id || "", sent_at: m.date || "", status: m.spot ? "From spot check" : "Entered", pct: Number(m.pct), earned: null, total: null, passing: 80, pending: 0, missed: [] });
         });
         items.sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""));
         return { avg: st.taken ? Math.round(st.sum / st.taken) : null, weighted: st.weighted, taken: st.taken, sent: st.sent, items, types: quizTypes.map((t) => ({ id: t.id, name: t.name, weight: Number(t.weight) || 0 })) };

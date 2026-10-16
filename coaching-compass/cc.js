@@ -4691,7 +4691,7 @@
   function spotCat(c){ return c && c.category === "quiz" ? "quiz" : "nesting"; }
   function spotCatLabel(c){ return spotCat(c) === "quiz" ? "Quiz" : "Nesting"; }
   function spotCatChip(c){ return "<span class=\"chip\">" + spotCatLabel(c) + "</span>"; }
-  var spot = { open: {}, analyses: {}, analyzing: {}, checks: [], cohort: "", view: "trainee", form: false, editId: "", resend: false, trainee: "", busy: false, msg: "", err: false, draft: Object.assign({}, BLANK_SPOT) };
+  var spot = { cat: "nesting", open: {}, analyses: {}, analyzing: {}, checks: [], cohort: "", view: "trainee", form: false, editId: "", resend: false, trainee: "", busy: false, msg: "", err: false, draft: Object.assign({}, BLANK_SPOT) };
   function spotScore(v){
     var n = parseFloat(String(v == null ? "" : v).replace("%", "").trim());
     return isNaN(n) ? null : n;
@@ -4700,6 +4700,7 @@
     var v = list.map(function(c){ return spotScore(c.score); }).filter(function(x){ return x != null; });
     return v.length ? v.reduce(function(a, b){ return a + b; }, 0) / v.length : null;
   }
+  function spotInView(c){ return spot.cat === "all" || spotCat(c) === spot.cat; }
   function spotFor(traineeId){
     return spot.checks.filter(function(c){ return c.trainee_id === traineeId; }).sort(function(a, b){ return String(b.created_at).localeCompare(String(a.created_at)); });
   }
@@ -4936,7 +4937,7 @@
   // Every spot check of the trainees in view, by trainee then oldest first.
   function spotCohortRows(list){
     var rows = [];
-    list.forEach(function(t){ spotFor(t.id).slice().reverse().forEach(function(c){ rows.push({ t: t, c: c }); }); });
+    list.forEach(function(t){ spotFor(t.id).filter(spotInView).slice().reverse().forEach(function(c){ rows.push({ t: t, c: c }); }); });
     return rows;
   }
   function copySpotCohort(){
@@ -4965,6 +4966,7 @@
       "<button class=\"ghost small\" id=\"spotRepliesBtn\" type=\"button\" title=\"Read the trainees' replies from Slack and save them here\">Check replies</button></span></div>" +
       "<div class=\"speed-bar spot-filters\"><div class=\"field\"><label for=\"spotCohort\">Cohort</label><select id=\"spotCohort\">" + cohortOpts + "</select></div>" +
       "<div class=\"spot-views\">" + viewBtn("trainee", "By trainee") + viewBtn("cohort", "Entire cohort") + "</div>" +
+      "<div class=\"field\"><label for=\"spotCatFilter\">Category</label><select id=\"spotCatFilter\">" + [["nesting", "Nesting"], ["quiz", "Quiz"], ["all", "All"]].map(function(o){ return "<option value=\"" + o[0] + "\"" + (spot.cat === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></div>" +
       (spot.msg ? "<span class=\"save-status " + (spot.err ? "err" : "ok") + "\">" + esc(spot.msg) + "</span>" : "") + "</div>";
     var form = "";
     if (spot.form){
@@ -4996,7 +4998,7 @@
     }
     else body = "<div class=\"speed-wrap\"><table class=\"preview full-text spot-table spot-by\"><thead><tr><th>Trainee</th><th>Spot checks</th><th>Average score</th><th>Latest</th></tr></thead><tbody>" +
       list.map(function(t){
-        var cs = spotFor(t.id);
+        var cs = spotFor(t.id).filter(spotInView);
         return "<tr" + (t.cohort_status === "inactive" ? " class=\"is-inactive\"" : "") + "><td>" + (cs.length ? "<details data-spot-open=\"" + esc(t.id) + "\"" + (spot.open[t.id] ? " open" : "") + "><summary><b>" + esc(t.name) + "</b></summary>" + spotAnalysisHtml(t.id, cs.length) + cs.map(spotCheckHtml).join("") + "</details>" : esc(t.name)) + "</td><td>" + cs.length + "</td><td><b>" + (cs.length ? spotFmt(spotAvg(cs)) + "%" : "—") + "</b></td><td>" + (cs[0] ? spotFmt(spotScore(cs[0].score)) + "% · " + esc(spotDate(cs[0].created_at)) : "—") + "</td></tr>";
       }).join("") + "</tbody></table></div><p class=\"hint\">Open a trainee to see each spot check, edit it, and read their reply. There's no fixed number of spot checks per trainee.</p>";
     host.innerHTML = head + form + body;
@@ -5030,7 +5032,8 @@
   });
   document.addEventListener("change", function(e){
     var id = e.target && e.target.id;
-    if (id === "spotCohort"){ spot.cohort = e.target.value; spot.trainee = ""; renderSpotPanel(true); }
+    if (id === "spotCatFilter"){ spot.cat = e.target.value; renderSpotPanel(true); }
+    else if (id === "spotCohort"){ spot.cohort = e.target.value; spot.trainee = ""; renderSpotPanel(true); }
     else if (id === "spotTrainee") spot.trainee = e.target.value;
     else if (id === "spotCategory") spot.draft.category = e.target.value;
     else if (id === "spotResend"){ spot.resend = e.target.checked; renderSpotPanel(true); }

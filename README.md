@@ -146,3 +146,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Weekly quiz by training week.** In Performance → Quiz, the Weekly table groups quiz parts by the training week they fall in (Week 1 starts on the cohort's training start date, 7 days each). A week's cell is the average of its parts, with the part count. The **Week N** name is a link that opens the list of that week's parts (title, date, score, note). Without a cohort start date it falls back to one slot per quiz.
 
 **Spot check category.** A spot check has a **Category**: Nesting (default; older checks count as Nesting) or Quiz. It shows in the By-trainee list, the Entire-cohort table and Copy, and Performance → Spot Check. Quiz spot checks also appear in Performance → Quiz as a *Quiz spot checks* table (with their average); they are shown beside the quizzes and do not change the quiz averages or weighted average.
+
+**Spot Check list by category.** The Spot Check page has a **Category** filter that defaults to Nesting, so Quiz spot checks don't appear in the list, counts or averages there. Choose Quiz or All to see or edit them. They always show in Performance → Quiz.

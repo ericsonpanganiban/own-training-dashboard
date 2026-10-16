@@ -1824,3 +1824,19 @@ body[data-appearance="playful"] .settings-nav { background: color-mix(in srgb, v
 .quiz-week-link.on { color: var(--accent, #2f6fed); }
 .quiz-week-parts { margin: -4px 0 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
 .quiz-week-parts table { margin-top: 8px; margin-bottom: 0; }
+
+/* Entered-score and spot-check edit forms in Performance → Quiz */
+body .quiz-manual-form.quiz-manual-form { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin-bottom: 16px; display: grid; gap: 14px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06); }
+body .quiz-manual-form.quiz-manual-form h4 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+body .quiz-manual-form.quiz-manual-form label { display: grid; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+body .quiz-manual-form.quiz-manual-form label small { font-weight: 400; }
+body .quiz-manual-form.quiz-manual-form input,
+body .quiz-manual-form.quiz-manual-form select,
+body .quiz-manual-form.quiz-manual-form textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--window-fg); font: inherit; font-size: 14px; font-weight: 400; line-height: 1.45; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+body .quiz-manual-form.quiz-manual-form textarea { resize: vertical; min-height: 72px; }
+body .quiz-manual-form.quiz-manual-form input:focus,
+body .quiz-manual-form.quiz-manual-form select:focus,
+body .quiz-manual-form.quiz-manual-form textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+body .quiz-manual-form.quiz-manual-form .quiz-manual-acts { display: flex; gap: 10px; padding-top: 4px; }
+body .quiz-manual-form.quiz-manual-form .quiz-manual-acts .btn { padding: 9px 18px; border-radius: 10px; font-weight: 600; }
+body .quiz-manual-form.quiz-manual-form > p.muted { margin: -4px 0 0; }

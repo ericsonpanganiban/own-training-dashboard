@@ -2247,6 +2247,7 @@ function openPerformance(content, traineeId) {
     else if ("cancel" in b.dataset) return close();
     else return;
     draw();
+    if (view.quizForm) card.querySelector(".quiz-manual-form")?.scrollIntoView({ block: "nearest" });
     const key = b.dataset.week ? "week" : b.dataset.tab ? "tab" : b.dataset.sweek ? "sweek" : b.dataset.quizWeek ? "quiz-week" : "mode";
     const kv = key === "quiz-week" ? b.dataset.quizWeek : b.dataset[key];
     if (kv != null) card.querySelector(`[data-${key}="${CSS.escape(kv)}"]`)?.focus();

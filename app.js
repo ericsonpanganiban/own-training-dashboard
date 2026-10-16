@@ -2069,6 +2069,33 @@ function openPerformance(content, traineeId) {
         const scores = d.items.filter((x) => x.pct != null && (x.typeId || "") === t.id).sort((a, b) => (a.sent_at || "").localeCompare(b.sent_at || ""));
         if (!t.id && !scores.length) return "";
         const weekly = /weekly/i.test(`${t.id} ${t.name}`);
+        const start = cohortOf()?.training_start_date;
+        if (weekly && start) {
+          // Weekly quizzes are given in parts: group the parts by the training week they fall in.
+          const s0 = new Date(`${start}T00:00:00`);
+          const weekOf = (x) => {
+            const dt = /^\d{4}-\d{2}-\d{2}$/.test(x.sent_at || "") ? new Date(`${x.sent_at}T00:00:00`) : new Date(x.sent_at);
+            return Number.isNaN(dt.getTime()) ? 1 : Math.max(1, Math.floor(Math.round((dt - s0) / 864e5) / 7) + 1);
+          };
+          const byWeek = {};
+          scores.forEach((x) => (byWeek[weekOf(x)] = byWeek[weekOf(x)] || []).push(x));
+          const slots = Math.max(2, ...Object.keys(byWeek).map(Number));
+          const nums = Array.from({ length: slots }, (_, i) => i + 1);
+          const avgOf = (list) => Math.round(list.reduce((a, x) => a + x.pct, 0) / list.length);
+          const heads = nums.map((n) => (byWeek[n] ? `<th><button type="button" class="linkish quiz-week-link${view.openWeek === `${t.id}|${n}` ? " on" : ""}" data-quiz-week="${escapeHtml(t.id)}|${n}" title="Show the quiz parts for Week ${n}">Week ${n}</button></th>` : `<th>Week ${n}</th>`)).join("");
+          const cells = nums.map((n) => (byWeek[n] ? `<td class="${avgOf(byWeek[n]) >= Math.min(...byWeek[n].map((x) => x.passing)) ? "q-ok" : "q-bad"}"><b>${avgOf(byWeek[n])}%</b>${byWeek[n].length > 1 ? ` <small class="muted">${byWeek[n].length} parts</small>` : ""}</td>` : `<td class="muted">—</td>`)).join("");
+          const avg = scores.length ? Math.round(scores.reduce((a, x) => a + x.pct, 0) / scores.length) : null;
+          const [ot, on] = String(view.openWeek || "").split("|");
+          const parts = ot === t.id && byWeek[on] ? byWeek[on].slice().sort((a, b) => (a.sent_at || "").localeCompare(b.sent_at || "")) : null;
+          const wkStart = parts ? new Date(s0.getTime() + (on - 1) * 7 * 864e5) : null;
+          const detail = parts
+            ? `<div class="quiz-week-parts"><b>Week ${on}</b> <small class="muted">starts ${escapeHtml(wkStart.toLocaleDateString(undefined, { month: "short", day: "numeric" }))} · ${parts.length} part${parts.length === 1 ? "" : "s"} · average ${avgOf(parts)}%</small>
+                <table class="quiz-summary"><thead><tr><th>Part</th><th>Date</th><th>Score</th></tr></thead><tbody>${parts
+                  .map((x, i) => `<tr><td style="text-align:left">${i + 1}. ${escapeHtml(x.title)}${x.manual || x.scoreEntered ? ` <small class="muted">entered by hand</small>` : ""}${x.note ? `<br><small class="muted">${escapeHtml(x.note)}</small>` : ""}</td><td>${escapeHtml(x.manual ? x.sent_at : fmtStamp(x.sent_at))}</td><td class="${x.pct >= x.passing ? "q-ok" : "q-bad"}"><b>${x.pct}%</b></td></tr>`)
+                  .join("")}</tbody></table></div>`
+            : "";
+          return `<table class="quiz-summary"><thead><tr><th>${escapeHtml(t.name)}${t.weight ? ` <small class="muted">${t.weight}% of weighted</small>` : ""}</th>${heads}<th>Average</th></tr></thead><tbody><tr><th scope="row">Score</th>${cells}<td class="q-avg">${avg == null ? "—" : `<b>${avg}%</b>`}</td></tr></tbody></table>${detail}`;
+        }
         const slots = weekly ? Math.max(2, scores.length) : Math.max(1, scores.length);
         const avg = scores.length ? Math.round(scores.reduce((a, x) => a + x.pct, 0) / scores.length) : null;
         const heads = Array.from({ length: slots }, (_, i) => `<th>${weekly ? `Week ${i + 1}` : `Quiz ${i + 1}`}</th>`).join("");
@@ -2196,12 +2223,14 @@ function openPerformance(content, traineeId) {
       view.quiz = null;
       loadQuiz();
     }
+    else if (b.dataset.quizWeek) view.openWeek = view.openWeek === b.dataset.quizWeek ? "" : b.dataset.quizWeek;
     else if (b.dataset.sweek) view.sweek = b.dataset.sweek;
     else if ("cancel" in b.dataset) return close();
     else return;
     draw();
-    const key = b.dataset.week ? "week" : b.dataset.tab ? "tab" : b.dataset.sweek ? "sweek" : "mode";
-    card.querySelector(`[data-${key}="${CSS.escape(b.dataset[key])}"]`)?.focus();
+    const key = b.dataset.week ? "week" : b.dataset.tab ? "tab" : b.dataset.sweek ? "sweek" : b.dataset.quizWeek ? "quiz-week" : "mode";
+    const kv = key === "quiz-week" ? b.dataset.quizWeek : b.dataset[key];
+    if (kv != null) card.querySelector(`[data-${key}="${CSS.escape(kv)}"]`)?.focus();
   });
   card.addEventListener("input", (e) => {
     const k = e.target.dataset?.mf;

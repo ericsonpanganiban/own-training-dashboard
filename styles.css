@@ -1840,3 +1840,22 @@ body .quiz-manual-form.quiz-manual-form textarea:focus { outline: none; border-c
 body .quiz-manual-form.quiz-manual-form .quiz-manual-acts { display: flex; gap: 10px; padding-top: 4px; }
 body .quiz-manual-form.quiz-manual-form .quiz-manual-acts .btn { padding: 9px 18px; border-radius: 10px; font-weight: 600; }
 body .quiz-manual-form.quiz-manual-form > p.muted { margin: -4px 0 0; }
+
+/* About (menu bar) */
+.menubar .menu-link { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; opacity: 0.92; }
+.menubar .menu-link:hover, .menubar .menu-link[aria-expanded="true"] { opacity: 1; text-decoration: underline; }
+.menubar .menu-link:focus-visible { outline: 2px solid #fff; outline-offset: 3px; border-radius: 3px; }
+.about-overlay { position: fixed; inset: 0; z-index: 20000; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+.about-card { width: min(780px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; background: var(--card); color: var(--window-fg); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4); overflow: hidden; }
+.about-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 22px; border-bottom: 1px solid var(--line); }
+.about-head h2 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+.about-head small { color: var(--muted); }
+.about-body { padding: 8px 22px 24px; overflow-y: auto; font-size: 14px; line-height: 1.55; }
+.about-body h3 { margin: 22px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.about-body p { margin: 0 0 8px; }
+.about-body .ab-lead { font-size: 16px; line-height: 1.5; margin-top: 14px; }
+.about-body ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.ab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+.ab-app { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--card); }
+.ab-app > b { display: block; margin-bottom: 4px; }
+.ab-app p { margin: 0; font-size: 13px; color: var(--muted); }

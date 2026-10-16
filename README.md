@@ -152,3 +152,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Quiz spot checks count as weekly quiz scores.** A spot check with the Quiz category is counted as a Weekly quiz part in Performance → Quiz (and in the quiz averages, weighted average and Roster): it lands in the training week of its date, shows in that week's list of parts and as a *From Spot Check* card with the ticket link and feedback. It replaces the separate *Quiz spot checks* table. Edit it in Spot Check (Category → Quiz); changing the score or category updates the quiz view.
 
 **Edit a quiz spot check from Performance → Quiz.** Spot checks tagged Quiz show an **Edit** link on their card (ticket link, comms feedback, resolution feedback, score). Saving updates the spot check and the quiz scores; it sends nothing on Slack.
+
+**About.** The menu bar has an **About** link (`about/about.js`) that opens a window explaining what Trainer Desk is: who it is for (Trainer, Training Manager, Viewer), the cohort/trainee model, each app, how scores come together, where Claude, Slack and Google Drive are used, and who can see the data. Update that text when features change.

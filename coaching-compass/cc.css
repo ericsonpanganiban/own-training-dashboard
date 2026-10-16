@@ -649,3 +649,12 @@
   :is(.cc-root, .cc-ui) table.spot-table td a{word-break:break-all;}
   :is(.cc-root, .cc-ui) table.spot-table .spot-analysis, :is(.cc-root, .cc-ui) table.spot-table .spot-item{white-space:normal;}
   :is(.cc-root, .cc-ui) table.spot-table summary{cursor:pointer;}
+
+  :is(.cc-root, .cc-ui) .spot-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+  :is(.cc-root, .cc-ui) .spot-top-side{display:flex;gap:8px;align-items:center;}
+  :is(.cc-root, .cc-ui) .spot-new{font:inherit;font-size:16px;font-weight:700;padding:13px 26px;border-radius:12px;border:0;cursor:pointer;color:#fff;
+    background:linear-gradient(135deg,#7c3aed,#9d5cf5);box-shadow:0 6px 18px rgba(124,58,237,.35);transition:transform .12s ease, box-shadow .12s ease;}
+  :is(.cc-root, .cc-ui) .spot-new:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(124,58,237,.45);}
+  :is(.cc-root, .cc-ui) .spot-new:focus-visible{outline:3px solid #c9b2fb;outline-offset:2px;}
+  :is(.cc-root, .cc-ui) .spot-new.cancel{background:transparent;color:#7c3aed;border:2px solid #9d5cf5;box-shadow:none;}
+  :is(.cc-root, .cc-ui) .spot-views .ghost.on{background:#ede4fd;border-color:#9d5cf5;color:#5b21b6;}

@@ -4958,11 +4958,13 @@
     var list = spotList();
     var cohortOpts = "<option value=\"\">All cohort trainees</option>" + state.cohorts.map(function(c){ return "<option value=\"" + esc(c.id) + "\"" + (c.id === spot.cohort ? " selected" : "") + ">" + esc(c.name) + "</option>"; }).join("");
     var viewBtn = function(k, label){ return "<button class=\"ghost small" + (spot.view === k ? " on" : "") + "\" type=\"button\" data-spot-view=\"" + k + "\" aria-pressed=\"" + (spot.view === k) + "\">" + label + "</button>"; };
-    var head = "<div class=\"speed-bar\"><div class=\"field\"><label for=\"spotCohort\">Cohort</label><select id=\"spotCohort\">" + cohortOpts + "</select></div>" +
-      "<div class=\"spot-views\">" + viewBtn("trainee", "By trainee") + viewBtn("cohort", "Entire cohort") + "</div>" +
-      "<button class=\"primary small\" id=\"spotNewBtn\" type=\"button\">" + (spot.form ? "Cancel" : "+ New spot check") + "</button>" +
+    var head = "<div class=\"spot-top\">" +
+      "<button class=\"spot-new" + (spot.form ? " cancel" : "") + "\" id=\"spotNewBtn\" type=\"button\">" + (spot.form ? "Cancel" : "<span aria-hidden=\"true\">+</span> New spot check") + "</button>" +
+      "<span class=\"spot-top-side\">" +
       (spot.view === "cohort" ? "<button class=\"ghost small\" id=\"spotCopyBtn\" type=\"button\" title=\"Copy every spot check in view as rows to paste into a sheet\">Copy</button>" : "") +
-      "<button class=\"ghost small\" id=\"spotRepliesBtn\" type=\"button\" title=\"Read the trainees' replies from Slack and save them here\">Check replies</button>" +
+      "<button class=\"ghost small\" id=\"spotRepliesBtn\" type=\"button\" title=\"Read the trainees' replies from Slack and save them here\">Check replies</button></span></div>" +
+      "<div class=\"speed-bar spot-filters\"><div class=\"field\"><label for=\"spotCohort\">Cohort</label><select id=\"spotCohort\">" + cohortOpts + "</select></div>" +
+      "<div class=\"spot-views\">" + viewBtn("trainee", "By trainee") + viewBtn("cohort", "Entire cohort") + "</div>" +
       (spot.msg ? "<span class=\"save-status " + (spot.err ? "err" : "ok") + "\">" + esc(spot.msg) + "</span>" : "") + "</div>";
     var form = "";
     if (spot.form){

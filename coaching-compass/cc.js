@@ -4687,7 +4687,10 @@
   // ---- Spot Check: a spot check of one ticket per record (link, comms feedback, resolution feedback, score) ----
   // Stored in spot_checks/{id}; the trainee is sent a copy on Slack asking for an acknowledgement and an action plan,
   // and their reply is read back from the DM (reply, reply_at). Editing a check can optionally send an updated copy.
-  var BLANK_SPOT = { ticket: "", comms: "", resolution: "", score: "" };
+  var BLANK_SPOT = { category: "nesting", ticket: "", comms: "", resolution: "", score: "" };
+  function spotCat(c){ return c && c.category === "quiz" ? "quiz" : "nesting"; }
+  function spotCatLabel(c){ return spotCat(c) === "quiz" ? "Quiz" : "Nesting"; }
+  function spotCatChip(c){ return "<span class=\"chip\">" + spotCatLabel(c) + "</span>"; }
   var spot = { open: {}, analyses: {}, analyzing: {}, checks: [], cohort: "", view: "trainee", form: false, editId: "", resend: false, trainee: "", busy: false, msg: "", err: false, draft: Object.assign({}, BLANK_SPOT) };
   function spotScore(v){
     var n = parseFloat(String(v == null ? "" : v).replace("%", "").trim());
@@ -4724,7 +4727,7 @@
     if (!t || !checks.length) return;
     if (!sampleFn) return setSpotMsg("Analysis isn't available in this view.", true);
     var blocks = checks.map(function(c, i){
-      return "Spot check " + (i + 1) + " (" + (c.created_at || "").slice(0, 10) + ", score " + spotFmt(spotScore(c.score)) + "%)\nTicket: " + c.ticket + "\nComms feedback: " + c.comms + "\nResolution feedback: " + c.resolution + (c.reply ? "\nTrainee's reply: " + c.reply : "");
+      return "Spot check " + (i + 1) + " (" + spotCatLabel(c) + ", " + (c.created_at || "").slice(0, 10) + ", score " + spotFmt(spotScore(c.score)) + "%)\nTicket: " + c.ticket + "\nComms feedback: " + c.comms + "\nResolution feedback: " + c.resolution + (c.reply ? "\nTrainee's reply: " + c.reply : "");
     }).join("\n\n");
     var prompt = "You are helping a trainer coach a new-hire support trainee named " + t.name + ". Below are the spot checks of their tickets (oldest first), each with the trainer's feedback on communication and resolution, a score out of 100, and sometimes the trainee's own reply.\n\n" + blocks +
       "\n\nIdentify what keeps showing up. Only use what the feedback says; never invent mistakes, and say \"once\" when something happened only once. Return JSON only: {\"summary\": \"2-3 sentences\", \"themes\": [{\"title\": \"short\", \"area\": \"Comms|Resolution|Both\", \"detail\": \"what the pattern is\", \"spot_checks\": [spot check numbers it appears in]}], \"repeated_mistakes\": [{\"mistake\": \"specific, one sentence\", \"times\": number, \"spot_checks\": [numbers]}], \"trend\": \"is the score improving, flat or slipping, and why\", \"coaching_focus\": [\"up to 3 concrete things to work on next\"]}. Mistakes must appear in at least two spot checks; put one-off issues in themes instead. Use empty arrays when there is nothing.";
@@ -4866,7 +4869,7 @@
     if (!d.resolution.trim()) return setSpotMsg("Add your feedback on resolution.", true);
     if (sc == null || sc < 0 || sc > 100) return setSpotMsg("The score is a percentage from 0 to 100.", true);
     if (!dbFn) return setSpotMsg("Saving isn't available in this view.", true);
-    var fields = { ticket: d.ticket.trim(), comms: d.comms.trim(), resolution: d.resolution.trim(), score: sc };
+    var fields = { category: d.category === "quiz" ? "quiz" : "nesting", ticket: d.ticket.trim(), comms: d.comms.trim(), resolution: d.resolution.trim(), score: sc };
     var send = !editing || spot.resend, check, write;
     if (editing){
       fields.edited_at = new Date().toISOString();
@@ -4903,7 +4906,7 @@
     var c = spot.checks.filter(function(x){ return x.id === id; })[0];
     if (!c) return;
     spot.form = true; spot.editId = id; spot.resend = false; spot.trainee = c.trainee_id; spot.msg = "";
-    spot.draft = { ticket: c.ticket || "", comms: c.comms || "", resolution: c.resolution || "", score: c.score == null ? "" : String(c.score) };
+    spot.draft = { category: spotCat(c), ticket: c.ticket || "", comms: c.comms || "", resolution: c.resolution || "", score: c.score == null ? "" : String(c.score) };
     renderSpotPanel(true);
     var f = document.getElementById("spotBody"); if (f && f.scrollIntoView) f.scrollIntoView({ block: "start" });
   }
@@ -4919,7 +4922,7 @@
     var status = c.slack_sent_at ? "<span class=\"hint\" style=\"margin:0;\">Sent on Slack " + esc(spotDate(c.slack_sent_at)) + "</span>" : "<span class=\"save-status err\">Not sent" + (c.slack_error ? ": " + esc(c.slack_error) : "") + "</span>";
     var acts = "<div class=\"spot-acts\"><button class=\"ghost small\" type=\"button\" data-spot-edit=\"" + esc(c.id) + "\">Edit</button>" +
       (c.slack_sent_at ? "<button class=\"ghost small\" type=\"button\" data-spot-replies=\"" + esc(c.id) + "\">Check reply</button>" : "<button class=\"ghost small\" type=\"button\" data-spot-resend=\"" + esc(c.id) + "\">Send on Slack</button>") + " " + status + "</div>";
-    return "<div class=\"spot-item\"><div><b>" + spotFmt(spotScore(c.score)) + "%</b> · " + esc(spotDate(c.created_at)) + (c.edited_at ? " <small class=\"muted\">edited</small>" : "") + " · " + spotLink(c.ticket) + "</div>" +
+    return "<div class=\"spot-item\"><div><b>" + spotFmt(spotScore(c.score)) + "%</b> " + spotCatChip(c) + " · " + esc(spotDate(c.created_at)) + (c.edited_at ? " <small class=\"muted\">edited</small>" : "") + " · " + spotLink(c.ticket) + "</div>" +
       "<p><b>Comms:</b> " + esc(c.comms) + "</p><p><b>Resolution:</b> " + esc(c.resolution) + "</p>" + spotReplyHtml(c) + acts + "</div>";
   }
   // The trainees in view (the picked cohort, or everyone who is in one).
@@ -4940,8 +4943,8 @@
     var rows = spotCohortRows(spotList());
     if (!rows.length) return setSpotMsg("Nothing to copy yet.", true);
     var cell = function(v){ return String(v == null ? "" : v).replace(/[\t\r\n]+/g, " ").trim(); };
-    var lines = [["Trainee", "Date", "Ticket", "Feedback on Comms", "Feedback on Resolution", "Score %", "Trainee reply", "Reply date"]].concat(rows.map(function(r){
-      return [r.t.name, (r.c.created_at || "").slice(0, 10), r.c.ticket, r.c.comms, r.c.resolution, r.c.score, r.c.reply || "", (r.c.reply_at || "").slice(0, 10)];
+    var lines = [["Trainee", "Date", "Category", "Ticket", "Feedback on Comms", "Feedback on Resolution", "Score %", "Trainee reply", "Reply date"]].concat(rows.map(function(r){
+      return [r.t.name, (r.c.created_at || "").slice(0, 10), spotCatLabel(r.c), r.c.ticket, r.c.comms, r.c.resolution, r.c.score, r.c.reply || "", (r.c.reply_at || "").slice(0, 10)];
     })).map(function(r){ return r.map(cell).join("\t"); });
     var done = function(ok){ setSpotMsg(ok ? "Copied " + rows.length + " spot check" + (rows.length === 1 ? "" : "s") + ". Paste into a sheet." : "Couldn't copy. Your browser blocked the clipboard.", !ok); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(lines.join("\n")).then(function(){ done(true); }, function(){ done(fallbackCopy(lines.join("\n"))); });
@@ -4968,6 +4971,7 @@
       var d = spot.draft;
       form = "<div class=\"card spot-form\"><h3 class=\"card-title\">" + (editing ? "Edit spot check" : "New spot check") + "</h3>" +
         "<div class=\"field\"><label for=\"spotTrainee\">Trainee</label><select id=\"spotTrainee\"" + (editing ? " disabled" : "") + ">" + traineeOpts + "</select></div>" +
+        "<div class=\"field\"><label for=\"spotCategory\">Category</label><select id=\"spotCategory\"><option value=\"nesting\"" + (d.category !== "quiz" ? " selected" : "") + ">Nesting</option><option value=\"quiz\"" + (d.category === "quiz" ? " selected" : "") + ">Quiz (shows in Performance → Quiz)</option></select></div>" +
         "<div class=\"field\"><label for=\"spotTicket\">Ticket link</label><input id=\"spotTicket\" type=\"url\" placeholder=\"https://…\" value=\"" + esc(d.ticket) + "\" /></div>" +
         "<div class=\"field\"><label for=\"spotComms\">Feedback on Comms</label><textarea id=\"spotComms\" rows=\"3\">" + esc(d.comms) + "</textarea></div>" +
         "<div class=\"field\"><label for=\"spotRes\">Feedback on Resolution</label><textarea id=\"spotRes\" rows=\"3\">" + esc(d.resolution) + "</textarea></div>" +
@@ -4982,10 +4986,10 @@
       var rows = spotCohortRows(list);
       var avg = spotAvg(rows.map(function(r){ return r.c; }));
       body = "<h3 class=\"card-title\">" + esc(cohort ? cohort.name : "All cohort trainees") + " <small class=\"muted\">" + rows.length + " spot check" + (rows.length === 1 ? "" : "s") + (avg != null ? " · average " + spotFmt(avg) + "%" : "") + "</small></h3>" +
-        (rows.length ? "<div class=\"speed-wrap\"><table class=\"preview full-text spot-table\"><thead><tr><th>Trainee</th><th>Date</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th><th></th></tr></thead><tbody>" +
+        (rows.length ? "<div class=\"speed-wrap\"><table class=\"preview full-text spot-table\"><thead><tr><th>Trainee</th><th>Date</th><th>Category</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th><th></th></tr></thead><tbody>" +
           rows.map(function(r){
             var c = r.c;
-            return "<tr><td>" + esc(r.t.name) + "</td><td>" + esc(spotDate(c.created_at)) + (c.edited_at ? " <small class=\"muted\">edited</small>" : "") + "</td><td><b>" + spotFmt(spotScore(c.score)) + "%</b></td><td>" + spotLink(c.ticket) + "</td><td>" + esc(c.comms) + "</td><td>" + esc(c.resolution) + "</td><td>" + (c.reply ? esc(c.reply).replace(/\n/g, "<br>") : "<span class=\"muted\">" + (c.slack_sent_at ? "No reply yet" : "Not sent") + "</span>") + "</td><td><button class=\"link-btn\" type=\"button\" data-spot-edit=\"" + esc(c.id) + "\">Edit</button></td></tr>";
+            return "<tr><td>" + esc(r.t.name) + "</td><td>" + esc(spotDate(c.created_at)) + (c.edited_at ? " <small class=\"muted\">edited</small>" : "") + "</td><td>" + spotCatLabel(c) + "</td><td><b>" + spotFmt(spotScore(c.score)) + "%</b></td><td>" + spotLink(c.ticket) + "</td><td>" + esc(c.comms) + "</td><td>" + esc(c.resolution) + "</td><td>" + (c.reply ? esc(c.reply).replace(/\n/g, "<br>") : "<span class=\"muted\">" + (c.slack_sent_at ? "No reply yet" : "Not sent") + "</span>") + "</td><td><button class=\"link-btn\" type=\"button\" data-spot-edit=\"" + esc(c.id) + "\">Edit</button></td></tr>";
           }).join("") + "</tbody></table></div>" : "<p class=\"hint\">No spot checks recorded for this cohort yet.</p>");
     }
     else body = "<div class=\"speed-wrap\"><table class=\"preview full-text spot-table spot-by\"><thead><tr><th>Trainee</th><th>Spot checks</th><th>Average score</th><th>Latest</th></tr></thead><tbody>" +
@@ -5026,6 +5030,7 @@
     var id = e.target && e.target.id;
     if (id === "spotCohort"){ spot.cohort = e.target.value; spot.trainee = ""; renderSpotPanel(true); }
     else if (id === "spotTrainee") spot.trainee = e.target.value;
+    else if (id === "spotCategory") spot.draft.category = e.target.value;
     else if (id === "spotResend"){ spot.resend = e.target.checked; renderSpotPanel(true); }
   });
 

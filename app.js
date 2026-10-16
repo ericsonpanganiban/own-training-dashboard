@@ -1981,11 +1981,25 @@ function openPerformance(content, traineeId) {
         <div class="stat"><div class="value">${num(Number(sc.checks[0].score))}%</div><div class="label">Latest score</div><div class="hint">${escapeHtml(d(sc.checks[0].created_at))}</div></div>
       </div></div>
       ${sc.analysis ? `<div class="perf-detail"><p><b>Claude's read</b> <small class="muted">from ${sc.analysis.count} spot check${sc.analysis.count === 1 ? "" : "s"}</small></p><p>${escapeHtml(sc.analysis.summary)}</p>${sc.analysis.repeated_mistakes.length ? `<p><b>Repeated mistakes</b></p><ul>${sc.analysis.repeated_mistakes.map((m) => `<li>${escapeHtml(m.mistake)} <small class="muted">${m.times}×</small></li>`).join("")}</ul>` : ""}${sc.analysis.themes.length ? `<p><b>Common themes</b></p><ul>${sc.analysis.themes.map((m) => `<li><b>${escapeHtml(m.title)}</b>: ${escapeHtml(m.detail)}</li>`).join("")}</ul>` : ""}</div>` : ""}
-      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Date</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th></tr></thead><tbody>${sc.checks
-        .map((x) => `<tr><td>${escapeHtml(d(x.created_at))}</td><td><b>${num(Number(x.score))}%</b></td><td>${link(x.ticket)}</td><td>${escapeHtml(x.comms)}</td><td>${escapeHtml(x.resolution)}</td><td>${x.reply ? escapeHtml(x.reply) : `<span class="muted">${x.slack_sent_at ? "No reply yet" : "Not sent"}</span>`}</td></tr>`)
+      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Date</th><th>Category</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th></tr></thead><tbody>${sc.checks
+        .map((x) => `<tr><td>${escapeHtml(d(x.created_at))}</td><td>${x.category === "quiz" ? "Quiz" : "Nesting"}</td><td><b>${num(Number(x.score))}%</b></td><td>${link(x.ticket)}</td><td>${escapeHtml(x.comms)}</td><td>${escapeHtml(x.resolution)}</td><td>${x.reply ? escapeHtml(x.reply) : `<span class="muted">${x.slack_sent_at ? "No reply yet" : "Not sent"}</span>`}</td></tr>`)
         .join("")}</tbody></table></div>`;
   };
 
+  // Spot checks recorded with the Quiz category (Metrics and Coaching → Spot Check) show here with the quizzes.
+  const quizSpotHtml = () => {
+    const sc = cc.traineeSpot(traineeId);
+    const list = sc.checks.filter((x) => x.category === "quiz");
+    if (!list.length) return "";
+    const vals = list.map((x) => Number(x.score)).filter((v) => Number.isFinite(v));
+    const avg = vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : null;
+    const day = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+    const link = (u) => (/^https?:\/\//i.test(u) ? `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">Open ticket</a>` : escapeHtml(u));
+    return `<section class="quiz-summary-wrap"><h4>Quiz spot checks <small class="muted">${list.length} · average ${avg == null ? "—" : `${avg}%`}</small></h4>
+      <table class="quiz-summary"><thead><tr><th>Date</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th></tr></thead><tbody>${list
+        .map((x) => `<tr><td>${escapeHtml(day(x.created_at))}</td><td class="${Number(x.score) >= 80 ? "q-ok" : "q-bad"}"><b>${Number(x.score)}%</b></td><td>${link(x.ticket)}</td><td style="text-align:left">${escapeHtml(x.comms)}</td><td style="text-align:left">${escapeHtml(x.resolution)}</td><td style="text-align:left">${x.reply ? escapeHtml(x.reply) : `<span class="muted">${x.slack_sent_at ? "No reply yet" : "Not sent"}</span>`}</td></tr>`)
+        .join("")}</tbody></table></section>`;
+  };
   const manualForm = (d) => {
     const f = view.quizForm;
     if (!f) return "";
@@ -2057,7 +2071,7 @@ function openPerformance(content, traineeId) {
         </div>
         <div class="perf-tabs"><button type="button" class="btn btn-small" data-manual-add>+ Add score</button> <button type="button" class="btn btn-small" data-quiz-refresh>↻ Refresh</button></div>
       </div>
-      <div class="perf-detail">${manualForm(d)}${d.items.length ? summaryHtml(d) : `<p class="muted">No quizzes sent to this trainee yet. Send one from the Quiz app, or use + Add score to enter one taken elsewhere.</p>`}${d.items.map(card).join("")}</div>`;
+      <div class="perf-detail">${manualForm(d)}${quizSpotHtml()}${d.items.length ? summaryHtml(d) : `<p class="muted">No quizzes sent to this trainee yet. Send one from the Quiz app, or use + Add score to enter one taken elsewhere.</p>`}${d.items.map(card).join("")}</div>`;
   };
   // Scores by quiz type, in the order taken. A weekly quiz always has two slots; short quizzes have no fixed count.
   const summaryHtml = (d) => {
@@ -2124,8 +2138,8 @@ function openPerformance(content, traineeId) {
       return rows;
     }
     if (view.mode === "spot") {
-      const rows = [["Trainee", "Date", "Ticket", "Feedback on Comms", "Feedback on Resolution", "Score %", "Trainee reply"]];
-      cc.traineeSpot(traineeId).checks.slice().reverse().forEach((x) => rows.push([name, (x.created_at || "").slice(0, 10), x.ticket, x.comms, x.resolution, x.score, x.reply || ""]));
+      const rows = [["Trainee", "Date", "Category", "Ticket", "Feedback on Comms", "Feedback on Resolution", "Score %", "Trainee reply"]];
+      cc.traineeSpot(traineeId).checks.slice().reverse().forEach((x) => rows.push([name, (x.created_at || "").slice(0, 10), x.category === "quiz" ? "Quiz" : "Nesting", x.ticket, x.comms, x.resolution, x.score, x.reply || ""]));
       return rows;
     }
     if (view.mode === "quiz") {

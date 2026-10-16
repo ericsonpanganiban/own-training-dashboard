@@ -150,3 +150,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Spot Check list by category.** The Spot Check page has a **Category** filter that defaults to Nesting, so Quiz spot checks don't appear in the list, counts or averages there. Choose Quiz or All to see or edit them. They always show in Performance → Quiz.
 
 **Quiz spot checks count as weekly quiz scores.** A spot check with the Quiz category is counted as a Weekly quiz part in Performance → Quiz (and in the quiz averages, weighted average and Roster): it lands in the training week of its date, shows in that week's list of parts and as a *From Spot Check* card with the ticket link and feedback. It replaces the separate *Quiz spot checks* table. Edit it in Spot Check (Category → Quiz); changing the score or category updates the quiz view.
+
+**Edit a quiz spot check from Performance → Quiz.** Spot checks tagged Quiz show an **Edit** link on their card (ticket link, comms feedback, resolution feedback, score). Saving updates the spot check and the quiz scores; it sends nothing on Slack.

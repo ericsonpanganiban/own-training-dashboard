@@ -5108,6 +5108,15 @@
     // Speed: weekly numbers pulled from the Speed Productivity Sheet.
     traineeSpeed: traineeSpeed,
     traineeSpot: traineeSpot,
+    // Edit one spot check's fields (ticket, comms, resolution, score) without sending anything on Slack.
+    updateSpotCheck: function(id, fields){
+      var f = Object.assign({}, fields, { edited_at: new Date().toISOString() });
+      if (!dbFn) return Promise.reject(new Error("no db"));
+      return dbFn.doc("spot_checks/" + id).update(f).then(function(){
+        spot.checks = spot.checks.map(function(c){ return c.id === id ? Object.assign({}, c, f) : c; });
+        renderAll();
+      });
+    },
     mountSpeedSettings: function(host){
       speedSettingsHost = host;
       if (state.themeKey && state.themeKey !== "default") host.parentElement.setAttribute("data-cc-theme", state.themeKey);

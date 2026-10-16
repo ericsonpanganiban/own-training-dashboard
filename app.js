@@ -1989,6 +1989,18 @@ function openPerformance(content, traineeId) {
   const manualForm = (d) => {
     const f = view.quizForm;
     if (!f) return "";
+    if (f.spot) {
+      return `<form class="quiz-manual-form" data-manual-form>
+      <h4>Edit spot check</h4>
+      <label>Ticket link<input data-mf="ticket" value="${escapeHtml(f.ticket)}" placeholder="https://…" autocomplete="off"></label>
+      <label>Feedback on Comms<textarea data-mf="comms" rows="3">${escapeHtml(f.comms)}</textarea></label>
+      <label>Feedback on Resolution<textarea data-mf="resolution" rows="3">${escapeHtml(f.resolution)}</textarea></label>
+      <label>Score <small class="muted">0–100</small><input data-mf="score" value="${escapeHtml(f.score)}" inputmode="decimal" autocomplete="off" style="max-width:120px"></label>
+      <p class="muted"><small>Saves the changes only. Nothing is sent on Slack.</small></p>
+      ${f.error ? `<p class="bad-text" role="alert">${escapeHtml(f.error)}</p>` : ""}
+      <div class="quiz-manual-acts"><button type="submit" class="btn btn-primary">Save changes</button> <button type="button" class="btn" data-manual-cancel>Cancel</button></div>
+    </form>`;
+    }
     const types = (d.types || []).filter((t) => /short|weekly/i.test(`${t.id} ${t.name}`));
     const opts = (types.length ? types : d.types || []).map((t) => `<option value="${escapeHtml(t.id)}"${t.id === f.type ? " selected" : ""}>${escapeHtml(t.name)}</option>`).join("");
     return `<form class="quiz-manual-form" data-manual-form>
@@ -2035,7 +2047,7 @@ function openPerformance(content, traineeId) {
           <span class="quiz-perf-score">${x.pct == null ? `<span class="muted">${escapeHtml(x.status)}</span>` : `<b>${x.pct}%</b> ${x.manual || x.scoreEntered || x.spot ? "" : `<small class="muted">${x.earned}/${x.total} pts</small>`} ${x.pending ? `<span class="chip warn">${x.pending} to review</span>` : x.pct >= x.passing ? `<span class="chip ok">Passed</span>` : `<span class="chip bad">Below ${x.passing}%</span>`}`}</span></div>
         ${
           x.spot
-            ? `<p class="quiz-manual-note">${/^https?:\/\//i.test(x.ticket) ? `<a href="${escapeHtml(x.ticket)}" target="_blank" rel="noopener">Open ticket</a> · ` : ""}${x.note ? escapeHtml(x.note) : ""} <small class="muted">Recorded in Metrics and Coaching → Spot Check (Quiz category)</small></p>`
+            ? `<p class="quiz-manual-note">${/^https?:\/\//i.test(x.ticket) ? `<a href="${escapeHtml(x.ticket)}" target="_blank" rel="noopener">Open ticket</a> · ` : ""}${x.note ? escapeHtml(x.note) : ""} <small class="muted">Recorded in Spot Check (Quiz category)</small> <button type="button" class="linkish" data-spot-edit="${escapeHtml(x.spotId)}">Edit</button></p>`
             : x.scoreEntered
             ? `<p class="quiz-manual-note">${x.note ? `<b>Note:</b> ${escapeHtml(x.note)}` : `<span class="muted">No note.</span>`} <button type="button" class="linkish" data-run-score="${escapeHtml(x.quizId)}|${escapeHtml(x.runId)}">Edit</button> <button type="button" class="linkish" data-run-score-clear="${escapeHtml(x.quizId)}|${escapeHtml(x.runId)}">Remove</button></p>`
             : x.pct == null && !x.manual && x.runId && x.status !== "No submission (0)"
@@ -2211,6 +2223,10 @@ function openPerformance(content, traineeId) {
       const m = manualList().find((x) => x.id === b.dataset.manualEdit);
       if (!m) return;
       view.quizForm = { id: m.id, type: m.type, score: String(m.pct), date: m.date || "", note: m.note || "", error: "" };
+    } else if (b.dataset.spotEdit) {
+      const it = (view.quiz?.data?.items || []).find((x) => x.spot && x.spotId === b.dataset.spotEdit);
+      if (!it) return;
+      view.quizForm = { spot: it.spotId, ticket: it.ticket, comms: it.comms, resolution: it.resolution, score: String(it.pct), error: "" };
     } else if (b.dataset.runScore) {
       const [qid, rid] = b.dataset.runScore.split("|");
       const it = (view.quiz?.data?.items || []).find((x) => x.quizId === qid && x.runId === rid);
@@ -2246,6 +2262,19 @@ function openPerformance(content, traineeId) {
     const f = view.quizForm;
     if (!f) return;
     const pct = parseScore(f.score);
+    if (f.spot) {
+      if (pct == null) {
+        f.error = "The score is a percentage from 0 to 100.";
+        return draw();
+      }
+      if (!f.ticket.trim() || !f.comms.trim() || !f.resolution.trim()) {
+        f.error = "Ticket link and both feedback boxes are needed.";
+        return draw();
+      }
+      view.quizForm = null;
+      cc.updateSpotCheck(f.spot, { ticket: f.ticket.trim(), comms: f.comms.trim(), resolution: f.resolution.trim(), score: pct }).then(() => { view.quiz = null; loadQuiz(); }, () => { view.quizForm = f; f.error = "Couldn't save. Try again."; draw(); });
+      return draw();
+    }
     if (pct == null) {
       f.error = "Enter a score from 0 to 100, like 85, 85% or 8/10.";
       return draw();

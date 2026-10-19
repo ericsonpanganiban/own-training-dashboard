@@ -2075,6 +2075,202 @@ function openPerformance(content, traineeId) {
   };
   const SPOT_CAT_OPTS = [["nesting:1", "Nesting Week 1"], ["nesting:2", "Nesting Week 2"], ["quiz:1", "Quiz Week 1 (weekly quiz)"], ["quiz:2", "Quiz Week 2 (weekly quiz)"]];
   const spotCatName = (x) => (x.category === "quiz" ? "Quiz" : "Nesting") + (Number(x.week) ? ` Week ${Number(x.week)}` : "");
+  // ---- Analyze performance → coaching opportunity report (Performance → Quiz) ----
+  const traineeRec = () => cc.data().trainees.find((x) => x.id === traineeId);
+  const firstName = () => String(traineeRec()?.name || "").split(/\s+/)[0] || "there";
+  const trainingWeekOf = (x) => {
+    if (x.week) return x.week;
+    const start = cohortOf()?.training_start_date;
+    if (!start) return 0;
+    const s0 = new Date(`${start}T00:00:00`);
+    const dt = /^\d{4}-\d{2}-\d{2}$/.test(x.sent_at || "") ? new Date(`${x.sent_at}T00:00:00`) : new Date(x.sent_at);
+    return Number.isNaN(dt.getTime()) ? 0 : Math.max(1, Math.floor(Math.round((dt - s0) / 864e5) / 7) + 1);
+  };
+  const plusDays = (n) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return isoDate(d);
+  };
+  const niceDate = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) : "");
+  const listOf = (v) => (Array.isArray(v) ? v : []);
+  const savedAnalysis = () => {
+    const a = traineeRec()?.quiz_analysis;
+    return a && a.summary ? a : null;
+  };
+  const analysisData = () => view.qa?.data || savedAnalysis();
+  // What Claude reads: scores by quiz and week, what was missed, and the Quiz-category spot checks. Nothing else.
+  const analysisPayload = (d) => {
+    const items = d.items.slice(0, 40).map((x) => ({
+      quiz: x.title, type: x.type, week: trainingWeekOf(x) || undefined, date: String(x.sent_at || "").slice(0, 10), status: x.status,
+      score: x.pct == null ? null : x.pct, passing: x.passing, entered_by_hand: !!(x.manual || x.scoreEntered), note: x.note || undefined,
+      spot_check_feedback: x.spot ? { comms: x.comms, resolution: x.resolution } : undefined,
+      missed_questions: (x.missed || []).slice(0, 8).map((m) => ({ question: m.question, answered: m.answer || "", correct: m.correct })),
+    }));
+    return { average: d.avg, weighted_average: d.weighted, taken: d.taken, sent: d.sent, quiz_goal: cohortOf()?.team_goals?.quiz ?? null, quizzes: items };
+  };
+  const analyzeQuiz = async () => {
+    const d = view.quiz?.data;
+    if (!d || view.qa?.loading) return;
+    const sample = await window.TrainerUse("sample").catch(() => null);
+    if (!sample?.json) {
+      view.qa = { error: "Claude isn't available in this view." };
+      return draw();
+    }
+    view.qa = { loading: true };
+    draw();
+    const prompt =
+      `You are helping a trainer coach a new-hire customer-care trainee named ${traineeRec()?.name || "the trainee"}. Below is their quiz data as JSON (newest first): each quiz with its type, training week, score, the passing score, any questions they missed, and spot-check feedback for quiz-category spot checks. Analyze their quiz performance. Use only this data. Never invent topics or numbers; if something happened only once say so. A score below its passing score is a miss. Closed quizzes with no submission scored 0.\n\nReturn JSON only: {"summary": "2-3 sentences", "status": "on_track" | "watch" | "at_risk", "status_reason": "one sentence", "trend": "improving, flat or slipping, and why", "strengths": ["up to 3"], "opportunities": [{"topic": "short", "detail": "what the pattern is and what to practise", "evidence": "which quizzes/questions show it"}], "focus": ["up to 3 concrete things to work on next"]}. Opportunities must come from missed questions, low scores or spot-check feedback.\n\nDATA:\n${JSON.stringify(analysisPayload(d)).slice(0, 24000)}`;
+    try {
+      const out = await sample.json(prompt, { modelTier: "complex", cache: false });
+      const doc = {
+        at: new Date().toISOString(), based_on: d.items.length, summary: String(out?.summary || ""), status: ["on_track", "watch", "at_risk"].includes(out?.status) ? out.status : "watch",
+        status_reason: String(out?.status_reason || ""), trend: String(out?.trend || ""), strengths: listOf(out?.strengths).map(String),
+        opportunities: listOf(out?.opportunities).map((o) => ({ topic: String(o?.topic || ""), detail: String(o?.detail || ""), evidence: String(o?.evidence || "") })),
+        focus: listOf(out?.focus).map(String),
+      };
+      view.qa = { data: doc };
+      cc.updateTrainee(traineeId, { quiz_analysis: doc }).catch(() => {});
+    } catch (err) {
+      view.qa = { error: err?.code === "rate_limited" ? "Too many requests. Wait a minute and try again." : "Claude couldn't analyze this just now. Try again." };
+    }
+    draw();
+  };
+  const STATUS_CHIP = { on_track: ["ok", "On track"], watch: ["warn", "Keep an eye"], at_risk: ["bad", "At risk"] };
+  const analysisHtml = () => {
+    const q = view.qa;
+    if (q?.loading) return `<section class="quiz-analysis"><p class="muted">Claude is reading ${escapeHtml(firstName())}'s quiz results…</p></section>`;
+    const a = analysisData();
+    if (!a) return q?.error ? `<section class="quiz-analysis"><p class="bad-text" role="alert">${escapeHtml(q.error)}</p></section>` : "";
+    const [tone, label] = STATUS_CHIP[a.status] || STATUS_CHIP.watch;
+    const ul = (t, l) => (l.length ? `<h5>${t}</h5><ul>${l.map((x) => `<li>${x}</li>`).join("")}</ul>` : "");
+    return `<section class="quiz-analysis">
+      <div class="qa-head"><b>Claude's read</b> <span class="chip ${tone}">${label}</span> <small class="muted">from ${a.based_on} quiz${a.based_on === 1 ? "" : "zes"} · ${escapeHtml(new Date(a.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }))}</small>
+        <span class="qa-acts"><button type="button" class="btn btn-small" data-qa-run>↻ Analyze again</button> <button type="button" class="btn btn-small btn-primary" data-qa-report>Create coaching report</button></span></div>
+      <p>${escapeHtml(a.summary)}${a.status_reason ? ` <span class="muted">${escapeHtml(a.status_reason)}</span>` : ""}</p>
+      ${a.trend ? `<p><b>Trend:</b> ${escapeHtml(a.trend)}</p>` : ""}
+      ${ul("Going well", a.strengths.map(escapeHtml))}
+      ${ul("Opportunities", a.opportunities.map((o) => `<b>${escapeHtml(o.topic)}</b>: ${escapeHtml(o.detail)}${o.evidence ? ` <small class="muted">(${escapeHtml(o.evidence)})</small>` : ""}`))}
+      ${ul("Focus next", a.focus.map(escapeHtml))}
+      ${q?.error ? `<p class="bad-text" role="alert">${escapeHtml(q.error)}</p>` : ""}
+    </section>`;
+  };
+  // The report: settings for what you expect, then a message to the trainee that you can edit, copy or send on Slack.
+  const EXPECT_CHECKS = [
+    ["review", "Review the topics above before the next quiz", true],
+    ["retake", "Retake any quiz below the passing score", true],
+    ["questions", "Send me your questions or study notes before the check-in", false],
+    ["ack", "Reply to this message to acknowledge it and share your action plan", true],
+  ];
+  const openReport = () => {
+    const a = analysisData();
+    if (!a) return;
+    const goal = Number(cohortOf()?.team_goals?.quiz);
+    const old = traineeRec()?.quiz_report;
+    view.rep = {
+      form: {
+        target: String(goal > 0 ? goal : 80), by: plusDays(7), checkin: plusDays(3), tone: "supportive",
+        focus: (a.opportunities.length ? a.opportunities.map((o) => o.topic) : a.focus).filter(Boolean).join("\n"),
+        checks: Object.fromEntries(EXPECT_CHECKS.map(([k, , on]) => [k, on])), extra: "",
+      },
+      text: "", loading: false, error: "", msg: "", sent: false, last: old?.text ? old : null,
+    };
+  };
+  const reportHtml = () => {
+    const r = view.rep;
+    if (!r) return "";
+    const f = r.form;
+    if (r.text) {
+      return `<form class="quiz-manual-form" data-report-form>
+        <h4>Coaching opportunity report · ${escapeHtml(firstName())}</h4>
+        <label>Message to send <small class="muted">edit it however you like. It is not sent until you press Send.</small>
+          <textarea data-rf="text" rows="14">${escapeHtml(r.text)}</textarea></label>
+        ${r.error ? `<p class="bad-text" role="alert">${escapeHtml(r.error)}</p>` : ""}
+        ${r.msg ? `<p class="ok-text" role="status">${escapeHtml(r.msg)}</p>` : ""}
+        <div class="quiz-manual-acts"><button type="button" class="btn btn-primary" data-rep-send${r.loading ? " disabled" : ""}>${r.loading ? "Sending…" : `Send to ${escapeHtml(firstName())} on Slack`}</button>
+          <button type="button" class="btn" data-rep-copy>Copy</button>
+          <button type="button" class="btn" data-rep-edit>← Expectations</button>
+          <button type="button" class="btn" data-rep-cancel>Close</button></div></form>`;
+    }
+    return `<form class="quiz-manual-form" data-report-form>
+      <h4>Coaching opportunity report · ${escapeHtml(firstName())}</h4>
+      <p class="muted">Set what you expect from ${escapeHtml(firstName())}. Claude writes the message from the analysis above and these settings.</p>
+      <div class="quiz-manual-row">
+        <label>Target quiz score (%)<input data-rf="target" value="${escapeHtml(f.target)}" inputmode="decimal" autocomplete="off"></label>
+        <label>Meet it by<input type="date" data-rf="by" value="${escapeHtml(f.by)}"></label>
+        <label>Check-in with you<input type="date" data-rf="checkin" value="${escapeHtml(f.checkin)}"></label>
+        <label>Tone<select data-rf="tone"><option value="supportive"${f.tone === "supportive" ? " selected" : ""}>Supportive</option><option value="direct"${f.tone === "direct" ? " selected" : ""}>Direct</option></select></label>
+      </div>
+      <label>Focus areas <small class="muted">one per line, from the analysis; edit freely</small><textarea data-rf="focus" rows="4">${escapeHtml(f.focus)}</textarea></label>
+      <div class="rep-checks"><b>Expectations</b>${EXPECT_CHECKS.map(([k, label]) => `<label class="rep-check"><input type="checkbox" data-rfc="${k}"${f.checks[k] ? " checked" : ""}> ${escapeHtml(label)}</label>`).join("")}</div>
+      <label>Anything else you expect <small class="muted">optional</small><textarea data-rf="extra" rows="2" placeholder="e.g. Join the Thursday practice session">${escapeHtml(f.extra)}</textarea></label>
+      ${r.last ? `<p class="muted"><small>Last report ${escapeHtml(new Date(r.last.at).toLocaleDateString())}${r.last.sent_at ? ", sent on Slack" : ", not sent"}. <button type="button" class="linkish" data-rep-reuse>Open it</button></small></p>` : ""}
+      ${r.error ? `<p class="bad-text" role="alert">${escapeHtml(r.error)}</p>` : ""}
+      <div class="quiz-manual-acts"><button type="submit" class="btn btn-primary"${r.loading ? " disabled" : ""}>${r.loading ? "Writing…" : "Generate report"}</button> <button type="button" class="btn" data-rep-cancel>Cancel</button></div>
+    </form>`;
+  };
+  const generateReport = async () => {
+    const r = view.rep, a = analysisData(), d = view.quiz?.data;
+    if (!r || !a || !d || r.loading) return;
+    const f = r.form;
+    const target = Number(String(f.target).replace("%", ""));
+    if (!(target > 0 && target <= 100)) {
+      r.error = "Target score is a percentage from 1 to 100.";
+      return draw();
+    }
+    const sample = await window.TrainerUse("sample").catch(() => null);
+    if (!sample) {
+      r.error = "Claude isn't available in this view.";
+      return draw();
+    }
+    r.loading = true;
+    r.error = "";
+    draw();
+    const expects = EXPECT_CHECKS.filter(([k]) => f.checks[k]).map(([, label]) => label);
+    if (f.extra.trim()) expects.push(f.extra.trim());
+    const prompt =
+      `You are the trainer writing a coaching opportunity report to your trainee, ${firstName()}, to send in a Slack DM. Write it in first person as the trainer. Tone: ${f.tone === "direct" ? "direct and clear, still respectful" : "warm, supportive and encouraging, still clear"}. Use only the facts below; never invent scores, topics or policies; do not mention other trainees. Write plain text with Slack formatting: *bold* section headings and "•" bullets. Keep it under 260 words. Sections: a one-line greeting; *Where you are now* (their average ${d.avg ?? "n/a"}%, weighted ${d.weighted ?? "n/a"}%, trend); *What's going well*; *Opportunities* (the focus areas, with a short why); *What I expect from you* (target score ${target}% by ${niceDate(f.by)}, a check-in with me on ${niceDate(f.checkin)}, and the expectations listed); *How I'll support you* (offer help on the focus areas); end by asking them to reply with their acknowledgement and action plan. Output only the message.\n\nANALYSIS: ${JSON.stringify({ summary: a.summary, status: a.status, trend: a.trend, strengths: a.strengths, opportunities: a.opportunities, focus: a.focus })}\nFOCUS AREAS TO COVER:\n${f.focus.trim() || "(use the analysis)"}\nEXPECTATIONS:\n${expects.map((x) => `- ${x}`).join("\n")}`;
+    try {
+      const out = await sample(prompt, { modelTier: "complex", cache: false });
+      r.text = String(out?.text || "").trim();
+      if (!r.text) throw new Error("empty");
+      cc.updateTrainee(traineeId, { quiz_report: { at: new Date().toISOString(), text: r.text, target, by: f.by, checkin: f.checkin, sent_at: "" } }).catch(() => {});
+    } catch (err) {
+      r.error = err?.code === "rate_limited" ? "Too many requests. Wait a minute and try again." : "Claude couldn't write the report just now. Try again.";
+    }
+    r.loading = false;
+    draw();
+  };
+  const sendReport = async () => {
+    const r = view.rep;
+    const slack = window.TrainerSlack;
+    const t = traineeRec();
+    if (!r || !t || r.loading) return;
+    if (!r.text.trim()) {
+      r.error = "The message is empty.";
+      return draw();
+    }
+    if (!slack) {
+      r.error = "Slack isn't available right now.";
+      return draw();
+    }
+    r.loading = true;
+    r.error = "";
+    r.msg = "";
+    draw();
+    try {
+      const uid = await slack.userIdFor(t);
+      if (!uid) throw Object.assign(new Error("no slack"), { plain: `Couldn't find ${t.name} on Slack. Check their work email in Settings → Roster.` });
+      await slack.sendDirect(uid, r.text);
+      r.msg = `Sent to ${t.name} on Slack ✓`;
+      r.sent = true;
+      const prev = t.quiz_report || {};
+      cc.updateTrainee(traineeId, { quiz_report: { ...prev, text: r.text, at: prev.at || new Date().toISOString(), sent_at: new Date().toISOString() } }).catch(() => {});
+    } catch (err) {
+      r.error = err?.plain || (slack.errorText ? slack.errorText(err) : "Couldn't send. Try again.");
+    }
+    r.loading = false;
+    draw();
+  };
   const quizBody = () => {
     const q = view.quiz;
     if (!window.TrainerQuiz) return `<p class="muted">Quiz isn't available right now.</p>`;
@@ -2113,9 +2309,9 @@ function openPerformance(content, traineeId) {
           <div class="stat"><div class="value">${d.weighted == null ? "—" : `${d.weighted}%`}</div><div class="label">Weighted average</div><div class="hint">by quiz type</div></div>
           <div class="stat"><div class="value">${missed}</div><div class="label">Opportunities</div><div class="hint">questions missed</div></div>
         </div>
-        <div class="perf-tabs"><button type="button" class="btn btn-small" data-manual-add>+ Add score</button> <button type="button" class="btn btn-small" data-quiz-refresh>↻ Refresh</button></div>
+        <div class="perf-tabs"><button type="button" class="btn btn-small btn-primary" data-qa-run${view.qa?.loading ? " disabled" : ""}>${view.qa?.loading ? "Analyzing…" : "✨ Analyze performance"}</button> <button type="button" class="btn btn-small" data-manual-add>+ Add score</button> <button type="button" class="btn btn-small" data-quiz-refresh>↻ Refresh</button></div>
       </div>
-      <div class="perf-detail">${manualForm(d)}${d.items.length ? summaryHtml(d) : `<p class="muted">No quizzes sent to this trainee yet. Send one from the Quiz app, or use + Add score to enter one taken elsewhere.</p>`}${d.items.map(card).join("")}</div>`;
+      <div class="perf-detail">${analysisHtml()}${reportHtml()}${manualForm(d)}${d.items.length ? summaryHtml(d) : `<p class="muted">No quizzes sent to this trainee yet. Send one from the Quiz app, or use + Add score to enter one taken elsewhere.</p>`}${d.items.map(card).join("")}</div>`;
   };
   // Scores by quiz type, in the order taken. A weekly quiz always has two slots; short quizzes have no fixed count.
   const summaryHtml = (d) => {
@@ -2260,7 +2456,21 @@ function openPerformance(content, traineeId) {
         loadQuiz();
       }
     } else if ("copyView" in b.dataset) return void copyView();
-    else if ("manualAdd" in b.dataset) {
+    else if ("qaRun" in b.dataset) return void analyzeQuiz();
+    else if ("qaReport" in b.dataset) openReport();
+    else if ("repCancel" in b.dataset) view.rep = null;
+    else if ("repEdit" in b.dataset) view.rep.text = "";
+    else if ("repReuse" in b.dataset) {
+      view.rep.text = view.rep.last.text;
+      view.rep.error = "";
+    } else if ("repGen" in b.dataset) return void generateReport();
+    else if ("repSend" in b.dataset) return void sendReport();
+    else if ("repCopy" in b.dataset) {
+      return void copyText(view.rep.text).then((ok) => {
+        view.rep.msg = ok ? "Copied. Paste it wherever you'll send it." : "Couldn't copy. Select the text and copy it yourself.";
+        draw();
+      });
+    } else if ("manualAdd" in b.dataset) {
       const ty = (view.quiz?.data?.types || []).find((t) => /weekly/i.test(`${t.id} ${t.name}`)) || (view.quiz?.data?.types || [])[0];
       view.quizForm = { id: "", type: ty?.id || "", score: "", date: isoDate(new Date()), note: "", error: "" };
     } else if (b.dataset.manualEdit) {
@@ -2299,8 +2509,16 @@ function openPerformance(content, traineeId) {
   card.addEventListener("input", (e) => {
     const k = e.target.dataset?.mf;
     if (k && view.quizForm) view.quizForm[k] = e.target.value;
+    const rk = e.target.dataset?.rf;
+    if (rk && view.rep) (rk === "text" ? view.rep : view.rep.form)[rk] = e.target.value;
+    const ck = e.target.dataset?.rfc;
+    if (ck && view.rep) view.rep.form.checks[ck] = e.target.checked;
   });
   card.addEventListener("submit", (e) => {
+    if (e.target.closest("[data-report-form]")) {
+      e.preventDefault();
+      return void generateReport();
+    }
     const form = e.target.closest("[data-manual-form]");
     if (!form) return;
     e.preventDefault();

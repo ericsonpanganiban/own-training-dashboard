@@ -1892,3 +1892,14 @@ body .quiz-manual-form.quiz-manual-form > p.muted { margin: -4px 0 0; }
 .tip-float li.ok b { color: #16a34a; }
 .tip-float li.no b { color: #dc2626; }
 .tip-float .ts-tip-foot { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
+
+/* Analyze performance + coaching report (Performance → Quiz) */
+.quiz-analysis { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; background: color-mix(in srgb, #7c3aed 5%, var(--card)); }
+.quiz-analysis .qa-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.quiz-analysis .qa-acts { margin-left: auto; display: flex; gap: 6px; }
+.quiz-analysis h5 { margin: 10px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.quiz-analysis ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+.quiz-analysis p { margin: 6px 0 0; }
+body .quiz-manual-form.quiz-manual-form .rep-checks { display: grid; gap: 6px; }
+body .quiz-manual-form.quiz-manual-form .rep-check { display: flex; align-items: center; gap: 8px; font-weight: 400; color: var(--window-fg); font-size: 13.5px; }
+body .quiz-manual-form.quiz-manual-form .rep-check input { width: auto; }

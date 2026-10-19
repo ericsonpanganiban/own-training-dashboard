@@ -420,7 +420,7 @@
     });
   }
   function saveBreak(cohortId, session) {
-    const { id, ...fields } = session;
+    const { id, summary, ...fields } = session; // the read summary is shown once, not stored
     return dbReady.then((db) => {
       if (!db || String(cohortId).startsWith("local-")) {
         breakStore.set(cohortId, [session, ...(breakStore.get(cohortId) || []).filter((x) => x.id !== id)].sort((a, b) => b.sentAt - a.sentAt));
@@ -570,6 +570,7 @@
     touched: new Set(), // cohorts the viewer expanded or collapsed by hand
     sessions: new Map(), // cohortId -> recent check-ins (newest first)
     breaks: new Map(), // cohortId -> recent Break & Lunch messages (newest first)
+    autoRead: new Set(), // cohorts whose Break & Lunch thread was already read since this window opened
     loading: new Set(),
     status: new Map(), // `${cohortId}:${slot}` -> text shown next to a button
     busy: new Set(),
@@ -581,7 +582,15 @@
 
   function refreshSessions(cohortId) {
     ui.loading.add(cohortId);
-    loadBreaks(cohortId).then((list) => (ui.breaks.set(cohortId, list), draw())).catch(() => {});
+    loadBreaks(cohortId)
+      .then((list) => {
+        ui.breaks.set(cohortId, list);
+        draw();
+        // The first time this window shows today's Break & Lunch, read the thread right away so it isn't stale.
+        const cohort = cohortById(cohortId);
+        if (cohort && todayBreak(cohortId) && !ui.autoRead.has(cohortId)) (ui.autoRead.add(cohortId), checkOneBreak(cohort));
+      })
+      .catch(() => {});
     return loadSessions(cohortId)
       .then((list) => ui.sessions.set(cohortId, list))
       .catch(() => ui.sessions.set(cohortId, null))
@@ -1006,22 +1015,25 @@
 
   const BREAK_AUTO_MS = 5 * 60 * 1000;
   const todayAnyBreak = () => cc().data().cohorts.some((c) => todayBreak(c.id));
+  function checkOneBreak(cohort) {
+    const session = todayBreak(cohort.id);
+    const key = `${cohort.id}:bcheck`;
+    if (!session || ui.busy.has(key)) return;
+    ui.busy.add(key);
+    checkBreaks(cohort, session)
+      .then((g) => {
+        ui.breaks.set(cohort.id, (ui.breaks.get(cohort.id) || []).map((x) => (x.id === g.id ? g : x)));
+        ui.status.set(`${cohort.id}:break`, `Auto-read ${clock(Date.now())} · ${g.summary.matched} of ${g.summary.total} trainees logged${g.summary.over ? ` · ${g.summary.over} over the allowed time` : ""}`);
+      })
+      .catch(() => {})
+      .finally(() => (ui.busy.delete(key), draw()));
+  }
   function autoCheckBreaks() {
     if (!ui.el || document.visibilityState === "hidden") return;
-    cc().data().cohorts.forEach((cohort) => {
-      const session = todayBreak(cohort.id);
-      const key = `${cohort.id}:bcheck`;
-      if (!session || ui.busy.has(key)) return;
-      ui.busy.add(key);
-      checkBreaks(cohort, session)
-        .then((g) => {
-          ui.breaks.set(cohort.id, (ui.breaks.get(cohort.id) || []).map((x) => (x.id === g.id ? g : x)));
-          ui.status.set(`${cohort.id}:break`, `Auto-read ${clock(Date.now())} · ${g.summary.matched} of ${g.summary.total} trainees logged${g.summary.over ? ` · ${g.summary.over} over the allowed time` : ""}`);
-        })
-        .catch(() => {})
-        .finally(() => (ui.busy.delete(key), draw()));
-    });
+    cc().data().cohorts.forEach(checkOneBreak);
   }
+  // Coming back to the tab reads right away; a hidden tab skips the timer, so this catches up.
+  document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && autoCheckBreaks());
 
   function doBreakCheck(cohortId) {
     const cohort = cohortById(cohortId);
@@ -1269,6 +1281,8 @@
       el.addEventListener("change", onChange);
       el.addEventListener("input", onInput);
       ui.sessions.clear(); // fresh check-ins each time the window opens
+      ui.autoRead.clear();
+      ui.breaks.clear();
       draw();
       ui.unsubscribe = cc().onChange(() => {
         // Don't rebuild under an open day menu; it redraws on the change that follows.

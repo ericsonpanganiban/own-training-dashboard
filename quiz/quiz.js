@@ -1118,7 +1118,7 @@
     const sc = cc()?.traineeSpot?.(tid);
     return (sc?.checks || [])
       .filter((x) => x.category === "quiz" && Number.isFinite(Number(x.score)))
-      .map((x) => ({ id: `spot:${x.id}`, spot: true, type: weeklyTypeId(), pct: Number(x.score), date: x.created_at || "", title: "Spot check", note: [x.comms && `Comms: ${x.comms}`, x.resolution && `Resolution: ${x.resolution}`].filter(Boolean).join(" · "), ticket: x.ticket || "", spotId: x.id, comms: x.comms || "", resolution: x.resolution || "" }));
+      .map((x) => ({ id: `spot:${x.id}`, spot: true, week: Number(x.week) || 0, type: weeklyTypeId(), pct: Number(x.score), date: x.created_at || "", title: "Spot check", note: [x.comms && `Comms: ${x.comms}`, x.resolution && `Resolution: ${x.resolution}`].filter(Boolean).join(" · "), ticket: x.ticket || "", spotId: x.id, comms: x.comms || "", resolution: x.resolution || "" }));
   };
   const allExtraScoresOf = (tid) => [...manualScoresOf(tid), ...spotQuizScoresOf(tid)];
   function traineeQuizStats(tid) {
@@ -2756,7 +2756,7 @@
           });
         allExtraScoresOf(traineeId).forEach((m) => {
           const ty = quizTypes.find((t) => t.id === m.type);
-          items.push({ manual: !m.spot, spot: !!m.spot, ticket: m.ticket || "", spotId: m.spotId || "", comms: m.comms || "", resolution: m.resolution || "", id: m.id, title: m.title || "Entered score", note: m.note || "", type: ty?.name || "", typeId: ty?.id || "", sent_at: m.date || "", status: m.spot ? "From spot check" : "Entered", pct: Number(m.pct), earned: null, total: null, passing: 80, pending: 0, missed: [] });
+          items.push({ manual: !m.spot, spot: !!m.spot, week: m.week || 0, ticket: m.ticket || "", spotId: m.spotId || "", comms: m.comms || "", resolution: m.resolution || "", id: m.id, title: m.title || "Entered score", note: m.note || "", type: ty?.name || "", typeId: ty?.id || "", sent_at: m.date || "", status: m.spot ? "From spot check" : "Entered", pct: Number(m.pct), earned: null, total: null, passing: 80, pending: 0, missed: [] });
         });
         items.sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""));
         return { avg: st.taken ? Math.round(st.sum / st.taken) : null, weighted: st.weighted, taken: st.taken, sent: st.sent, items, types: quizTypes.map((t) => ({ id: t.id, name: t.name, weight: Number(t.weight) || 0 })) };

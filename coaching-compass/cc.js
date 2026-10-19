@@ -4687,9 +4687,11 @@
   // ---- Spot Check: a spot check of one ticket per record (link, comms feedback, resolution feedback, score) ----
   // Stored in spot_checks/{id}; the trainee is sent a copy on Slack asking for an acknowledgement and an action plan,
   // and their reply is read back from the DM (reply, reply_at). Editing a check can optionally send an updated copy.
-  var BLANK_SPOT = { category: "nesting", ticket: "", comms: "", resolution: "", score: "" };
+  var BLANK_SPOT = { catkey: "nesting:1", ticket: "", comms: "", resolution: "", score: "" };
   function spotCat(c){ return c && c.category === "quiz" ? "quiz" : "nesting"; }
-  function spotCatLabel(c){ return spotCat(c) === "quiz" ? "Quiz" : "Nesting"; }
+  function spotWeek(c){ return c && (c.week === 1 || c.week === 2 || c.week === "1" || c.week === "2") ? Number(c.week) : 0; }
+  function spotCatLabel(c){ return (spotCat(c) === "quiz" ? "Quiz" : "Nesting") + (spotWeek(c) ? " Week " + spotWeek(c) : ""); }
+  var SPOT_CATS = [["nesting:1", "Nesting Week 1"], ["nesting:2", "Nesting Week 2"], ["quiz:1", "Quiz Week 1"], ["quiz:2", "Quiz Week 2"]];
   function spotCatChip(c){ return "<span class=\"chip\">" + spotCatLabel(c) + "</span>"; }
   var spot = { cat: "nesting", open: {}, analyses: {}, analyzing: {}, checks: [], cohort: "", view: "trainee", form: false, editId: "", resend: false, trainee: "", busy: false, msg: "", err: false, draft: Object.assign({}, BLANK_SPOT) };
   function spotScore(v){
@@ -4870,7 +4872,7 @@
     if (!d.resolution.trim()) return setSpotMsg("Add your feedback on resolution.", true);
     if (sc == null || sc < 0 || sc > 100) return setSpotMsg("The score is a percentage from 0 to 100.", true);
     if (!dbFn) return setSpotMsg("Saving isn't available in this view.", true);
-    var fields = { category: d.category === "quiz" ? "quiz" : "nesting", ticket: d.ticket.trim(), comms: d.comms.trim(), resolution: d.resolution.trim(), score: sc };
+    var ck = String(d.catkey || "nesting:1").split(":"), fields = { category: ck[0] === "quiz" ? "quiz" : "nesting", week: ck[1] === "2" ? 2 : ck[1] === "1" ? 1 : 0, ticket: d.ticket.trim(), comms: d.comms.trim(), resolution: d.resolution.trim(), score: sc };
     var send = !editing || spot.resend, check, write;
     if (editing){
       fields.edited_at = new Date().toISOString();
@@ -4907,7 +4909,7 @@
     var c = spot.checks.filter(function(x){ return x.id === id; })[0];
     if (!c) return;
     spot.form = true; spot.editId = id; spot.resend = false; spot.trainee = c.trainee_id; spot.msg = "";
-    spot.draft = { category: spotCat(c), ticket: c.ticket || "", comms: c.comms || "", resolution: c.resolution || "", score: c.score == null ? "" : String(c.score) };
+    spot.draft = { catkey: spotCat(c) + ":" + (spotWeek(c) || ""), ticket: c.ticket || "", comms: c.comms || "", resolution: c.resolution || "", score: c.score == null ? "" : String(c.score) };
     renderSpotPanel(true);
     var f = document.getElementById("spotBody"); if (f && f.scrollIntoView) f.scrollIntoView({ block: "start" });
   }
@@ -4975,7 +4977,7 @@
       var d = spot.draft;
       form = "<div class=\"card spot-form\"><h3 class=\"card-title\">" + (editing ? "Edit spot check" : "New spot check") + "</h3>" +
         "<div class=\"field\"><label for=\"spotTrainee\">Trainee</label><select id=\"spotTrainee\"" + (editing ? " disabled" : "") + ">" + traineeOpts + "</select></div>" +
-        "<div class=\"field\"><label for=\"spotCategory\">Category</label><select id=\"spotCategory\"><option value=\"nesting\"" + (d.category !== "quiz" ? " selected" : "") + ">Nesting</option><option value=\"quiz\"" + (d.category === "quiz" ? " selected" : "") + ">Quiz (shows in Performance → Quiz)</option></select></div>" +
+        "<div class=\"field\"><label for=\"spotCategory\">Category</label><select id=\"spotCategory\">" + (/:$/.test(d.catkey) ? "<option value=\"" + d.catkey + "\" selected>" + (d.catkey.indexOf("quiz") === 0 ? "Quiz" : "Nesting") + " (no week)</option>" : "") + SPOT_CATS.map(function(o){ return "<option value=\"" + o[0] + "\"" + (d.catkey === o[0] ? " selected" : "") + ">" + o[1] + (o[0].indexOf("quiz") === 0 ? " (counts in Performance → Quiz)" : "") + "</option>"; }).join("") + "</select></div>" +
         "<div class=\"field\"><label for=\"spotTicket\">Ticket link</label><input id=\"spotTicket\" type=\"url\" placeholder=\"https://…\" value=\"" + esc(d.ticket) + "\" /></div>" +
         "<div class=\"field\"><label for=\"spotComms\">Feedback on Comms</label><textarea id=\"spotComms\" rows=\"3\">" + esc(d.comms) + "</textarea></div>" +
         "<div class=\"field\"><label for=\"spotRes\">Feedback on Resolution</label><textarea id=\"spotRes\" rows=\"3\">" + esc(d.resolution) + "</textarea></div>" +
@@ -5035,7 +5037,7 @@
     if (id === "spotCatFilter"){ spot.cat = e.target.value; renderSpotPanel(true); }
     else if (id === "spotCohort"){ spot.cohort = e.target.value; spot.trainee = ""; renderSpotPanel(true); }
     else if (id === "spotTrainee") spot.trainee = e.target.value;
-    else if (id === "spotCategory") spot.draft.category = e.target.value;
+    else if (id === "spotCategory") spot.draft.catkey = e.target.value;
     else if (id === "spotResend"){ spot.resend = e.target.checked; renderSpotPanel(true); }
   });
 

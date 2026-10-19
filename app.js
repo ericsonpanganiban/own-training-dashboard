@@ -2011,7 +2011,7 @@ function openPerformance(content, traineeId) {
       </div></div>
       ${sc.analysis ? `<div class="perf-detail"><p><b>Claude's read</b> <small class="muted">from ${sc.analysis.count} spot check${sc.analysis.count === 1 ? "" : "s"}</small></p><p>${escapeHtml(sc.analysis.summary)}</p>${sc.analysis.repeated_mistakes.length ? `<p><b>Repeated mistakes</b></p><ul>${sc.analysis.repeated_mistakes.map((m) => `<li>${escapeHtml(m.mistake)} <small class="muted">${m.times}×</small></li>`).join("")}</ul>` : ""}${sc.analysis.themes.length ? `<p><b>Common themes</b></p><ul>${sc.analysis.themes.map((m) => `<li><b>${escapeHtml(m.title)}</b>: ${escapeHtml(m.detail)}</li>`).join("")}</ul>` : ""}</div>` : ""}
       <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Date</th><th>Category</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th></tr></thead><tbody>${sc.checks
-        .map((x) => `<tr><td>${escapeHtml(d(x.created_at))}</td><td>${x.category === "quiz" ? "Quiz" : "Nesting"}</td><td><b>${num(Number(x.score))}%</b></td><td>${link(x.ticket)}</td><td>${escapeHtml(x.comms)}</td><td>${escapeHtml(x.resolution)}</td><td>${x.reply ? escapeHtml(x.reply) : `<span class="muted">${x.slack_sent_at ? "No reply yet" : "Not sent"}</span>`}</td></tr>`)
+        .map((x) => `<tr><td>${escapeHtml(d(x.created_at))}</td><td>${spotCatName(x)}</td><td><b>${num(Number(x.score))}%</b></td><td>${link(x.ticket)}</td><td>${escapeHtml(x.comms)}</td><td>${escapeHtml(x.resolution)}</td><td>${x.reply ? escapeHtml(x.reply) : `<span class="muted">${x.slack_sent_at ? "No reply yet" : "Not sent"}</span>`}</td></tr>`)
         .join("")}</tbody></table></div>`;
   };
 
@@ -2061,6 +2061,7 @@ function openPerformance(content, traineeId) {
     view.quiz = null;
     loadQuiz();
   };
+  const spotCatName = (x) => (x.category === "quiz" ? "Quiz" : "Nesting") + (Number(x.week) ? ` Week ${Number(x.week)}` : "");
   const quizBody = () => {
     const q = view.quiz;
     if (!window.TrainerQuiz) return `<p class="muted">Quiz isn't available right now.</p>`;
@@ -2118,6 +2119,7 @@ function openPerformance(content, traineeId) {
           // Weekly quizzes are given in parts: group the parts by the training week they fall in.
           const s0 = new Date(`${start}T00:00:00`);
           const weekOf = (x) => {
+            if (x.week) return x.week; // a Quiz Week 1 / 2 spot check counts in that week, whenever it was checked
             const dt = /^\d{4}-\d{2}-\d{2}$/.test(x.sent_at || "") ? new Date(`${x.sent_at}T00:00:00`) : new Date(x.sent_at);
             return Number.isNaN(dt.getTime()) ? 1 : Math.max(1, Math.floor(Math.round((dt - s0) / 864e5) / 7) + 1);
           };
@@ -2169,7 +2171,7 @@ function openPerformance(content, traineeId) {
     }
     if (view.mode === "spot") {
       const rows = [["Trainee", "Date", "Category", "Ticket", "Feedback on Comms", "Feedback on Resolution", "Score %", "Trainee reply"]];
-      cc.traineeSpot(traineeId).checks.slice().reverse().forEach((x) => rows.push([name, (x.created_at || "").slice(0, 10), x.category === "quiz" ? "Quiz" : "Nesting", x.ticket, x.comms, x.resolution, x.score, x.reply || ""]));
+      cc.traineeSpot(traineeId).checks.slice().reverse().forEach((x) => rows.push([name, (x.created_at || "").slice(0, 10), spotCatName(x), x.ticket, x.comms, x.resolution, x.score, x.reply || ""]));
       return rows;
     }
     if (view.mode === "quiz") {

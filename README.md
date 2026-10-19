@@ -164,3 +164,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Change a spot check's category when editing it.** The Edit form on a quiz spot check (Performance → Quiz) has an *Applies to* list (Nesting Week 1/2, Quiz Week 1/2). Moving it to a Quiz week puts it in that Weekly quiz week; moving it to Nesting takes it out of the Quiz tab (it then shows under Nesting in Spot Check).
 
 **Break & lunch auto-read.** The thread is read as soon as the Attendance window shows today's message, again every 5 minutes while the tab is visible, and whenever you come back to the tab. It can't read while the dashboard is closed, so replies sent meanwhile appear the next time it opens.
+
+**Check Break Replies is always available.** It reads the newest Break & Lunch message (any age) whenever you press it, and says so if none has been sent. The message in play is the newest one sent in the last 20 hours, not one tied to the calendar date, so a shift that runs past midnight keeps updating; an older message still shows its last read.

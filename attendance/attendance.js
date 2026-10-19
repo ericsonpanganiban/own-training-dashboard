@@ -390,12 +390,21 @@
     const now_ = open.lunch != null ? "lunch" : open.break != null ? "break" : null;
     return { used, open, total, over, now: now_, any: (events || []).length > 0, log };
   }
-  const todayBreak = (cohortId) => (ui.breaks.get(cohortId) || []).find((x) => x.date === localToday()) || null;
+  // The Break & Lunch message in play: the newest one sent in the last 20 hours. Not tied to the calendar date, so a shift
+  // that runs past midnight keeps reading the same thread.
+  const BREAK_LIVE_MS = 20 * 60 * 60 * 1000;
+  const newestBreak = (cohortId) => (ui.breaks.get(cohortId) || []).slice().sort((a, b) => b.sentAt - a.sentAt)[0] || null;
+  const todayBreak = (cohortId) => {
+    const x = newestBreak(cohortId);
+    return x && Date.now() - x.sentAt < BREAK_LIVE_MS ? x : null;
+  };
   const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   function breakChip(cohort, t) {
-    const sess = todayBreak(cohort.id);
-    if (!sess) return `<span class="muted" title="No Break & Lunch message sent today">—</span>`;
-    const st = breakState(sess.events?.[t.id]);
+    const sess = newestBreak(cohort.id);
+    if (!sess) return `<span class="muted" title="No Break & Lunch message sent yet">—</span>`;
+    const live = Date.now() - sess.sentAt < BREAK_LIVE_MS;
+    if (!live && !sess.checkedAt) return `<span class="muted" title="Last Break & Lunch message was sent ${escapeHtml(new Date(sess.sentAt).toLocaleDateString())}. Press Check Break Replies to read it.">—</span>`;
+    const st = breakState(sess.events?.[t.id], live ? Date.now() : sess.checkedAt);
     const tip = [...st.log.map((x) => `${x.k === "lunch" ? "Lunch" : "Break"} ${clock(x.from)}${x.to ? `–${clock(x.to)}` : " – not back yet"}`), `Break ${st.total.break}/${BREAK_ALLOW_MIN} min · Lunch ${st.total.lunch}/${LUNCH_ALLOW_MIN} min`].join("\n");
     let tone, label;
     if (!st.any) (tone = "none"), (label = "No reply");
@@ -786,9 +795,9 @@
                   </div>
                   <div class="att-line">
                     <button type="button" class="btn btn-small" data-att-bsend="${id}"${busy("bsend")}>Send Break &amp; Lunch…</button>
-                    <button type="button" class="btn btn-small" data-att-bcheck="${id}"${todayBreak(cohort.id) ? "" : " disabled"}${busy("bcheck")}>Check Break Replies</button>
-                    <button type="button" class="square-btn att-icon" data-att-blog="${id}" title="Today's break and lunch log" aria-label="Today's break and lunch log"${todayBreak(cohort.id) ? "" : " disabled"}>🍽</button>
-                    <span class="att-note">${escapeHtml(statusText(cohort.id, "break") || (todayBreak(cohort.id) ? `Break & Lunch sent today${todayBreak(cohort.id).checkedAt ? ` · read ${timeAgo(todayBreak(cohort.id).checkedAt)}` : " · not read yet"}` : `Allowed per day: ${BREAK_ALLOW_MIN} min break, ${LUNCH_ALLOW_MIN} min lunch`))}</span>
+                    <button type="button" class="btn btn-small" data-att-bcheck="${id}"${busy("bcheck")}>Check Break Replies</button>
+                    <button type="button" class="square-btn att-icon" data-att-blog="${id}" title="Today's break and lunch log" aria-label="Today's break and lunch log"${newestBreak(cohort.id) ? "" : " disabled"}>🍽</button>
+                    <span class="att-note">${escapeHtml(statusText(cohort.id, "break") || (newestBreak(cohort.id) ? `Break & Lunch sent ${timeAgo(newestBreak(cohort.id).sentAt)}${newestBreak(cohort.id).checkedAt ? ` · read ${timeAgo(newestBreak(cohort.id).checkedAt)}` : " · not read yet"}` : `Allowed per day: ${BREAK_ALLOW_MIN} min break, ${LUNCH_ALLOW_MIN} min lunch`))}</span>
                   </div>
                   <p class="att-note" role="status">${statusText(cohort.id, "action") ? escapeHtml(statusText(cohort.id, "action")) : escapeHtml(sessionLine)}</p>
                   ${statusText(cohort.id, "export") ? `<p class="att-note" role="status">${statusText(cohort.id, "export")}</p>` : ""}
@@ -1037,8 +1046,9 @@
 
   function doBreakCheck(cohortId) {
     const cohort = cohortById(cohortId);
-    const session = todayBreak(cohortId);
-    if (!cohort || !session) return;
+    const session = newestBreak(cohortId);
+    if (!cohort) return;
+    if (!session) return setStatus(cohortId, "break", "No Break & Lunch message has been sent yet. Press Send Break & Lunch… first.");
     run(cohortId, "bcheck", () => {
       ui.status.set(`${cohortId}:break`, "Reading break and lunch replies…");
       return checkBreaks(cohort, session)
@@ -1057,12 +1067,13 @@
 
   function openBreakLog(cohortId) {
     const cohort = cohortById(cohortId);
-    const session = todayBreak(cohortId);
+    const session = newestBreak(cohortId);
     if (!cohort || !session) return;
+    const live = Date.now() - session.sentAt < BREAK_LIVE_MS;
     const rows = membersOf(cohort)
       .filter((t) => !isInactive(t))
       .map((t) => {
-        const st = breakState(session.events?.[t.id]);
+        const st = breakState(session.events?.[t.id], live ? Date.now() : session.checkedAt || session.sentAt);
         const log = st.log.map((x) => `${x.k === "lunch" ? "Lunch" : "Break"} ${clock(x.from)}${x.to ? `–${clock(x.to)}` : " (not back yet)"}`).join(" · ");
         const flag = (k, allow) => `<td class="${st.over[k] ? "brk-over-text" : ""}">${st.total[k]} / ${allow} min${st.over[k] ? " ⚠" : ""}</td>`;
         return `<tr><td>${escapeHtml(t.name)}</td>${flag("break", BREAK_ALLOW_MIN)}${flag("lunch", LUNCH_ALLOW_MIN)}<td>${st.any ? escapeHtml(log || "Replied, nothing read as out/back") : '<span class="muted">No reply</span>'}</td></tr>`;

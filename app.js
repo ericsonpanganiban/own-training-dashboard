@@ -2021,11 +2021,12 @@ function openPerformance(content, traineeId) {
     if (f.spot) {
       return `<form class="quiz-manual-form" data-manual-form>
       <h4>Edit spot check</h4>
+      <label>Applies to<select data-mf="catkey">${/:$/.test(f.catkey) ? `<option value="${escapeHtml(f.catkey)}" selected>${f.catkey.startsWith("quiz") ? "Quiz" : "Nesting"} (no week)</option>` : ""}${SPOT_CAT_OPTS.map(([v, l]) => `<option value="${v}"${f.catkey === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
       <label>Ticket link<input data-mf="ticket" value="${escapeHtml(f.ticket)}" placeholder="https://…" autocomplete="off"></label>
       <label>Feedback on Comms<textarea data-mf="comms" rows="3">${escapeHtml(f.comms)}</textarea></label>
       <label>Feedback on Resolution<textarea data-mf="resolution" rows="3">${escapeHtml(f.resolution)}</textarea></label>
       <label>Score <small class="muted">0–100</small><input data-mf="score" value="${escapeHtml(f.score)}" inputmode="decimal" autocomplete="off" style="max-width:120px"></label>
-      <p class="muted"><small>Saves the changes only. Nothing is sent on Slack.</small></p>
+      <p class="muted"><small>Saves the changes only. Nothing is sent on Slack. Choosing a Nesting category moves this out of the Quiz tab.</small></p>
       ${f.error ? `<p class="bad-text" role="alert">${escapeHtml(f.error)}</p>` : ""}
       <div class="quiz-manual-acts"><button type="submit" class="btn btn-primary">Save changes</button> <button type="button" class="btn" data-manual-cancel>Cancel</button></div>
     </form>`;
@@ -2061,6 +2062,7 @@ function openPerformance(content, traineeId) {
     view.quiz = null;
     loadQuiz();
   };
+  const SPOT_CAT_OPTS = [["nesting:1", "Nesting Week 1"], ["nesting:2", "Nesting Week 2"], ["quiz:1", "Quiz Week 1 (weekly quiz)"], ["quiz:2", "Quiz Week 2 (weekly quiz)"]];
   const spotCatName = (x) => (x.category === "quiz" ? "Quiz" : "Nesting") + (Number(x.week) ? ` Week ${Number(x.week)}` : "");
   const quizBody = () => {
     const q = view.quiz;
@@ -2257,7 +2259,7 @@ function openPerformance(content, traineeId) {
     } else if (b.dataset.spotEdit) {
       const it = (view.quiz?.data?.items || []).find((x) => x.spot && x.spotId === b.dataset.spotEdit);
       if (!it) return;
-      view.quizForm = { spot: it.spotId, ticket: it.ticket, comms: it.comms, resolution: it.resolution, score: String(it.pct), error: "" };
+      view.quizForm = { spot: it.spotId, catkey: `quiz:${it.week || ""}`, ticket: it.ticket, comms: it.comms, resolution: it.resolution, score: String(it.pct), error: "" };
     } else if (b.dataset.runScore) {
       const [qid, rid] = b.dataset.runScore.split("|");
       const it = (view.quiz?.data?.items || []).find((x) => x.quizId === qid && x.runId === rid);
@@ -2304,7 +2306,8 @@ function openPerformance(content, traineeId) {
         return draw();
       }
       view.quizForm = null;
-      cc.updateSpotCheck(f.spot, { ticket: f.ticket.trim(), comms: f.comms.trim(), resolution: f.resolution.trim(), score: pct }).then(() => { view.quiz = null; loadQuiz(); }, () => { view.quizForm = f; f.error = "Couldn't save. Try again."; draw(); });
+      const [ck, wk] = String(f.catkey || "quiz:").split(":");
+      cc.updateSpotCheck(f.spot, { category: ck === "nesting" ? "nesting" : "quiz", week: wk === "2" ? 2 : wk === "1" ? 1 : 0, ticket: f.ticket.trim(), comms: f.comms.trim(), resolution: f.resolution.trim(), score: pct }).then(() => { view.quiz = null; loadQuiz(); }, () => { view.quizForm = f; f.error = "Couldn't save. Try again."; draw(); });
       return draw();
     }
     if (pct == null) {

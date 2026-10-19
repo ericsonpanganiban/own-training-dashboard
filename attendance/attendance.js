@@ -401,9 +401,9 @@
     if (!st.any) (tone = "none"), (label = "No reply");
     else if (st.over.break || st.over.lunch) {
       tone = "over";
-      label = st.now ? `${st.now === "lunch" ? "Lunch" : "Break"} ${st.total[st.now]}m (over)` : st.over.lunch ? `Lunch ${st.total.lunch}m (over)` : `Break ${st.total.break}m (over)`;
-    } else if (st.now) (tone = st.now), (label = `On ${st.now} · ${st.total[st.now]}m`);
-    else (tone = "back"), (label = `Back · B ${st.total.break}/${BREAK_ALLOW_MIN} · L ${st.total.lunch}/${LUNCH_ALLOW_MIN}`);
+      label = st.now ? `${st.now === "lunch" ? "Lunch" : "Break"} ${st.total[st.now]}m ⚠` : st.over.lunch ? `Lunch ${st.total.lunch}m ⚠` : `Break ${st.total.break}m ⚠`;
+    } else if (st.now) (tone = st.now), (label = `${st.now === "lunch" ? "Lunch" : "Break"} ${st.total[st.now]}m`);
+    else (tone = "back"), (label = `Back · ${st.total.break}/${st.total.lunch}m`);
     return `<span class="brk-chip brk-${tone}" title="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
   }
   const breakStore = new Map();
@@ -694,7 +694,7 @@
         <table class="att-grid">
           <thead>
             <tr><th class="att-name att-total-edge" colspan="3"></th><th colspan="10" class="att-phase">Classroom (Days 1–10)</th><th colspan="10" class="att-phase nest">Nesting (Days 11–20)</th></tr>
-            <tr><th class="att-name">Trainee</th><th class="att-brk" title="Break and lunch today (allowed: 30 min break, 60 min lunch)">Break / Lunch</th><th class="att-total">Total Points</th>${heads}</tr>
+            <tr><th class="att-name">Trainee</th><th class="att-brk" title="Break and lunch today (allowed: 30 min break, 60 min lunch). Back shows break/lunch minutes used.">Break/Lunch</th><th class="att-total">Total Points</th>${heads}</tr>
           </thead>
           <tbody>
             ${group("Active", members.filter((t) => !isInactive(t)), "No active trainees.")}

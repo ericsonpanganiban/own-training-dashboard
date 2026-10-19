@@ -1870,7 +1870,7 @@
         "<div class=\"col-map\"><h4>Column reference</h4><p class=\"r-hint\">Not set yet — add this once the " + esc(side.label) + " sheet's layout is finalized.</p></div>"
       );
       var tabFieldHtml = side.columns
-        ? "<div class=\"field\"><label for=\"tab-" + side.key + "\">Sheet tab name</label><input type=\"text\" id=\"tab-" + side.key + "\" placeholder=\"e.g. Nesting audits - Feedback\" value=\"" + esc(v.tab_name || "") + "\"></div><p class=\"r-hint\" style=\"margin-top:-10px;\">Keep this tab first in the sheet: Google Drive can only export a sheet's first tab in full, so any other position means older weeks get cut off. Rows are matched on the Week Number / CRM Name columns, and scores come from column R.</p>"
+        ? "<div class=\"field\"><label for=\"tab-" + side.key + "\">Sheet tab name</label><input type=\"text\" id=\"tab-" + side.key + "\" placeholder=\"e.g. Nesting audits - Feedback\" value=\"" + esc(v.tab_name || "") + "\"></div><p class=\"r-hint\" style=\"margin-top:-10px;\">Keep this tab first in the sheet: Google Drive can only export a sheet's first tab in full, so any other position means older weeks get cut off. Rows are matched on the Week Number / CRM Name columns, and scores come from the Score column.</p>"
         : "";
       return "<div class=\"side-card\">" +
         "<h4>" + esc(side.label) + (side.wip ? " <span class=\"badge warn\">In progress</span>" : "") + "</h4><p class=\"r-hint\">" + esc(side.hint) + "</p>" +

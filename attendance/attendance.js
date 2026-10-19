@@ -5,6 +5,7 @@
 //   cohorts/{id}            attendance_channel_id, attendance_custom_message,
 //                           attendance_days { traineeId: { "1".."20": status } }
 //   cohorts/{id}/attendance one record per check-in sent (thread ts, grades)
+//   cohorts/{id}/breaks     one record per Break & Lunch message sent: { date, sentAtTs, channelId, events: { traineeId: [{ k, a, at }] } }
 //   trainees/{id}           slack_user_id, matched from the work email
 // Days 1–20 are the cohort's own schedule (5 on, 2 off from the start date), the same one
 // Cohorts and My Class use.
@@ -14,6 +15,8 @@
   const PRESENT_MIN = 5; // a reply within 5 minutes is Present
   const LATE_MIN = 15; // within 15 minutes is Late, later is Absent
   const AUTO_CHECK_MS = 10 * 60 * 1000;
+  const BREAK_ALLOW_MIN = 30; // total break minutes per shift day, in any number of parts
+  const LUNCH_ALLOW_MIN = 60; // total lunch minutes per shift day, in any number of parts
   const STATUS_LABEL = { present: "Present", late: "Late", absent: "Absent" };
 
   // NCNS is worth double the worst late/absent tier, as in the original.
@@ -114,7 +117,10 @@
       .map((b) => {
         const from = b.match(/^From:\s*(.+?)\s*(?:<([^>]*)>)?\s*(?:\(([^)]+)\))?\s*$/m);
         const ts = b.match(/^Message TS:\s*(\S+)/m);
-        return { name: from?.[1]?.trim() || "", email: (from?.[2] || "").trim().toLowerCase(), userId: from?.[3]?.trim() || "", ts: ts?.[1]?.trim() || null };
+        const lines = b.split("\n");
+        const i = lines.findIndex((l) => /^Message TS:/.test(l));
+        const text = lines.slice(i + 1).filter((l) => !/^(Reactions|Thread|Files?|Attachments?)\b/.test(l.trim())).join("\n").trim();
+        return { name: from?.[1]?.trim() || "", email: (from?.[2] || "").trim().toLowerCase(), userId: from?.[3]?.trim() || "", ts: ts?.[1]?.trim() || null, text };
       })
       .filter((r) => r.ts);
   }
@@ -340,6 +346,139 @@
       });
   }
 
+  // ---- Break & lunch monitoring ----
+  // One message a day; trainees reply in its thread every time they step out and come back. A reply is read as
+  // { k: "break" | "lunch" | null, a: "out" | "back" }; a plain "back" closes whichever one was opened last.
+  function classifyBreak(text) {
+    const t = String(text || "").toLowerCase();
+    const back = /\b(back|done|finished|ended|end of|returned?|resumed?|i'?m in)\b/.test(t);
+    if (/\blunch\b/.test(t)) return { k: "lunch", a: back ? "back" : "out" };
+    if (/\b(break|brb|bio|restroom|coffee)\b/.test(t)) return { k: "break", a: back ? "back" : "out" };
+    if (back) return { k: null, a: "back" };
+    return null;
+  }
+  const defaultBreakMessage = (cohort, date) =>
+    [
+      `<!channel> :coffee: Break & lunch tracker — ${cohort.name || "Training"} (${date})`,
+      "Reply in this thread every time you step away and when you're back:",
+      "• `break out` / `break back`",
+      "• `lunch out` / `lunch back`",
+      `Allowed today: ${BREAK_ALLOW_MIN} minutes of breaks in total and ${LUNCH_ALLOW_MIN} minutes of lunch in total. You can split both into parts.`,
+    ].join("\n");
+
+  // One trainee's day from their out/back events: what they're doing now and the minutes used so far.
+  function breakState(events, now = Date.now()) {
+    const used = { break: 0, lunch: 0 };
+    const open = { break: null, lunch: null };
+    const log = [];
+    (events || []).slice().sort((a, b) => a.at - b.at).forEach((e) => {
+      let k = e.k;
+      if (e.a === "back" && !k) k = open.lunch && (!open.break || open.lunch > open.break) ? "lunch" : open.break ? "break" : null;
+      if (!k) return;
+      if (e.a === "out") {
+        if (open[k] == null) open[k] = e.at;
+      } else if (open[k] != null) {
+        used[k] += Math.round((e.at - open[k]) / 60000);
+        log.push({ k, from: open[k], to: e.at });
+        open[k] = null;
+      }
+    });
+    const live = { break: open.break != null ? Math.round((now - open.break) / 60000) : 0, lunch: open.lunch != null ? Math.round((now - open.lunch) / 60000) : 0 };
+    ["break", "lunch"].forEach((k) => open[k] != null && log.push({ k, from: open[k], to: null }));
+    const total = { break: used.break + live.break, lunch: used.lunch + live.lunch };
+    const over = { break: total.break > BREAK_ALLOW_MIN, lunch: total.lunch > LUNCH_ALLOW_MIN };
+    const now_ = open.lunch != null ? "lunch" : open.break != null ? "break" : null;
+    return { used, open, total, over, now: now_, any: (events || []).length > 0, log };
+  }
+  const todayBreak = (cohortId) => (ui.breaks.get(cohortId) || []).find((x) => x.date === localToday()) || null;
+  const clock = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  function breakChip(cohort, t) {
+    const sess = todayBreak(cohort.id);
+    if (!sess) return `<span class="muted" title="No Break & Lunch message sent today">—</span>`;
+    const st = breakState(sess.events?.[t.id]);
+    const tip = [...st.log.map((x) => `${x.k === "lunch" ? "Lunch" : "Break"} ${clock(x.from)}${x.to ? `–${clock(x.to)}` : " – not back yet"}`), `Break ${st.total.break}/${BREAK_ALLOW_MIN} min · Lunch ${st.total.lunch}/${LUNCH_ALLOW_MIN} min`].join("\n");
+    let tone, label;
+    if (!st.any) (tone = "none"), (label = "No reply");
+    else if (st.over.break || st.over.lunch) {
+      tone = "over";
+      label = st.now ? `${st.now === "lunch" ? "Lunch" : "Break"} ${st.total[st.now]}m (over)` : st.over.lunch ? `Lunch ${st.total.lunch}m (over)` : `Break ${st.total.break}m (over)`;
+    } else if (st.now) (tone = st.now), (label = `On ${st.now} · ${st.total[st.now]}m`);
+    else (tone = "back"), (label = `Back · B ${st.total.break}/${BREAK_ALLOW_MIN} · L ${st.total.lunch}/${LUNCH_ALLOW_MIN}`);
+    return `<span class="brk-chip brk-${tone}" title="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+  }
+  const breakStore = new Map();
+  function loadBreaks(cohortId) {
+    return dbReady.then((db) => {
+      if (!db || String(cohortId).startsWith("local-")) return (breakStore.get(cohortId) || []).slice(0, 5);
+      return db
+        .doc(`cohorts/${cohortId}`)
+        .collection("breaks")
+        .orderBy("sentAt", "desc")
+        .limit(5)
+        .get()
+        .then((qs) => qs.docs.map((d) => ({ id: d.id, ...JSON.parse(JSON.stringify(d.data() || {})) })));
+    });
+  }
+  function saveBreak(cohortId, session) {
+    const { id, ...fields } = session;
+    return dbReady.then((db) => {
+      if (!db || String(cohortId).startsWith("local-")) {
+        breakStore.set(cohortId, [session, ...(breakStore.get(cohortId) || []).filter((x) => x.id !== id)].sort((a, b) => b.sentAt - a.sentAt));
+        return;
+      }
+      return db.doc(`cohorts/${cohortId}`).collection("breaks").doc(id).set(fields);
+    });
+  }
+  function sendBreakMessage(cohort, channelId, message) {
+    const sentAt = Date.now();
+    let mcp;
+    return needMcp()
+      .then((m) => ((mcp = m), mcp.callTool(SLACK, "slack_send_message", { channel_id: channelId, message })))
+      .then(() => mcp.callTool(SLACK, "slack_read_channel", { channel_id: channelId, limit: 5, response_format: "detailed" }, { cache: false }))
+      .then((r) => {
+        const mine = parseChannelMessages(r?.payload?.messages).sort((a, b) => parseFloat(b.ts) - parseFloat(a.ts))[0];
+        if (!mine) throw Object.assign(new Error("not found"), { code: "not_found" });
+        const session = { id: `b${sentAt}`, sentAt, sentAtTs: mine.ts, channelId, date: localToday(), message, allowBreakMin: BREAK_ALLOW_MIN, allowLunchMin: LUNCH_ALLOW_MIN, checkedAt: null, events: {} };
+        return saveBreak(cohort.id, session).then(() => session);
+      });
+  }
+  // Reads every reply in the Break & Lunch thread and rebuilds each trainee's out/back events from it.
+  function checkBreaks(cohort, session) {
+    const members = membersOf(cohort).filter((t) => !isInactive(t));
+    return resolveSlackIds(members)
+      .then(() => needMcp())
+      .then((mcp) => mcp.callTool(SLACK, "slack_read_thread", { channel_id: session.channelId, message_ts: session.sentAtTs, limit: 200, response_format: "detailed" }, { cache: false }))
+      .then((r) => {
+        const replies = parseThreadReplies(r?.payload?.messages);
+        const map = {};
+        const people = {};
+        const byUser = {};
+        replies.forEach((x) => {
+          if (!x.userId) return;
+          people[x.userId] = { name: x.name, email: x.email };
+          map[x.userId] = map[x.userId] || parseFloat(x.ts) * 1000;
+          const c = classifyBreak(x.text);
+          if (c) (byUser[x.userId] = byUser[x.userId] || []).push({ ...c, at: Math.round(parseFloat(x.ts) * 1000) });
+        });
+        Object.defineProperty(map, "__people", { value: people, enumerable: false });
+        return learnFromThread(members, map).then(() => ({ byUser, replies: replies.length }));
+      })
+      .then(({ byUser, replies }) => {
+        const events = {};
+        let matched = 0;
+        members.forEach((t) => {
+          const ev = t.slack_user_id ? byUser[t.slack_user_id] : null;
+          if (ev?.length) ((events[t.id] = ev), matched++);
+        });
+        const graded = { ...session, events, checkedAt: Date.now() };
+        const over = members.filter((t) => {
+          const st = breakState(events[t.id]);
+          return st.over.break || st.over.lunch;
+        }).length;
+        return saveBreak(cohort.id, graded).then(() => ({ ...graded, summary: { replies, matched, total: members.length, over } }));
+      });
+  }
+
   // <!channel> is Slack's real @channel mention; plain "@channel" text wouldn't notify anyone.
   const defaultMessage = (cohort) =>
     [`<!channel> :wave: Attendance check-in — ${cohort.name || "Training"}`, "Reply \"Logged In\" directly in this thread to be marked present for today’s session."].join("\n");
@@ -430,6 +569,7 @@
     open: new Set(), // expanded cohorts
     touched: new Set(), // cohorts the viewer expanded or collapsed by hand
     sessions: new Map(), // cohortId -> recent check-ins (newest first)
+    breaks: new Map(), // cohortId -> recent Break & Lunch messages (newest first)
     loading: new Set(),
     status: new Map(), // `${cohortId}:${slot}` -> text shown next to a button
     busy: new Set(),
@@ -441,6 +581,7 @@
 
   function refreshSessions(cohortId) {
     ui.loading.add(cohortId);
+    loadBreaks(cohortId).then((list) => (ui.breaks.set(cohortId, list), draw())).catch(() => {});
     return loadSessions(cohortId)
       .then((list) => ui.sessions.set(cohortId, list))
       .catch(() => ui.sessions.set(cohortId, null))
@@ -531,7 +672,7 @@
     const dates = trainingDays(cohort);
     const today = localToday();
     const all = cohort.attendance_days || {};
-    const cols = 2 + TRAINING_DAYS;
+    const cols = 3 + TRAINING_DAYS;
     const row = (t) => {
       const days = all[t.id] || {};
       const cells = Array.from({ length: TRAINING_DAYS }, (_, i) => {
@@ -542,7 +683,7 @@
           (o) => `<option value="${o.value}"${o.value === cur ? " selected" : ""}>${escapeHtml(o.label)}</option>`
         ).join("")}</select></td>`;
       }).join("");
-      return `<tr class="${isInactive(t) ? "is-inactive" : ""}"><td class="att-name">${escapeHtml(t.name || "Trainee")}</td><td class="att-total"><button type="button" class="att-note-link${noteOf(cohort, t.id) ? " has-note" : ""}" data-att-note="${escapeHtml(cohort.id)}|${escapeHtml(t.id)}" title="${noteOf(cohort, t.id) ? escapeHtml(noteOf(cohort, t.id)) : "Add an attendance note"}">${totalPoints(t, days, dates, today).toFixed(2)}${noteOf(cohort, t.id) ? '<span aria-hidden="true"> ●</span>' : ""}</button></td>${cells}</tr>`;
+      return `<tr class="${isInactive(t) ? "is-inactive" : ""}"><td class="att-name">${escapeHtml(t.name || "Trainee")}</td><td class="att-brk">${isInactive(t) ? "" : breakChip(cohort, t)}</td><td class="att-total"><button type="button" class="att-note-link${noteOf(cohort, t.id) ? " has-note" : ""}" data-att-note="${escapeHtml(cohort.id)}|${escapeHtml(t.id)}" title="${noteOf(cohort, t.id) ? escapeHtml(noteOf(cohort, t.id)) : "Add an attendance note"}">${totalPoints(t, days, dates, today).toFixed(2)}${noteOf(cohort, t.id) ? '<span aria-hidden="true"> ●</span>' : ""}</button></td>${cells}</tr>`;
     };
     const group = (label, list, empty) =>
       `<tr class="att-group"><td colspan="${cols}"><span>${label} (${list.length})</span></td></tr>` +
@@ -552,8 +693,8 @@
       <div class="att-grid-wrap" data-grid="${escapeHtml(cohort.id)}">
         <table class="att-grid">
           <thead>
-            <tr><th class="att-name att-total-edge" colspan="2"></th><th colspan="10" class="att-phase">Classroom (Days 1–10)</th><th colspan="10" class="att-phase nest">Nesting (Days 11–20)</th></tr>
-            <tr><th class="att-name">Trainee</th><th class="att-total">Total Points</th>${heads}</tr>
+            <tr><th class="att-name att-total-edge" colspan="3"></th><th colspan="10" class="att-phase">Classroom (Days 1–10)</th><th colspan="10" class="att-phase nest">Nesting (Days 11–20)</th></tr>
+            <tr><th class="att-name">Trainee</th><th class="att-brk" title="Break and lunch today (allowed: 30 min break, 60 min lunch)">Break / Lunch</th><th class="att-total">Total Points</th>${heads}</tr>
           </thead>
           <tbody>
             ${group("Active", members.filter((t) => !isInactive(t)), "No active trainees.")}
@@ -633,6 +774,12 @@
                     <button type="button" class="square-btn att-icon" data-att-responses="${id}" title="Latest check-in responses" aria-label="Latest check-in responses"${latest ? "" : " disabled"}>📋</button>
                     <button type="button" class="square-btn att-icon" data-att-history="${id}" title="Check-in history" aria-label="Check-in history">🕘</button>
                     <button type="button" class="btn btn-small att-export" data-att-export="${id}"${busy("export")}>Export to Google Sheet</button>
+                  </div>
+                  <div class="att-line">
+                    <button type="button" class="btn btn-small" data-att-bsend="${id}"${busy("bsend")}>Send Break &amp; Lunch…</button>
+                    <button type="button" class="btn btn-small" data-att-bcheck="${id}"${todayBreak(cohort.id) ? "" : " disabled"}${busy("bcheck")}>Check Break Replies</button>
+                    <button type="button" class="square-btn att-icon" data-att-blog="${id}" title="Today's break and lunch log" aria-label="Today's break and lunch log"${todayBreak(cohort.id) ? "" : " disabled"}>🍽</button>
+                    <span class="att-note">${escapeHtml(statusText(cohort.id, "break") || (todayBreak(cohort.id) ? `Break & Lunch sent today${todayBreak(cohort.id).checkedAt ? ` · read ${timeAgo(todayBreak(cohort.id).checkedAt)}` : " · not read yet"}` : `Allowed per day: ${BREAK_ALLOW_MIN} min break, ${LUNCH_ALLOW_MIN} min lunch`))}</span>
                   </div>
                   <p class="att-note" role="status">${statusText(cohort.id, "action") ? escapeHtml(statusText(cohort.id, "action")) : escapeHtml(sessionLine)}</p>
                   ${statusText(cohort.id, "export") ? `<p class="att-note" role="status">${statusText(cohort.id, "export")}</p>` : ""}
@@ -753,6 +900,9 @@
     else if (d.attResponses) openResponses(d.attResponses);
     else if (d.attHistory) openHistory(d.attHistory);
     else if (d.attExport) doExport(d.attExport);
+    else if (d.attBsend) openBreakCompose(d.attBsend);
+    else if (d.attBcheck) doBreakCheck(d.attBcheck);
+    else if (d.attBlog) openBreakLog(d.attBlog);
   }
 
   function onChange(e) {
@@ -810,6 +960,90 @@
         .catch((err) => ui.status.set(`${cohortId}:action`, slackError(err)))
         .then(() => refreshSessions(cohortId));
     });
+  }
+
+  function openBreakCompose(cohortId) {
+    const cohort = cohortById(cohortId);
+    if (!cohort) return;
+    const channelId = (ui.channelDraft.get(cohortId) ?? cohort.attendance_channel_id ?? "").trim();
+    if (!channelId) return setStatus(cohortId, "action", "Add this cohort's Slack channel ID first, then Save Channel.");
+    const date = localToday();
+    const s = openSheet(
+      `<h3>Send Break &amp; Lunch message · ${escapeHtml(cohort.name)}</h3>
+       <p class="muted att-sub">Posts to channel ${escapeHtml(channelId)} as written. Trainees reply in its thread each time they go out and come back. Allowed per day: ${BREAK_ALLOW_MIN} min of breaks and ${LUNCH_ALLOW_MIN} min of lunch, split however they like.</p>
+       <textarea class="att-compose" rows="7"></textarea>
+       ${todayBreak(cohortId) ? `<p class="att-note">A Break &amp; Lunch message was already sent today. Sending again starts a new thread and the list follows the new one.</p>` : ""}
+       <p class="sheet-status" role="status"></p>
+       <div class="sheet-actions att-compose-actions"><span class="att-spacer"></span><button type="button" class="btn" data-cancel>Cancel</button><button type="button" class="btn-primary" data-send>Send</button></div>`,
+      true
+    );
+    if (!s) return;
+    const text = s.sheet.querySelector("textarea");
+    const status = s.sheet.querySelector(".sheet-status");
+    const send = s.sheet.querySelector("[data-send]");
+    text.value = defaultBreakMessage(cohort, date);
+    send.addEventListener("click", () => {
+      const message = text.value.trim();
+      if (!message) return void (status.textContent = "The message can't be empty.");
+      send.disabled = true;
+      status.textContent = "Matching trainees to Slack…";
+      resolveSlackIds(membersOf(cohort).filter((t) => !isInactive(t)), (m) => (status.textContent = m))
+        .then(() => ((status.textContent = "Sending to Slack…"), sendBreakMessage(cohort, channelId, message)))
+        .then((session) => {
+          s.close();
+          toast("Break & Lunch message sent ✓");
+          ui.breaks.set(cohortId, [session, ...(ui.breaks.get(cohortId) || [])].slice(0, 5));
+          ui.status.delete(`${cohortId}:break`);
+          draw();
+        })
+        .catch((err) => {
+          send.disabled = false;
+          status.textContent = err?.code === "not_found" ? "Sent to Slack, but couldn't find it in the channel afterwards. Check Slack before sending again." : slackError(err);
+        });
+    });
+    text.focus();
+  }
+
+  function doBreakCheck(cohortId) {
+    const cohort = cohortById(cohortId);
+    const session = todayBreak(cohortId);
+    if (!cohort || !session) return;
+    run(cohortId, "bcheck", () => {
+      ui.status.set(`${cohortId}:break`, "Reading break and lunch replies…");
+      return checkBreaks(cohort, session)
+        .then((g) => {
+          const m = g.summary;
+          ui.breaks.set(cohortId, (ui.breaks.get(cohortId) || []).map((x) => (x.id === g.id ? g : x)));
+          const noReply = m.total - m.matched;
+          ui.status.set(
+            `${cohortId}:break`,
+            `${m.replies} ${m.replies === 1 ? "reply" : "replies"} read · ${m.matched} of ${m.total} trainees logged` + (noReply ? ` · ${noReply} no reply` : "") + (m.over ? ` · ${m.over} over the allowed time` : "") + (m.replies ? "" : ". Trainees must reply inside the message's thread")
+          );
+        })
+        .catch((err) => ui.status.set(`${cohortId}:break`, slackError(err)));
+    });
+  }
+
+  function openBreakLog(cohortId) {
+    const cohort = cohortById(cohortId);
+    const session = todayBreak(cohortId);
+    if (!cohort || !session) return;
+    const rows = membersOf(cohort)
+      .filter((t) => !isInactive(t))
+      .map((t) => {
+        const st = breakState(session.events?.[t.id]);
+        const log = st.log.map((x) => `${x.k === "lunch" ? "Lunch" : "Break"} ${clock(x.from)}${x.to ? `–${clock(x.to)}` : " (not back yet)"}`).join(" · ");
+        const flag = (k, allow) => `<td class="${st.over[k] ? "brk-over-text" : ""}">${st.total[k]} / ${allow} min${st.over[k] ? " ⚠" : ""}</td>`;
+        return `<tr><td>${escapeHtml(t.name)}</td>${flag("break", BREAK_ALLOW_MIN)}${flag("lunch", LUNCH_ALLOW_MIN)}<td>${st.any ? escapeHtml(log || "Replied, nothing read as out/back") : '<span class="muted">No reply</span>'}</td></tr>`;
+      })
+      .join("");
+    openSheet(
+      `<h3>Break &amp; lunch · ${escapeHtml(cohort.name)}</h3>
+       <p class="muted att-sub">${escapeHtml(session.date)}${session.checkedAt ? ` · read ${timeAgo(session.checkedAt)}` : " · not read yet"}. Minutes include anyone still out.</p>
+       <div class="att-table-wrap"><table><thead><tr><th>Trainee</th><th>Break</th><th>Lunch</th><th>Log</th></tr></thead><tbody>${rows}</tbody></table></div>
+       <div class="sheet-actions"><button type="button" class="btn-primary" data-cancel>Close</button></div>`,
+      true
+    )?.sheet.querySelector("[data-cancel]").focus();
   }
 
   function doPing(cohortId) {

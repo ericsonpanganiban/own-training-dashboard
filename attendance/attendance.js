@@ -370,12 +370,20 @@
   function breakState(events, now = Date.now()) {
     const used = { break: 0, lunch: 0 };
     const open = { break: null, lunch: null };
+    const missing = { break: false, lunch: false };
     const log = [];
     (events || []).slice().sort((a, b) => a.at - b.at).forEach((e) => {
       let k = e.k;
       if (e.a === "back" && !k) k = open.lunch && (!open.break || open.lunch > open.break) ? "lunch" : open.break ? "break" : null;
       if (!k) return;
       if (e.a === "out") {
+        // Going out for something else means the earlier one ended, but no "back" was posted: its time can't be counted.
+        const other = k === "lunch" ? "break" : "lunch";
+        if (open[other] != null) {
+          log.push({ k: other, from: open[other], to: null, missing: true });
+          missing[other] = true;
+          open[other] = null;
+        }
         if (open[k] == null) open[k] = e.at;
       } else if (open[k] != null) {
         used[k] += Math.round((e.at - open[k]) / 60000);
@@ -385,10 +393,11 @@
     });
     const live = { break: open.break != null ? Math.round((now - open.break) / 60000) : 0, lunch: open.lunch != null ? Math.round((now - open.lunch) / 60000) : 0 };
     ["break", "lunch"].forEach((k) => open[k] != null && log.push({ k, from: open[k], to: null }));
+    log.sort((a, b) => a.from - b.from);
     const total = { break: used.break + live.break, lunch: used.lunch + live.lunch };
     const over = { break: total.break > BREAK_ALLOW_MIN, lunch: total.lunch > LUNCH_ALLOW_MIN };
     const now_ = open.lunch != null ? "lunch" : open.break != null ? "break" : null;
-    return { used, open, total, over, now: now_, any: (events || []).length > 0, log };
+    return { used, open, total, over, missing, now: now_, any: (events || []).length > 0, log };
   }
   // The Break & Lunch message in play: the newest one sent in the last 20 hours. Not tied to the calendar date, so a shift
   // that runs past midnight keeps reading the same thread.
@@ -405,14 +414,16 @@
     const live = Date.now() - sess.sentAt < BREAK_LIVE_MS;
     if (!live && !sess.checkedAt) return `<span class="muted" title="Last Break & Lunch message was sent ${escapeHtml(new Date(sess.sentAt).toLocaleDateString())}. Press Check Break Replies to read it.">—</span>`;
     const st = breakState(sess.events?.[t.id], live ? Date.now() : sess.checkedAt);
-    const tip = [...st.log.map((x) => `${x.k === "lunch" ? "Lunch" : "Break"} ${clock(x.from)}${x.to ? `–${clock(x.to)}` : " – not back yet"}`), `Break ${st.total.break}/${BREAK_ALLOW_MIN} min · Lunch ${st.total.lunch}/${LUNCH_ALLOW_MIN} min`].join("\n");
+    const tip = [...st.log.map((x) => `${x.k === "lunch" ? "Lunch" : "Break"} ${clock(x.from)}${x.to ? `–${clock(x.to)}` : x.missing ? " – no “back” reply, not counted" : " – not back yet"}`), `Break ${st.total.break}/${BREAK_ALLOW_MIN} min · Lunch ${st.total.lunch}/${LUNCH_ALLOW_MIN} min`, ...(st.missing.break || st.missing.lunch ? ["? = a “back” reply is missing, so that time isn't counted"] : [])].join("\n");
     let tone, label;
     if (!st.any) (tone = "none"), (label = "No reply");
     else if (st.over.break || st.over.lunch) {
       tone = "over";
-      label = st.now ? `${st.now === "lunch" ? "Lunch" : "Break"} ${st.total[st.now]}m ⚠` : st.over.lunch ? `Lunch ${st.total.lunch}m ⚠` : `Break ${st.total.break}m ⚠`;
+      // Name the limit that was passed, not just what they're doing now.
+      label = `${[st.over.break && `Break ${st.total.break}/${BREAK_ALLOW_MIN}`, st.over.lunch && `Lunch ${st.total.lunch}/${LUNCH_ALLOW_MIN}`].filter(Boolean).join(" · ")} ⚠`;
     } else if (st.now) (tone = st.now), (label = `${st.now === "lunch" ? "Lunch" : "Break"} ${st.total[st.now]}m`);
     else (tone = "back"), (label = `Back · ${st.total.break}/${st.total.lunch}m`);
+    if (st.missing.break || st.missing.lunch) label += " ?"; // a “back” reply is missing; hover for details
     return `<span class="brk-chip brk-${tone}" title="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
   }
   const breakStore = new Map();
@@ -1074,7 +1085,7 @@
       .filter((t) => !isInactive(t))
       .map((t) => {
         const st = breakState(session.events?.[t.id], live ? Date.now() : session.checkedAt || session.sentAt);
-        const log = st.log.map((x) => `${x.k === "lunch" ? "Lunch" : "Break"} ${clock(x.from)}${x.to ? `–${clock(x.to)}` : " (not back yet)"}`).join(" · ");
+        const log = st.log.map((x) => `${x.k === "lunch" ? "Lunch" : "Break"} ${clock(x.from)}${x.to ? `–${clock(x.to)}` : x.missing ? " (no “back” reply, not counted)" : " (not back yet)"}`).join(" · ");
         const flag = (k, allow) => `<td class="${st.over[k] ? "brk-over-text" : ""}">${st.total[k]} / ${allow} min${st.over[k] ? " ⚠" : ""}</td>`;
         return `<tr><td>${escapeHtml(t.name)}</td>${flag("break", BREAK_ALLOW_MIN)}${flag("lunch", LUNCH_ALLOW_MIN)}<td>${st.any ? escapeHtml(log || "Replied, nothing read as out/back") : '<span class="muted">No reply</span>'}</td></tr>`;
       })

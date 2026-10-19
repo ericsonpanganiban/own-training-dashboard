@@ -166,3 +166,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Break & lunch auto-read.** The thread is read as soon as the Attendance window shows today's message, again every 5 minutes while the tab is visible, and whenever you come back to the tab. It can't read while the dashboard is closed, so replies sent meanwhile appear the next time it opens.
 
 **Check Break Replies is always available.** It reads the newest Break & Lunch message (any age) whenever you press it, and says so if none has been sent. The message in play is the newest one sent in the last 20 hours, not one tied to the calendar date, so a shift that runs past midnight keeps updating; an older message still shows its last read.
+
+**Break & lunch: how a flag is decided.** Red ⚠ names the limit that was passed (for example *Break 31/30 ⚠*), counted in whole minutes across all of a trainee's parts. If someone goes out for lunch without a "break back" (or the reverse), the unfinished part is not counted and the chip gets a **?** with the explanation on hover, so a missing reply no longer looks like an overrun.

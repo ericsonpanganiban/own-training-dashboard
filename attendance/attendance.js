@@ -1004,6 +1004,25 @@
     text.focus();
   }
 
+  const BREAK_AUTO_MS = 5 * 60 * 1000;
+  const todayAnyBreak = () => cc().data().cohorts.some((c) => todayBreak(c.id));
+  function autoCheckBreaks() {
+    if (!ui.el || document.visibilityState === "hidden") return;
+    cc().data().cohorts.forEach((cohort) => {
+      const session = todayBreak(cohort.id);
+      const key = `${cohort.id}:bcheck`;
+      if (!session || ui.busy.has(key)) return;
+      ui.busy.add(key);
+      checkBreaks(cohort, session)
+        .then((g) => {
+          ui.breaks.set(cohort.id, (ui.breaks.get(cohort.id) || []).map((x) => (x.id === g.id ? g : x)));
+          ui.status.set(`${cohort.id}:break`, `Auto-read ${clock(Date.now())} · ${g.summary.matched} of ${g.summary.total} trainees logged${g.summary.over ? ` · ${g.summary.over} over the allowed time` : ""}`);
+        })
+        .catch(() => {})
+        .finally(() => (ui.busy.delete(key), draw()));
+    });
+  }
+
   function doBreakCheck(cohortId) {
     const cohort = cohortById(cohortId);
     const session = todayBreak(cohortId);
@@ -1256,8 +1275,14 @@
         if (document.activeElement?.matches?.("select.att-day")) return;
         draw();
       });
+      // While this window is open, re-read today's Break & Lunch threads every few minutes.
+      clearInterval(ui.breakTimer);
+      ui.breakTimer = setInterval(autoCheckBreaks, BREAK_AUTO_MS);
+      ui.breakTick = setInterval(() => ui.el && todayAnyBreak() && draw(), 60 * 1000); // keeps "still out" minutes moving
     },
     onClose() {
+      clearInterval(ui.breakTimer);
+      clearInterval(ui.breakTick);
       ui.unsubscribe?.();
       ui.el = null;
     },

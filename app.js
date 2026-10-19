@@ -2145,7 +2145,7 @@ function openPerformance(content, traineeId) {
     const ul = (t, l) => (l.length ? `<h5>${t}</h5><ul>${l.map((x) => `<li>${x}</li>`).join("")}</ul>` : "");
     return `<section class="quiz-analysis">
       <div class="qa-head"><b>Claude's read</b> <span class="chip ${tone}">${label}</span> <small class="muted">from ${a.based_on} quiz${a.based_on === 1 ? "" : "zes"} · ${escapeHtml(new Date(a.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }))}</small>
-        <span class="qa-acts"><button type="button" class="btn btn-small" data-qa-run>↻ Analyze again</button> <button type="button" class="btn btn-small btn-primary" data-qa-report>Create coaching report</button></span></div>
+        <span class="qa-acts"><button type="button" class="btn btn-small" data-qa-run>↻ Analyze again</button> <button type="button" class="btn btn-small btn-primary" data-qa-report>Create coaching report</button> <button type="button" class="btn btn-small" data-qa-next>Next step report</button></span></div>
       <p>${escapeHtml(a.summary)}${a.status_reason ? ` <span class="muted">${escapeHtml(a.status_reason)}</span>` : ""}</p>
       ${a.trend ? `<p><b>Trend:</b> ${escapeHtml(a.trend)}</p>` : ""}
       ${ul("Going well", a.strengths.map(escapeHtml))}
@@ -2161,16 +2161,28 @@ function openPerformance(content, traineeId) {
     ["questions", "Send me your questions or study notes before the check-in", false],
     ["ack", "Reply to this message to acknowledge it and share your action plan", true],
   ];
-  const openReport = () => {
+  const NEXT_GOALS = [["quiz", "Quiz average", "%"], ["qa", "QA score", "%"], ["speed", "Speed", " min/ticket"], ["attendance", "Attendance points", " pts"]];
+  const nextStandings = () => {
+    // Where the trainee stands against each cohort goal right now (only goals with data).
+    const d = view.quiz?.data, c = cohortOf(), t = traineeRec();
+    if (!c || !t) return { checks: [], skipped: [] };
+    return evaluateTrainee(c, t, d ? { [traineeId]: { taken: d.taken, weighted: d.weighted, avg: d.avg } } : null);
+  };
+  const openReport = (kind = "coaching") => {
     const a = analysisData();
-    if (!a) return;
-    const goal = Number(cohortOf()?.team_goals?.quiz);
+    if (kind === "coaching" && !a) return;
+    const c = cohortOf();
+    const goal = Number(c?.team_goals?.quiz);
+    const sch = c?.training_start_date ? cohortSchedule(c.training_start_date) : null;
     const old = traineeRec()?.quiz_report;
+    const tg = c?.team_goals || {};
     view.rep = {
       form: {
-        target: String(goal > 0 ? goal : 80), by: plusDays(7), checkin: plusDays(3), tone: "supportive",
-        focus: (a.opportunities.length ? a.opportunities.map((o) => o.topic) : a.focus).filter(Boolean).join("\n"),
+        kind, quizzes: true, target: String(goal > 0 ? goal : 80), by: plusDays(7), checkin: plusDays(3), tone: "supportive",
+        focus: a ? (a.opportunities.length ? a.opportunities.map((o) => o.topic) : a.focus).filter(Boolean).join("\n") : "",
         checks: Object.fromEntries(EXPECT_CHECKS.map(([k, , on]) => [k, on])), extra: "",
+        goals: Object.fromEntries(NEXT_GOALS.map(([k]) => [k, { on: tg[k] !== "" && tg[k] != null && !isNaN(Number(tg[k])), goal: tg[k] == null ? "" : String(tg[k]) }])),
+        nestBy: sch ? sch.nesting.end : plusDays(7),
       },
       text: "", loading: false, error: "", msg: "", sent: false, last: old?.text ? old : null,
     };
@@ -2181,7 +2193,7 @@ function openPerformance(content, traineeId) {
     const f = r.form;
     if (r.text) {
       return `<form class="quiz-manual-form" data-report-form>
-        <h4>Coaching opportunity report · ${escapeHtml(firstName())}</h4>
+        <h4>${f.kind === "nextstep" ? "Next step report" : "Coaching opportunity report"} · ${escapeHtml(firstName())}</h4>
         <label>Message to send <small class="muted">edit it however you like. It is not sent until you press Send.</small>
           <textarea data-rf="text" rows="14">${escapeHtml(r.text)}</textarea></label>
         ${r.error ? `<p class="bad-text" role="alert">${escapeHtml(r.error)}</p>` : ""}
@@ -2191,31 +2203,73 @@ function openPerformance(content, traineeId) {
           <button type="button" class="btn" data-rep-edit>← Expectations</button>
           <button type="button" class="btn" data-rep-cancel>Close</button></div></form>`;
     }
+    const isNext = f.kind === "nextstep";
+    const kindSel = `<label>Report type<select data-rf="kind"><option value="coaching"${isNext ? "" : " selected"}>Coaching opportunity report</option><option value="nextstep"${isNext ? " selected" : ""}>Next step: nesting targets to continue</option></select></label>`;
+    const tail = `${r.last ? `<p class="muted"><small>Last report ${escapeHtml(new Date(r.last.at).toLocaleDateString())}${r.last.sent_at ? ", sent on Slack" : ", not sent"}. <button type="button" class="linkish" data-rep-reuse>Open it</button></small></p>` : ""}
+      ${r.error ? `<p class="bad-text" role="alert">${escapeHtml(r.error)}</p>` : ""}
+      <div class="quiz-manual-acts"><button type="submit" class="btn btn-primary"${r.loading ? " disabled" : ""}>${r.loading ? "Writing…" : "Generate report"}</button> <button type="button" class="btn" data-rep-cancel>Cancel</button></div>`;
+    if (isNext) {
+      const st = nextStandings();
+      const now = (k) => st.checks.find((c) => c.key === k);
+      const rows = NEXT_GOALS.map(([k, label, unit]) => {
+        const g = f.goals[k], cur = now(k);
+        return `<div class="rep-goal"><label class="rep-check"><input type="checkbox" data-rfg="${k}"${g.on ? " checked" : ""}> ${escapeHtml(label)}</label>
+          <input data-rfgv="${k}" value="${escapeHtml(g.goal)}" inputmode="decimal" autocomplete="off" aria-label="${escapeHtml(label)} target" placeholder="target">
+          <span class="muted">${cur ? `now ${fmtNum(cur.value)}${unit.trim() === "%" ? "%" : unit} · ${cur.met ? "meets it" : "not there yet"}` : "no data yet"}</span></div>`;
+      }).join("");
+      return `<form class="quiz-manual-form" data-report-form>
+        <h4>Next step report · ${escapeHtml(firstName())}</h4>
+        <p class="muted">The nesting targets ${escapeHtml(firstName())} needs to reach to continue. Targets start from the cohort's team goals (change them here only for this report). Claude writes the message.</p>
+        ${kindSel}
+        <div class="rep-checks"><b>Nesting targets to include</b>${rows}</div>
+        <div class="quiz-manual-row">
+          <label>Achieve by<input type="date" data-rf="nestBy" value="${escapeHtml(f.nestBy)}"></label>
+          <label>Check-in with you<input type="date" data-rf="checkin" value="${escapeHtml(f.checkin)}"></label>
+          <label>Tone<select data-rf="tone"><option value="supportive"${f.tone === "supportive" ? " selected" : ""}>Supportive</option><option value="direct"${f.tone === "direct" ? " selected" : ""}>Direct</option></select></label>
+        </div>
+        <label>Anything else they must do to continue <small class="muted">optional</small><textarea data-rf="extra" rows="2" placeholder="e.g. Pass the final call review">${escapeHtml(f.extra)}</textarea></label>
+        ${tail}</form>`;
+    }
+    const q = f.quizzes;
     return `<form class="quiz-manual-form" data-report-form>
       <h4>Coaching opportunity report · ${escapeHtml(firstName())}</h4>
       <p class="muted">Set what you expect from ${escapeHtml(firstName())}. Claude writes the message from the analysis above and these settings.</p>
+      ${kindSel}
+      <label class="rep-check"><input type="checkbox" data-rfc="quizzes"${q ? " checked" : ""}> More quizzes are coming <small class="muted">untick if there are no more quizzes: the quiz target and retake expectation are left out</small></label>
       <div class="quiz-manual-row">
-        <label>Target quiz score (%)<input data-rf="target" value="${escapeHtml(f.target)}" inputmode="decimal" autocomplete="off"></label>
-        <label>Meet it by<input type="date" data-rf="by" value="${escapeHtml(f.by)}"></label>
+        ${q ? `<label>Target quiz score (%)<input data-rf="target" value="${escapeHtml(f.target)}" inputmode="decimal" autocomplete="off"></label><label>Meet it by<input type="date" data-rf="by" value="${escapeHtml(f.by)}"></label>` : ""}
         <label>Check-in with you<input type="date" data-rf="checkin" value="${escapeHtml(f.checkin)}"></label>
         <label>Tone<select data-rf="tone"><option value="supportive"${f.tone === "supportive" ? " selected" : ""}>Supportive</option><option value="direct"${f.tone === "direct" ? " selected" : ""}>Direct</option></select></label>
       </div>
       <label>Focus areas <small class="muted">one per line, from the analysis; edit freely</small><textarea data-rf="focus" rows="4">${escapeHtml(f.focus)}</textarea></label>
-      <div class="rep-checks"><b>Expectations</b>${EXPECT_CHECKS.map(([k, label]) => `<label class="rep-check"><input type="checkbox" data-rfc="${k}"${f.checks[k] ? " checked" : ""}> ${escapeHtml(label)}</label>`).join("")}</div>
+      <div class="rep-checks"><b>Expectations</b>${EXPECT_CHECKS.filter(([k]) => q || k !== "retake").map(([k, label]) => `<label class="rep-check"><input type="checkbox" data-rfc="${k}"${f.checks[k] ? " checked" : ""}> ${escapeHtml(label)}</label>`).join("")}</div>
       <label>Anything else you expect <small class="muted">optional</small><textarea data-rf="extra" rows="2" placeholder="e.g. Join the Thursday practice session">${escapeHtml(f.extra)}</textarea></label>
-      ${r.last ? `<p class="muted"><small>Last report ${escapeHtml(new Date(r.last.at).toLocaleDateString())}${r.last.sent_at ? ", sent on Slack" : ", not sent"}. <button type="button" class="linkish" data-rep-reuse>Open it</button></small></p>` : ""}
-      ${r.error ? `<p class="bad-text" role="alert">${escapeHtml(r.error)}</p>` : ""}
-      <div class="quiz-manual-acts"><button type="submit" class="btn btn-primary"${r.loading ? " disabled" : ""}>${r.loading ? "Writing…" : "Generate report"}</button> <button type="button" class="btn" data-rep-cancel>Cancel</button></div>
+      ${tail}
     </form>`;
   };
   const generateReport = async () => {
     const r = view.rep, a = analysisData(), d = view.quiz?.data;
-    if (!r || !a || !d || r.loading) return;
+    if (!r || !d || r.loading) return;
     const f = r.form;
-    const target = Number(String(f.target).replace("%", ""));
-    if (!(target > 0 && target <= 100)) {
-      r.error = "Target score is a percentage from 1 to 100.";
-      return draw();
+    const isNext = f.kind === "nextstep";
+    if (!isNext && !a) return;
+    let target = 0;
+    let goals = [];
+    if (isNext) {
+      const st = nextStandings();
+      goals = NEXT_GOALS.filter(([k]) => f.goals[k].on)
+        .map(([k, label, unit]) => ({ key: k, label, unit, goal: Number(f.goals[k].goal), now: st.checks.find((c) => c.key === k)?.value }))
+        .filter((g) => g.goal >= 0 && !isNaN(g.goal));
+      if (!goals.length) {
+        r.error = "Tick at least one target and give it a number.";
+        return draw();
+      }
+    } else if (f.quizzes) {
+      target = Number(String(f.target).replace("%", ""));
+      if (!(target > 0 && target <= 100)) {
+        r.error = "Target score is a percentage from 1 to 100.";
+        return draw();
+      }
     }
     const sample = await window.TrainerUse("sample").catch(() => null);
     if (!sample) {
@@ -2225,15 +2279,27 @@ function openPerformance(content, traineeId) {
     r.loading = true;
     r.error = "";
     draw();
-    const expects = EXPECT_CHECKS.filter(([k]) => f.checks[k]).map(([, label]) => label);
-    if (f.extra.trim()) expects.push(f.extra.trim());
-    const prompt =
-      `You are the trainer writing a coaching opportunity report to your trainee, ${firstName()}, to send in a Slack DM. Write it in first person as the trainer. Tone: ${f.tone === "direct" ? "direct and clear, still respectful" : "warm, supportive and encouraging, still clear"}. Use only the facts below; never invent scores, topics or policies; do not mention other trainees. Write plain text with Slack formatting: *bold* section headings and "•" bullets. Keep it under 260 words. Sections: a one-line greeting; *Where you are now* (their average ${d.avg ?? "n/a"}%, weighted ${d.weighted ?? "n/a"}%, trend); *What's going well*; *Opportunities* (the focus areas, with a short why); *What I expect from you* (target score ${target}% by ${niceDate(f.by)}, a check-in with me on ${niceDate(f.checkin)}, and the expectations listed); *How I'll support you* (offer help on the focus areas); end by asking them to reply with their acknowledgement and action plan. Output only the message.\n\nANALYSIS: ${JSON.stringify({ summary: a.summary, status: a.status, trend: a.trend, strengths: a.strengths, opportunities: a.opportunities, focus: a.focus })}\nFOCUS AREAS TO COVER:\n${f.focus.trim() || "(use the analysis)"}\nEXPECTATIONS:\n${expects.map((x) => `- ${x}`).join("\n")}`;
+    const tone = f.tone === "direct" ? "direct and clear, still respectful" : "warm, supportive and encouraging, still clear";
+    const common = `You are the trainer writing to your trainee, ${firstName()}, in a Slack DM. Write in first person as the trainer. Tone: ${tone}. Use only the facts below; never invent scores, targets, dates or policies; do not mention other trainees. Plain text with Slack formatting: *bold* section headings and "•" bullets. Keep it under 260 words. Output only the message.`;
+    let prompt;
+    if (isNext) {
+      const c = cohortOf();
+      const sch = c?.training_start_date ? cohortSchedule(c.training_start_date) : null;
+      const lines = goals.map((g) => `- ${g.label}: needs ${g.key === "speed" || g.key === "attendance" ? "at most" : "at least"} ${fmtNum(g.goal)}${g.unit}; right now ${g.now == null ? "not measured yet" : fmtNum(g.now) + g.unit}`);
+      const extra = f.extra.trim() ? `\nAlso required: ${f.extra.trim()}` : "";
+      prompt = `${common}\n\nThis is a "next step" report: the nesting targets ${firstName()} must achieve to continue. Sections: a one-line greeting; *Where you are now* (a line per target comparing now vs target; say "not measured yet" where there is no data, and note which are already met); *Your nesting targets* (the list of what must be achieved, by ${niceDate(f.nestBy)}); *What I'll check* (a check-in with me on ${niceDate(f.checkin)}); *How I'll support you*; finish by asking them to reply with their acknowledgement and plan. Do not promise an outcome beyond what is stated. Cohort: ${c?.name || ""}${sch ? `. Nesting runs ${sch.nesting.start} to ${sch.nesting.end}` : ""}.\nTARGETS:\n${lines.join("\n")}${extra}\nQUIZ CONTEXT (for background only): average ${d.avg ?? "n/a"}%, weighted ${d.weighted ?? "n/a"}%${a ? `; trend: ${a.trend}` : ""}`;
+    } else {
+      const expects = EXPECT_CHECKS.filter(([k]) => f.checks[k] && (f.quizzes || k !== "retake")).map(([, label]) => label);
+      if (f.extra.trim()) expects.push(f.extra.trim());
+      const quizLine = f.quizzes ? `target quiz score ${target}% by ${niceDate(f.by)}, ` : "";
+      const noQuizNote = f.quizzes ? "" : " There are no more quizzes coming, so do not set a quiz score target or mention retakes; focus on applying the learning in their work.";
+      prompt = `${common}\n\nThis is a coaching opportunity report. Sections: a one-line greeting; *Where you are now* (their average ${d.avg ?? "n/a"}%, weighted ${d.weighted ?? "n/a"}%, trend); *What's going well*; *Opportunities* (the focus areas, with a short why); *What I expect from you* (${quizLine}a check-in with me on ${niceDate(f.checkin)}, and the expectations listed); *How I'll support you* (offer help on the focus areas); end by asking them to reply with their acknowledgement and action plan.${noQuizNote}\n\nANALYSIS: ${JSON.stringify({ summary: a.summary, status: a.status, trend: a.trend, strengths: a.strengths, opportunities: a.opportunities, focus: a.focus })}\nFOCUS AREAS TO COVER:\n${f.focus.trim() || "(use the analysis)"}\nEXPECTATIONS:\n${expects.map((x) => `- ${x}`).join("\n")}`;
+    }
     try {
       const out = await sample(prompt, { modelTier: "complex", cache: false });
       r.text = String(out?.text || "").trim();
       if (!r.text) throw new Error("empty");
-      cc.updateTrainee(traineeId, { quiz_report: { at: new Date().toISOString(), text: r.text, target, by: f.by, checkin: f.checkin, sent_at: "" } }).catch(() => {});
+      cc.updateTrainee(traineeId, { quiz_report: { at: new Date().toISOString(), kind: f.kind, text: r.text, target, by: isNext ? f.nestBy : f.by, checkin: f.checkin, sent_at: "" } }).catch(() => {});
     } catch (err) {
       r.error = err?.code === "rate_limited" ? "Too many requests. Wait a minute and try again." : "Claude couldn't write the report just now. Try again.";
     }
@@ -2309,7 +2375,7 @@ function openPerformance(content, traineeId) {
           <div class="stat"><div class="value">${d.weighted == null ? "—" : `${d.weighted}%`}</div><div class="label">Weighted average</div><div class="hint">by quiz type</div></div>
           <div class="stat"><div class="value">${missed}</div><div class="label">Opportunities</div><div class="hint">questions missed</div></div>
         </div>
-        <div class="perf-tabs"><button type="button" class="btn btn-small btn-primary" data-qa-run${view.qa?.loading ? " disabled" : ""}>${view.qa?.loading ? "Analyzing…" : "✨ Analyze performance"}</button> <button type="button" class="btn btn-small" data-manual-add>+ Add score</button> <button type="button" class="btn btn-small" data-quiz-refresh>↻ Refresh</button></div>
+        <div class="perf-tabs"><button type="button" class="btn btn-small btn-primary" data-qa-run${view.qa?.loading ? " disabled" : ""}>${view.qa?.loading ? "Analyzing…" : "✨ Analyze performance"}</button> <button type="button" class="btn btn-small" data-qa-next>Next step report</button> <button type="button" class="btn btn-small" data-manual-add>+ Add score</button> <button type="button" class="btn btn-small" data-quiz-refresh>↻ Refresh</button></div>
       </div>
       <div class="perf-detail">${analysisHtml()}${reportHtml()}${manualForm(d)}${d.items.length ? summaryHtml(d) : `<p class="muted">No quizzes sent to this trainee yet. Send one from the Quiz app, or use + Add score to enter one taken elsewhere.</p>`}${d.items.map(card).join("")}</div>`;
   };
@@ -2457,7 +2523,8 @@ function openPerformance(content, traineeId) {
       }
     } else if ("copyView" in b.dataset) return void copyView();
     else if ("qaRun" in b.dataset) return void analyzeQuiz();
-    else if ("qaReport" in b.dataset) openReport();
+    else if ("qaReport" in b.dataset) openReport("coaching");
+    else if ("qaNext" in b.dataset) openReport("nextstep");
     else if ("repCancel" in b.dataset) view.rep = null;
     else if ("repEdit" in b.dataset) view.rep.text = "";
     else if ("repReuse" in b.dataset) {
@@ -2512,7 +2579,30 @@ function openPerformance(content, traineeId) {
     const rk = e.target.dataset?.rf;
     if (rk && view.rep) (rk === "text" ? view.rep : view.rep.form)[rk] = e.target.value;
     const ck = e.target.dataset?.rfc;
-    if (ck && view.rep) view.rep.form.checks[ck] = e.target.checked;
+    if (ck && view.rep) {
+      if (ck === "quizzes") view.rep.form.quizzes = e.target.checked;
+      else view.rep.form.checks[ck] = e.target.checked;
+      if (ck === "quizzes") draw();
+    }
+    const gk = e.target.dataset?.rfg;
+    if (gk && view.rep) view.rep.form.goals[gk].on = e.target.checked;
+    const gv = e.target.dataset?.rfgv;
+    if (gv && view.rep) {
+      view.rep.form.goals[gv].goal = e.target.value;
+      if (e.target.value !== "") view.rep.form.goals[gv].on = true;
+    }
+    if (rk === "kind" && view.rep) {
+      const kind = e.target.value === "nextstep" ? "nextstep" : "coaching";
+      const keep = view.rep.last;
+      if (kind === "coaching" && !analysisData()) {
+        view.rep.form.kind = "nextstep";
+        view.rep.error = "Run ✨ Analyze performance first to write a coaching opportunity report.";
+      } else {
+        openReport(kind);
+        view.rep.last = keep;
+      }
+      draw();
+    }
   });
   card.addEventListener("submit", (e) => {
     if (e.target.closest("[data-report-form]")) {

@@ -1903,3 +1903,6 @@ body .quiz-manual-form.quiz-manual-form > p.muted { margin: -4px 0 0; }
 body .quiz-manual-form.quiz-manual-form .rep-checks { display: grid; gap: 6px; }
 body .quiz-manual-form.quiz-manual-form .rep-check { display: flex; align-items: center; gap: 8px; font-weight: 400; color: var(--window-fg); font-size: 13.5px; }
 body .quiz-manual-form.quiz-manual-form .rep-check input { width: auto; }
+
+body .quiz-manual-form.quiz-manual-form .rep-goal { display: grid; grid-template-columns: minmax(150px, 1.2fr) 90px 1fr; gap: 10px; align-items: center; }
+body .quiz-manual-form.quiz-manual-form .rep-goal input[data-rfgv] { padding: 6px 10px; }

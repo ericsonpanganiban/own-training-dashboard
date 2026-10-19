@@ -1188,22 +1188,51 @@ function traineeStatusOf(t) {
   const m = t.trainee_status;
   if (m?.mode === "manual" && m.value) return { key: m.value, auto: false };
   const a = autoCache[t.id];
-  return a?.status ? { key: a.status, auto: true, checks: a.checks } : null;
+  return a?.status ? { key: a.status, auto: true, checks: a.checks, skipped: a.skipped } : null;
 }
 function statusBadgeHtml(t) {
   const st = traineeStatusOf(t);
   if (!st) return "";
-  const tip = st.auto ? `Automatic, from the team goals: ${st.checks.map((c) => `${c.label} ${fmtNum(c.value)}${c.unit === "%" ? "%" : ""} vs goal ${c.dir === "min" ? "≥" : "≤"} ${fmtNum(c.goal)} ${c.met ? "✓" : "✗"}`).join(" · ")}` : "Set by hand";
-  return `<span class="tstatus ts-${st.key}" title="${escapeHtml(tip)}">${escapeHtml(statusLabel(st.key))}${st.auto ? ` <small>auto</small>` : ""}</span>`;
+  if (!st.auto) return `<span class="tstatus ts-${st.key}" title="Set by hand">${escapeHtml(statusLabel(st.key))}</span>`;
+  const u = (c) => (c.unit === "%" ? "%" : c.unit === "points" ? " pts" : " min/ticket");
+  const missed = st.checks.filter((c) => !c.met);
+  const head = st.key === "pass" ? "Every goal that has data is met." : `${missed.length} of ${st.checks.length} goal${st.checks.length === 1 ? "" : "s"} missed.`;
+  const line = (c) => {
+    const want = `${c.dir === "min" ? "at least" : "at most"} ${fmtNum(c.goal)}${u(c)}`;
+    const how = c.met ? (c.dir === "min" ? "meets" : "is within") : c.dir === "min" ? "is below" : "is over";
+    return `<li class="${c.met ? "ok" : "no"}"><b>${c.met ? "✓" : "✗"}</b> ${escapeHtml(c.label)} ${fmtNum(c.value)}${u(c)} ${how} the goal (${want})</li>`;
+  };
+  const skipped = (st.skipped || []).length ? `<p class="ts-tip-foot">Not counted, no data yet: ${st.skipped.map(escapeHtml).join(", ")}</p>` : "";
+  return `<span class="tstatus ts-${st.key}" tabindex="0">${escapeHtml(statusLabel(st.key))} <small>auto</small><span class="ts-tip" role="tooltip"><b>${escapeHtml(statusLabel(st.key))}: </b>${escapeHtml(head)}<ul>${st.checks.map(line).join("")}</ul>${skipped}<p class="ts-tip-foot">Based on the cohort's team goals.</p></span></span>`;
 }
+// The projection's reason pops up next to the badge, fixed to the screen so no scrolling list or window edge clips it.
+function placeStatusTip(e) {
+  const badge = e.target.closest?.(".tstatus");
+  const tip = badge?.querySelector(".ts-tip");
+  if (!tip) return;
+  tip.style.display = "block";
+  const r = badge.getBoundingClientRect();
+  const h = tip.offsetHeight;
+  const below = r.bottom + 6 + h <= window.innerHeight - 8;
+  tip.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - tip.offsetWidth - 8))}px`;
+  tip.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - 6 - h)}px`;
+}
+document.addEventListener("mouseover", placeStatusTip);
+document.addEventListener("focusin", placeStatusTip);
+document.addEventListener("mouseout", (e) => {
+  const badge = e.target.closest?.(".tstatus");
+  if (badge && !badge.contains(e.relatedTarget)) badge.querySelector(".ts-tip")?.style.removeProperty("display");
+});
 // Checks one trainee against the cohort's goals. A goal counts only when there's data for it.
 function evaluateTrainee(cohort, t, quiz) {
   const cc = window.CoachingCompass;
   const goals = cohort.team_goals || {};
   const checks = [];
+  const skipped = []; // goals that are set but have no data for this trainee yet
   const add = (def, value) => {
     const goal = Number(goals[def.key]);
-    if (!(goals[def.key] !== "" && goals[def.key] != null) || isNaN(goal) || value == null || isNaN(value)) return;
+    if (!(goals[def.key] !== "" && goals[def.key] != null) || isNaN(goal)) return;
+    if (value == null || isNaN(value)) return void skipped.push(def.label);
     checks.push({ key: def.key, label: def.label, unit: def.unit, dir: def.dir, goal, value, met: def.dir === "min" ? value >= goal : value <= goal });
   };
   const q = quiz?.[t.id];
@@ -1213,7 +1242,7 @@ function evaluateTrainee(cohort, t, quiz) {
   const vals = cc.traineeSpeed(t.id).weeks.map((w) => w.value).filter((v) => v != null);
   add(GOAL_DEFS[2], vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
   add(GOAL_DEFS[3], window.TrainerAttendance?.points ? window.TrainerAttendance.points(cohort.id, t.id) : null);
-  return { status: checks.length ? (checks.every((c) => c.met) ? "pass" : "fail") : null, checks };
+  return { status: checks.length ? (checks.every((c) => c.met) ? "pass" : "fail") : null, checks, skipped };
 }
 // Recomputes every automatic projection (at most every 15 s unless forced) and asks the apps to redraw when something changed.
 async function refreshAutoStatuses(force) {

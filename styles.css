@@ -1870,3 +1870,12 @@ body .quiz-manual-form.quiz-manual-form > p.muted { margin: -4px 0 0; }
 .brk-chip.brk-back { background: #dcfce7; color: #166534; border-color: #86efac; }
 .brk-chip.brk-over { background: #dc2626; color: #fff; }
 .brk-over-text { color: #dc2626; font-weight: 700; }
+
+/* Why a trainee is projected to pass / fail: shown only on hover or keyboard focus */
+.tstatus { cursor: help; }
+.tstatus .ts-tip { display: none; position: fixed; left: 0; top: 0; z-index: 30000; width: 300px; max-width: 80vw; padding: 10px 12px; border-radius: 10px; background: var(--card); color: var(--window-fg); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); font-size: 12px; font-weight: 400; line-height: 1.45; text-align: left; white-space: normal; }
+.tstatus .ts-tip ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.tstatus .ts-tip li.ok b { color: #16a34a; }
+.tstatus .ts-tip li.no b { color: #dc2626; }
+.tstatus .ts-tip .ts-tip-foot { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
+.app-body .member-list .tstatus .ts-tip li, .tstatus .ts-tip li { background: none; padding: 0; border: 0; display: block; }

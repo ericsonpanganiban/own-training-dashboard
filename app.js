@@ -1207,21 +1207,32 @@ function statusBadgeHtml(t) {
 }
 // The projection's reason pops up next to the badge, fixed to the screen so no scrolling list or window edge clips it.
 function placeStatusTip(e) {
-  const badge = e.target.closest?.(".tstatus");
-  const tip = badge?.querySelector(".ts-tip");
-  if (!tip) return;
-  tip.style.display = "block";
+  const badge = e.target.closest?.(".tstatus, .tip-host");
+  const src = badge?.querySelector(".ts-tip, .tip-pop");
+  if (!src) return;
+  // The pop-up lives on <body> so sticky columns and scrolling lists can't paint over or clip it.
+  let box = document.getElementById("tipFloat");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "tipFloat";
+    box.className = "tip-float";
+    box.setAttribute("role", "tooltip");
+    document.body.appendChild(box);
+  }
+  box.innerHTML = src.innerHTML;
+  box.style.display = "block";
   const r = badge.getBoundingClientRect();
-  const h = tip.offsetHeight;
+  const h = box.offsetHeight;
   const below = r.bottom + 6 + h <= window.innerHeight - 8;
-  tip.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - tip.offsetWidth - 8))}px`;
-  tip.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - 6 - h)}px`;
+  box.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - box.offsetWidth - 8))}px`;
+  box.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - 6 - h)}px`;
 }
 document.addEventListener("mouseover", placeStatusTip);
 document.addEventListener("focusin", placeStatusTip);
+document.addEventListener("focusout", () => document.getElementById("tipFloat")?.style.setProperty("display", "none"));
 document.addEventListener("mouseout", (e) => {
-  const badge = e.target.closest?.(".tstatus");
-  if (badge && !badge.contains(e.relatedTarget)) badge.querySelector(".ts-tip")?.style.removeProperty("display");
+  const badge = e.target.closest?.(".tstatus, .tip-host");
+  if (badge && !badge.contains(e.relatedTarget)) document.getElementById("tipFloat")?.style.setProperty("display", "none");
 });
 // Checks one trainee against the cohort's goals. A goal counts only when there's data for it.
 function evaluateTrainee(cohort, t, quiz) {

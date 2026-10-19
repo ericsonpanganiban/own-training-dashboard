@@ -429,7 +429,7 @@
     lines.push(`${name("lunch")}: ${st.total.lunch} of ${allow.lunch} min used${st.over.lunch ? "" : ` (${allow.lunch - st.total.lunch} left)`}`);
     // 4. each part
     if (st.log.length) lines.push("", ...st.log.map((x) => `• ${name(x.k)} ${clock(x.from)}${x.to ? `–${clock(x.to)} (${Math.round((x.to - x.from) / 60000)} min)` : x.missing ? " – no “back” reply, time not counted" : " – not back yet"}`));
-    const tip = lines.join("\n");
+    const tipHtml = `<b>${escapeHtml(t.name || "Trainee")}</b><ul>${lines.map((l) => (l ? `<li>${escapeHtml(l)}</li>` : "")).join("")}</ul>`;
     let tone, label;
     if (!st.any) (tone = "none"), (label = "No reply");
     else if (st.over.break || st.over.lunch) {
@@ -437,7 +437,7 @@
       label = st.over.break && st.over.lunch ? "Overbreak + lunch" : st.over.break ? "Overbreak" : "Overlunch";
     } else if (st.now) (tone = st.now), (label = name(st.now));
     else (tone = "back"), (label = "Online");
-    return `<span class="brk-chip brk-${tone}" title="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+    return `<span class="brk-chip brk-${tone} tip-host" tabindex="0">${escapeHtml(label)}<span class="tip-pop" role="tooltip">${tipHtml}</span></span>`;
   }
   const breakStore = new Map();
   function loadBreaks(cohortId) {
@@ -1327,7 +1327,7 @@
       // While this window is open, re-read today's Break & Lunch threads every few minutes.
       clearInterval(ui.breakTimer);
       ui.breakTimer = setInterval(autoCheckBreaks, BREAK_AUTO_MS);
-      ui.breakTick = setInterval(() => ui.el && todayAnyBreak() && draw(), 60 * 1000); // keeps "still out" minutes moving
+      ui.breakTick = setInterval(() => ui.el && todayAnyBreak() && !document.querySelector(".tip-host:hover, .tip-host:focus") && draw(), 60 * 1000); // keeps "still out" minutes moving
     },
     onClose() {
       clearInterval(ui.breakTimer);

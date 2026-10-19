@@ -1873,9 +1873,22 @@ body .quiz-manual-form.quiz-manual-form > p.muted { margin: -4px 0 0; }
 
 /* Why a trainee is projected to pass / fail: shown only on hover or keyboard focus */
 .tstatus { cursor: help; }
-.tstatus .ts-tip { display: none; position: fixed; left: 0; top: 0; z-index: 30000; width: 300px; max-width: 80vw; padding: 10px 12px; border-radius: 10px; background: var(--card); color: var(--window-fg); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); font-size: 12px; font-weight: 400; line-height: 1.45; text-align: left; white-space: normal; }
+.tstatus .ts-tip { display: none; }
 .tstatus .ts-tip ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
 .tstatus .ts-tip li.ok b { color: #16a34a; }
 .tstatus .ts-tip li.no b { color: #dc2626; }
 .tstatus .ts-tip .ts-tip-foot { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
 .app-body .member-list .tstatus .ts-tip li, .tstatus .ts-tip li { background: none; padding: 0; border: 0; display: block; }
+
+/* Hover details for the Break/Lunch chip (positioned by placeStatusTip in app.js) */
+.tip-host { cursor: help; }
+.tip-host .tip-pop { display: none; }
+.tip-host .tip-pop ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; }
+.tip-host .tip-pop li { background: none; padding: 0; border: 0; display: block; }
+
+.tip-float { display: none; position: fixed; left: 0; top: 0; z-index: 30000; width: 300px; max-width: 80vw; padding: 10px 12px; border-radius: 10px; background: var(--card); color: var(--window-fg); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); font-size: 12px; font-weight: 400; line-height: 1.45; text-align: left; white-space: normal; pointer-events: none; }
+.tip-float ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.tip-float li { background: none; padding: 0; border: 0; display: block; }
+.tip-float li.ok b { color: #16a34a; }
+.tip-float li.no b { color: #dc2626; }
+.tip-float .ts-tip-foot { margin: 6px 0 0; color: var(--muted); font-size: 11px; }

@@ -4607,6 +4607,9 @@
     var inAny = {};
     state.cohorts.forEach(function(c){ (c.trainee_ids || []).forEach(function(id){ inAny[id] = true; }); });
     var list = cohort ? (cohort.trainee_ids || []).map(function(id){ return state.trainees.filter(function(t){ return t.id === id; })[0]; }).filter(Boolean) : state.trainees.filter(function(t){ return inAny[t.id]; });
+    // Trainees who are inactive, resigned or terminated go to the bottom, in their original order.
+    var outNow = function(t){ var m = t.trainee_status; return t.cohort_status === "inactive" || (m && m.mode === "manual" && (m.value === "resigned" || m.value === "terminated")); };
+    list = list.map(function(t, i){ return { t: t, i: i }; }).sort(function(a, b){ return (outNow(a.t) ? 1 : 0) - (outNow(b.t) ? 1 : 0) || a.i - b.i; }).map(function(x){ return x.t; });
     if (!speed.url) body = "<p class=\"hint\">No Speed sheet yet. Add its Google Sheet link in Settings → Speed Productivity Sheet.</p>";
     else if (!doc) body = "<p class=\"hint\">Nothing pulled yet. Type a week number and press Pull; it reads the sheet's first tab (“" + esc(speed.tab_name || "Daily raw data") + "”) for the trainees in your cohorts.</p>";
     else if (!list.length) body = "<p class=\"hint\">No cohort trainees here yet.</p>";
@@ -4631,7 +4634,7 @@
           var crm = mine[0] ? mine[0].c : (t.crm_name || t.name || "");
           var tot = speedTotals(mine);
           var short = tot.left > 0;
-          return "<tr" + (t.cohort_status === "inactive" ? " class=\"is-inactive\"" : "") + "><td class=\"sk sk1\">" + esc(t.name) + "</td><td class=\"sk sk2\"><b>" + speedFmt(tot.value) + "</b></td><td class=\"sk sk3\">" + (mine.length ? speedFmt(tot.hours) : "—") + "</td><td>" + (mine.length ? speedFmt(tot.tickets) : "—") + "</td>" +
+          return "<tr" + (outNow(t) ? " class=\"is-inactive\"" : "") + "><td class=\"sk sk1\">" + esc(t.name) + "</td><td class=\"sk sk2\"><b>" + speedFmt(tot.value) + "</b></td><td class=\"sk sk3\">" + (mine.length ? speedFmt(tot.hours) : "—") + "</td><td>" + (mine.length ? speedFmt(tot.tickets) : "—") + "</td>" +
             (speed.goal ? "<td" + (short ? " class=\"sp-short\"" : "") + ">" + (tot.left != null ? tot.left : "—") + "</td>" : "") +
             days.map(function(d){ return cell(mine.filter(function(x){ return x.d === d; })[0], d, crm, t.name); }).join("") + "</tr>";
         }).join("") + "</tbody></table></div><p class=\"hint\">Speed is minutes per ticket (hours × 60 ÷ cleared tickets), so lower is faster; it recalculates when you change hours or tickets. " + (speed.goal ? "“need N more” is how many more tickets the trainee needed in those hours to hit the " + esc(speedFmt(speed.goal)) + " min goal (0 once met). " : "Set a team speed goal to see the tickets each trainee needs. ") + "Edited boxes are outlined and kept when you pull again.</p>";

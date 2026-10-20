@@ -2200,6 +2200,7 @@ function openPerformance(content, traineeId) {
     ["questions", "Send me your questions or study notes before the check-in", false],
     ["ack", "Reply to this message to acknowledge it and share your action plan", true],
   ];
+  const ATT_WARN_PTS = 0.5; // attendance points (0 is best) from which the next-step report adds a reliability reminder
   const NEXT_GOALS = [["quiz", "Quiz average", "%"], ["qa", "QA score", "%"], ["speed", "Speed", " min/ticket"], ["attendance", "Attendance points", " pts"]];
   const nextStandings = () => {
     // Where the trainee stands against each cohort goal right now (only goals with data).
@@ -2256,11 +2257,13 @@ function openPerformance(content, traineeId) {
           <input data-rfgv="${k}" value="${escapeHtml(g.goal)}" inputmode="decimal" autocomplete="off" aria-label="${escapeHtml(label)} target" placeholder="target">
           <span class="muted">${cur ? `now ${fmtNum(cur.value)}${unit.trim() === "%" ? "%" : unit} · ${cur.met ? "meets it" : "not there yet"}` : "no data yet"}</span></div>`;
       }).join("");
+      const attV = now("attendance")?.value;
+      const attHint = attV != null && attV >= ATT_WARN_PTS ? `<p class="muted"><b>Attendance:</b> ${escapeHtml(firstName())} has ${fmtNum(attV)} point${attV === 1 ? "" : "s"} (0 is best), so the message will also include a reliability reminder, whichever targets are ticked.</p>` : "";
       return `<form class="quiz-manual-form" data-report-form>
         <h4>Next step report · ${escapeHtml(firstName())}</h4>
         <p class="muted">The nesting targets ${escapeHtml(firstName())} needs to reach to continue. Targets start from the cohort's team goals (change them here only for this report). Claude writes the message.</p>
         ${kindSel}
-        <div class="rep-checks"><b>Nesting targets to include</b>${rows}</div>
+        <div class="rep-checks"><b>Nesting targets to include</b>${rows}</div>${attHint}
         <div class="quiz-manual-row">
           <label>Achieve by<input type="date" data-rf="nestBy" value="${escapeHtml(f.nestBy)}"></label>
           <label>Check-in with you<input type="date" data-rf="checkin" value="${escapeHtml(f.checkin)}"></label>
@@ -2326,7 +2329,13 @@ function openPerformance(content, traineeId) {
       const sch = c?.training_start_date ? cohortSchedule(c.training_start_date) : null;
       const lines = goals.map((g) => `- ${g.label}: needs ${g.key === "speed" || g.key === "attendance" ? "at most" : "at least"} ${fmtNum(g.goal)}${g.unit}; right now ${g.now == null ? "not measured yet" : fmtNum(g.now) + g.unit}`);
       const extra = f.extra.trim() ? `\nAlso required: ${f.extra.trim()}` : "";
-      prompt = `${common}\n\nThis is a "next step" report: the nesting targets ${firstName()} must achieve to continue. Sections: a one-line greeting; *Where you are now* (a line per target comparing now vs target; say "not measured yet" where there is no data, and note which are already met); *Your nesting targets* (the list of what must be achieved, by ${niceDate(f.nestBy)}); *What I'll check* (a check-in with me on ${niceDate(f.checkin)}); *How I'll support you*; finish by asking them to reply with their acknowledgement and plan. Do not promise an outcome beyond what is stated. Cohort: ${c?.name || ""}${sch ? `. Nesting runs ${sch.nesting.start} to ${sch.nesting.end}` : ""}.\nTARGETS:\n${lines.join("\n")}${goals.some((g) => g.key === "attendance") ? "\nNOTE: attendance points are demerits. 0 is the best score; a higher number means lower reliability and a higher risk of failing because of attendance. The target is a ceiling to stay at or under, so a lower number is better." : ""}${extra}\nQUIZ CONTEXT (for background only): average ${d.avg ?? "n/a"}%, weighted ${d.weighted ?? "n/a"}%${a ? `; trend: ${a.trend}` : ""}`;
+      // Attendance points: 0 is best. At 0.5 or more (near 1) or above 1, the report must advise on reliability and remind them.
+      const attNow = nextStandings().checks.find((x) => x.key === "attendance")?.value;
+      const attRisk = attNow != null && attNow >= ATT_WARN_PTS;
+      const attAdvice = attRisk
+        ? `\nATTENDANCE ADVISORY (required): ${firstName()} has ${fmtNum(attNow)} attendance point${attNow === 1 ? "" : "s"}. 0 is best and each point is a demerit, so this is ${attNow > 1 ? "above 1" : "close to 1"}. Add a section *Attendance and reliability*: say plainly that attendance points are rising and that reliability is a risk to continuing, remind them to log in on time, tell me or the team ahead of any absence, and avoid further points; offer to talk through anything getting in the way. Do not state a pass or fail outcome or a point limit that is not given above.`
+        : "";
+      prompt = `${common}\n\nThis is a "next step" report: the nesting targets ${firstName()} must achieve to continue. Sections: a one-line greeting; *Where you are now* (a line per target comparing now vs target; say "not measured yet" where there is no data, and note which are already met); *Your nesting targets* (the list of what must be achieved, by ${niceDate(f.nestBy)}); *What I'll check* (a check-in with me on ${niceDate(f.checkin)}); *How I'll support you*; finish by asking them to reply with their acknowledgement and plan. Do not promise an outcome beyond what is stated. Cohort: ${c?.name || ""}${sch ? `. Nesting runs ${sch.nesting.start} to ${sch.nesting.end}` : ""}.\nTARGETS:\n${lines.join("\n")}${goals.some((g) => g.key === "attendance") ? "\nNOTE: attendance points are demerits. 0 is the best score; a higher number means lower reliability and a higher risk of failing because of attendance. The target is a ceiling to stay at or under, so a lower number is better." : ""}${attAdvice}${extra}\nQUIZ CONTEXT (for background only): average ${d.avg ?? "n/a"}%, weighted ${d.weighted ?? "n/a"}%${a ? `; trend: ${a.trend}` : ""}`;
     } else {
       const expects = EXPECT_CHECKS.filter(([k]) => f.checks[k] && (f.quizzes || k !== "retake")).map(([, label]) => label);
       if (f.extra.trim()) expects.push(f.extra.trim());

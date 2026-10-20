@@ -820,6 +820,7 @@
                   <div class="att-line">
                     <button type="button" class="btn btn-small" data-att-bsend="${id}"${busy("bsend")}>Send Break &amp; Lunch…</button>
                     <button type="button" class="btn btn-small" data-att-bcheck="${id}"${busy("bcheck")}>Check Break Replies</button>
+                    <button type="button" class="btn btn-small" data-att-bover="${id}"${newestBreak(cohort.id) ? "" : " disabled"}${busy("bover")} title="Slack a reminder to trainees more than ${BREAK_GRACE_MIN} min over their break or lunch">Message Overbreaks…</button>
                     <button type="button" class="square-btn att-icon" data-att-blog="${id}" title="Today's break and lunch log" aria-label="Today's break and lunch log"${newestBreak(cohort.id) ? "" : " disabled"}>🍽</button>
                     <span class="att-note">${escapeHtml(statusText(cohort.id, "break") || (newestBreak(cohort.id) ? `Break & Lunch sent ${timeAgo(newestBreak(cohort.id).sentAt)}${newestBreak(cohort.id).checkedAt ? ` · read ${timeAgo(newestBreak(cohort.id).checkedAt)}` : " · not read yet"}` : `Allowed per day: ${BREAK_ALLOW_MIN} min break, ${LUNCH_ALLOW_MIN} min lunch`))}</span>
                   </div>
@@ -945,6 +946,7 @@
     else if (d.attBsend) openBreakCompose(d.attBsend);
     else if (d.attBcheck) doBreakCheck(d.attBcheck);
     else if (d.attBlog) openBreakLog(d.attBlog);
+    else if (d.attBover) openOverMessage(d.attBover);
   }
 
   function onChange(e) {
@@ -1086,6 +1088,91 @@
           );
         })
         .catch((err) => ui.status.set(`${cohortId}:break`, slackError(err)));
+    });
+  }
+
+  // ---- Message trainees who are over their break or lunch ----
+  const BREAK_GRACE_MIN = 2;
+  const firstOf = (t) => String(t.name || "there").trim().split(/\s+/)[0];
+  // What to tell one trainee: only the allowances they are more than the grace over.
+  function overParts(st) {
+    const allow = { break: BREAK_ALLOW_MIN, lunch: LUNCH_ALLOW_MIN };
+    return ["break", "lunch"].filter((k) => st.total[k] - allow[k] > BREAK_GRACE_MIN).map((k) => ({ k, over: st.total[k] - allow[k], total: st.total[k], allow: allow[k], running: st.open[k] != null }));
+  }
+  const overMessage = (t, parts) =>
+    `Hi ${firstOf(t)}, a quick reminder: ` +
+    parts.map((p) => `your ${p.k} ${p.running ? "has run" : "was"} ${p.over} min over the ${p.allow} min allowed today (${p.total} min used)`).join(" and ") +
+    `.${parts.some((p) => p.running) ? " Please reply \"" + parts.filter((p) => p.running).map((p) => p.k).join("/") + " back\" in the Break & Lunch thread as soon as you're back." : ""} Please keep to the allowed time. Thank you!`;
+  function openOverMessage(cohortId) {
+    const cohort = cohortById(cohortId);
+    const session = newestBreak(cohortId);
+    if (!cohort || !session) return;
+    run(cohortId, "bover", () => {
+      ui.status.set(`${cohortId}:break`, "Reading the latest replies…");
+      return checkBreaks(cohort, session)
+        .then((g) => {
+          ui.breaks.set(cohortId, (ui.breaks.get(cohortId) || []).map((x) => (x.id === g.id ? g : x)));
+          ui.status.delete(`${cohortId}:break`);
+          showOverSheet(cohort, g);
+        })
+        .catch((err) => ui.status.set(`${cohortId}:break`, slackError(err)));
+    });
+  }
+  function showOverSheet(cohort, session) {
+    const live = Date.now() - session.sentAt < BREAK_LIVE_MS;
+    const at = live ? Date.now() : session.checkedAt || session.sentAt;
+    const sent = session.overNotified || {};
+    const rows = membersOf(cohort)
+      .filter((t) => !isInactive(t))
+      .map((t) => ({ t, parts: overParts(breakState(session.events?.[t.id], at)) }))
+      .filter((x) => x.parts.length);
+    const items = rows.map(({ t, parts }) => {
+      // Already messaged for the same break/lunch: unticked, so it isn't repeated.
+      const done = parts.every((p) => sent[t.id]?.[p.k]);
+      return `<label class="att-over-row"><input type="checkbox" data-over="${escapeHtml(t.id)}"${done ? "" : " checked"}> <b>${escapeHtml(t.name)}</b> <span class="muted">${parts.map((p) => `${p.k} +${p.over} min`).join(", ")}${done ? " · already messaged" : ""}</span></label>`;
+    });
+    const s = openSheet(
+      `<h3>Message overbreaks · ${escapeHtml(cohort.name)}</h3>
+       <p class="muted att-sub">Trainees more than ${BREAK_GRACE_MIN} min over their ${BREAK_ALLOW_MIN} min break or ${LUNCH_ALLOW_MIN} min lunch, from replies read just now. Each gets their own direct message on Slack. Nothing is sent until you press Send.</p>
+       ${items.length ? `<div class="att-over-list">${items.join("")}</div><p class="att-note">Example of what is sent:</p><p class="att-over-eg">${escapeHtml(overMessage(rows[0].t, rows[0].parts))}</p>` : `<p>Nobody is more than ${BREAK_GRACE_MIN} min over right now.</p>`}
+       <p class="sheet-status" role="status"></p>
+       <div class="sheet-actions att-compose-actions"><span class="att-spacer"></span><button type="button" class="btn" data-cancel>${items.length ? "Cancel" : "Close"}</button>${items.length ? `<button type="button" class="btn-primary" data-send>Send</button>` : ""}</div>`,
+      true
+    );
+    if (!s || !items.length) return;
+    const status = s.sheet.querySelector(".sheet-status");
+    const send = s.sheet.querySelector("[data-send]");
+    send.addEventListener("click", async () => {
+      const chosen = rows.filter((x) => s.sheet.querySelector(`[data-over="${x.t.id}"]`)?.checked);
+      if (!chosen.length) return void (status.textContent = "Tick at least one trainee.");
+      send.disabled = true;
+      let ok = 0;
+      const failed = [];
+      const notified = JSON.parse(JSON.stringify(session.overNotified || {}));
+      for (const { t, parts } of chosen) {
+        status.textContent = `Sending ${ok + failed.length + 1} of ${chosen.length}…`;
+        try {
+          const uid = await window.TrainerSlack.userIdFor(t);
+          if (!uid) throw new Error("no Slack match");
+          await window.TrainerSlack.sendDirect(uid, overMessage(t, parts));
+          notified[t.id] = { ...(notified[t.id] || {}), ...Object.fromEntries(parts.map((p) => [p.k, Date.now()])) };
+          ok++;
+        } catch (err) {
+          failed.push(t.name || "Trainee");
+        }
+      }
+      const saved = { ...session, overNotified: notified };
+      await saveBreak(cohort.id, saved).catch(() => {});
+      ui.breaks.set(cohort.id, (ui.breaks.get(cohort.id) || []).map((x) => (x.id === saved.id ? { ...saved, summary: x.summary } : x)));
+      if (failed.length) {
+        send.disabled = false;
+        status.textContent = `Sent to ${ok}. Couldn't reach: ${failed.join(", ")}.`;
+        draw();
+      } else {
+        s.close();
+        toast(`Messaged ${plural(ok, "trainee")} ✓`);
+        draw();
+      }
     });
   }
 

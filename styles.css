@@ -1913,3 +1913,7 @@ body .quiz-manual-form.quiz-manual-form .rep-goal input[data-rfgv] { padding: 6p
 .td-last.tip-host:hover, .td-last.tip-host:focus { color: var(--window-fg); }
 
 .member-actions .td-last { display: inline-block; margin: 0 10px 0 0; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; align-self: center; }
+
+.att-over-list { display:flex; flex-direction:column; gap:6px; margin:10px 0; max-height:220px; overflow:auto; }
+.att-over-row { display:flex; align-items:center; gap:8px; font-size:13px; }
+.att-over-eg { font-size:12.5px; line-height:1.45; padding:8px 10px; border:1px solid var(--border, #e2e5ea); border-radius:8px; background:var(--surface-2, rgba(127,127,127,.08)); margin:4px 0 8px; }

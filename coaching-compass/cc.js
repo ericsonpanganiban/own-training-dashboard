@@ -43,7 +43,7 @@
     individual: { eyebrow: "Individual coaching", title: "Individual coaching", sub: "A coaching brief for each trainee, ready for your next 1:1." },
     cohorts: { eyebrow: "QA Data", title: "QA Data", sub: "Each cohort's saved QA weeks and coaching data. Cohorts themselves are managed in the Cohorts app." },
     spot: { eyebrow: "Spot Check", title: "Spot Check", sub: "Record spot checks of a trainee's tickets: comms, resolution and a score. Each one is sent to the trainee on Slack." },
-    speed: { eyebrow: "Speed", title: "Speed", sub: "Daily Speed and hours per trainee, summarised per week, read from the Speed Productivity Sheet." },
+    speed: { eyebrow: "Speed", title: "Speed", sub: "" },
     settings: { eyebrow: "Settings", title: "Settings", sub: "Configure where Coaching reads its QA audits from." }
   };
   var RESOURCE_TABS = [
@@ -469,6 +469,7 @@
     el.pageHead.hidden = onHome;
     el.sectionSub.hidden = onHome;
     ccRoot.classList.toggle("on-home", onHome);
+    ccRoot.classList.toggle("sec-speed", state.section === "speed");
     // Trainer Desk shows these in the window's crumb bar: Trainer Desk › Coaching › …
     if (window.TrainerDesk) window.TrainerDesk.setCrumbs("coaching", onHome ? [] : crumbs.map(function(c){ return { label: c.label, go: c.action || null }; }), goHome);
     if (onHome){ el.breadcrumb.innerHTML = ""; return; }
@@ -4640,6 +4641,26 @@
         }).join("") + "</tbody></table></div><p class=\"hint\">Speed is minutes per ticket (hours × 60 ÷ cleared tickets), so lower is faster; it recalculates when you change hours or tickets. " + (speed.goal ? "“need N more” is how many more tickets the trainee needed in those hours to hit the " + esc(speedFmt(speed.goal)) + " min goal (0 once met). " : "Set a team speed goal to see the tickets each trainee needs. ") + "Edited boxes are outlined and kept when you pull again.</p>";
     }
     host.innerHTML = head + body;
+    freezeSpeedHeader(host);
+  }
+  // The title bar, the controls and the column headings stay in view while the trainee rows scroll under them.
+  var speedFreezeObs = null;
+  function freezeSpeedHeader(host){
+    var apply = function(){
+      var ph = document.getElementById("pageHead"), bar = host.querySelector(".speed-bar");
+      var h1 = ph && !ph.hidden ? ph.offsetHeight : 0, h2 = bar ? bar.offsetHeight : 0;
+      host.style.setProperty("--sp-top1", h1 + "px");
+      host.style.setProperty("--sp-top2", (h1 + h2) + "px");
+    };
+    apply();
+    // Heights are 0 while the section is hidden and change with the window width, so follow the elements' size.
+    if (speedFreezeObs) speedFreezeObs.disconnect();
+    if (window.ResizeObserver){
+      speedFreezeObs = new ResizeObserver(apply);
+      var ph2 = document.getElementById("pageHead"), bar2 = host.querySelector(".speed-bar");
+      if (ph2) speedFreezeObs.observe(ph2);
+      if (bar2) speedFreezeObs.observe(bar2);
+    }
   }
 
   function renderSpeedSettings(force){

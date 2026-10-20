@@ -619,7 +619,7 @@
   :is(.cc-root, .cc-ui) .speed-table .sp-in{display:block;width:70px;margin:3px 0 0 auto;padding:3px 5px;font-size:11.5px;text-align:right;border:1px solid var(--line);border-radius:6px;background:transparent;color:inherit;}
   :is(.cc-root, .cc-ui) .speed-table .sp-in.manual{border-color:var(--accent,currentColor);}
 
-  :is(.cc-root, .cc-ui) .speed-wrap{max-height:none;overflow-y:visible;}
+  :is(.cc-root, .cc-ui) .speed-wrap{max-height:none;overflow:visible;}
   :is(.cc-root, .cc-ui) .speed-table{border-collapse:separate;border-spacing:0;}
   :is(.cc-root, .cc-ui) .speed-table th.sk, :is(.cc-root, .cc-ui) .speed-table td.sk{position:sticky;z-index:2;background:var(--surface,var(--card,#fff));box-sizing:border-box;}
   :is(.cc-root, .cc-ui) .speed-table th.sk{z-index:3;}
@@ -656,3 +656,9 @@
   :is(.cc-root, .cc-ui) .spot-new:focus-visible{outline:3px solid #c9b2fb;outline-offset:2px;}
   :is(.cc-root, .cc-ui) .spot-new.cancel{background:transparent;color:#7c3aed;border:2px solid #9d5cf5;box-shadow:none;}
   :is(.cc-root, .cc-ui) .spot-views .ghost.on{background:#ede4fd;border-color:#9d5cf5;color:#5b21b6;}
+
+  /* Speed: the page scrolls, not the table. Title, controls and column headings stay frozen; sideways scroll is the page's. */
+  :is(.cc-root, .cc-ui).sec-speed .cc-scroll{overflow-x:auto;}
+  :is(.cc-root, .cc-ui) #speedBody .speed-bar{position:sticky;top:var(--sp-top1,0px);z-index:50;background:var(--surface,#fff);margin:0;padding:12px 0 14px;}
+  :is(.cc-root, .cc-ui) #speedBody .speed-table thead th{position:sticky;top:var(--sp-top2,0px);z-index:40;background:var(--surface,#fff);box-shadow:0 1px 0 var(--line);}
+  :is(.cc-root, .cc-ui) #speedBody .speed-table thead th.sk{z-index:45;}

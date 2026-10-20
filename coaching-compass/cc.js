@@ -4399,7 +4399,7 @@
   // with columns A, E, D, F, K as the fallback. You type the week to pull; only roster trainees are kept, one
   // document per week in speed_weeks/{week}: rows { d: date, c: CRM name, h: hours, v: speed, m: 1 when hours were typed in }.
   var speedHost = null, speedSettingsHost = null;
-  var speed = { url: "", tab_name: "", goal: null, weeks: {}, label: "Speed", busy: false, msg: "", err: false, cohort: "", week: "", pullWeek: "" };
+  var speed = { url: "", tab_name: "", goal: null, weeks: {}, label: "Speed", busy: false, msg: "", err: false, cohort: "", week: "", pullWeek: "", cohortTouched: false };
 
   function speedNorm(c){ return String(c == null ? "" : c).trim().toLowerCase().replace(/[_\s]+/g, " "); }
   function speedHeader(cells){
@@ -4588,20 +4588,68 @@
     return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   }
 
+  // Week numbers follow the calendar (Monday to Sunday), so any pulled week tells us the number of every other week.
+  function speedDateOf(iso){ var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ""); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; }
+  function speedIso(d){ return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  function speedWeekSpan(w){
+    var doc = speed.weeks[w], ds = doc ? doc.rows.map(function(r){ return r.d; }).filter(Boolean).sort() : [];
+    return ds.length ? { from: ds[0], to: ds[ds.length - 1] } : null;
+  }
+  function speedWeekNumFor(isoDay){
+    var anchor = speedWeekList().map(function(w){ return { w: parseFloat(w), span: speedWeekSpan(w) }; }).filter(function(x){ return !isNaN(x.w) && x.span; })[0];
+    var d = speedDateOf(isoDay);
+    if (!anchor || !d) return null;
+    var a = speedDateOf(anchor.span.from);
+    var monday = new Date(a.getFullYear(), a.getMonth(), a.getDate() - ((a.getDay() + 6) % 7));
+    return anchor.w + Math.floor(Math.round((d - monday) / 864e5) / 7);
+  }
+  // A cohort's four training weeks, from its start date.
+  function speedCohortRange(c){
+    var s = c && speedDateOf(c.training_start_date);
+    if (!s) return null;
+    return { from: speedIso(s), to: speedIso(new Date(s.getFullYear(), s.getMonth(), s.getDate() + 27)) };
+  }
+  function speedFmtDay(iso){ var d = speedDateOf(iso); return d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""; }
   function renderSpeedPanel(force){
     var host = document.getElementById("speedBody");
     if (!host) return;
     if (!force && host.contains(document.activeElement) && /INPUT|SELECT/.test(document.activeElement.tagName)) return;
-    var saved = speedWeekList().reverse();
-    if (!speed.week || !speed.weeks[speed.week]) speed.week = saved[0] || "";
+    // Start on the cohort that is in training today, unless the viewer picked "All cohort trainees" themselves.
+    if (!speed.cohort && !speed.cohortTouched){
+      var todayIso = speedIso(new Date());
+      var live = state.cohorts.filter(function(c){ var r = speedCohortRange(c); return r && r.from <= todayIso && todayIso <= r.to; });
+      if (live.length === 1) speed.cohort = live[0].id;
+    }
+    var pickedCohort = state.cohorts.filter(function(c){ return c.id === speed.cohort; })[0];
+    var range = speedCohortRange(pickedCohort);
+    var allSaved = speedWeekList().reverse();
+    // With a cohort chosen, only weeks that overlap its training dates are offered.
+    var saved = range ? allSaved.filter(function(w){ var sp = speedWeekSpan(w); return sp && sp.to >= range.from && sp.from <= range.to; }) : allSaved;
+    if (!speed.week || !speed.weeks[speed.week] || saved.indexOf(speed.week) === -1) speed.week = saved[0] || "";
+    // Suggest the week to pull: the cohort's current week (or its first week before it starts).
+    if (!speed.pullWeek && range){
+      var todayS = speedIso(new Date()), at = todayS < range.from ? range.from : todayS > range.to ? range.to : todayS;
+      var guess = speedWeekNumFor(at);
+      if (guess != null) speed.pullWeek = String(guess);
+    }
     var cohortOpts = "<option value=\"\">All cohort trainees</option>" + state.cohorts.map(function(c){ return "<option value=\"" + esc(c.id) + "\"" + (c.id === speed.cohort ? " selected" : "") + ">" + esc(c.name) + "</option>"; }).join("");
-    var weekOpts = saved.map(function(w){ return "<option value=\"" + esc(w) + "\"" + (w === speed.week ? " selected" : "") + ">Week " + esc(w) + "</option>"; }).join("");
+    var weekOpts = saved.map(function(w){ return "<option value=\"" + esc(w) + "\"" + (w === speed.week ? " selected" : "") + ">Week " + esc(w) + (speedWeekSpan(w) ? " · " + esc(speedFmtDay(speedWeekSpan(w).from)) + "–" + esc(speedFmtDay(speedWeekSpan(w).to)) : "") + "</option>"; }).join("");
+    // The cohort's weeks so far, offered as suggestions in Pull week.
+    var weekChoices = "";
+    if (range){
+      var cur = speedDateOf(range.from), stop = Math.min(new Date().getTime(), speedDateOf(range.to).getTime());
+      while (cur.getTime() <= stop){
+        var n = speedWeekNumFor(speedIso(cur));
+        if (n != null) weekChoices += "<option value=\"" + n + "\">Week " + n + " · from " + esc(speedFmtDay(speedIso(cur))) + "</option>";
+        cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 7);
+      }
+    }
     var head = "<div class=\"speed-bar\">" +
       "<div class=\"field\"><label for=\"speedCohort\">Cohort</label><select id=\"speedCohort\">" + cohortOpts + "</select></div>" +
       (saved.length ? "<div class=\"field\"><label for=\"speedWeekSel\">Saved week</label><select id=\"speedWeekSel\">" + weekOpts + "</select></div>" : "") +
       "<div class=\"field\"><label for=\"speedGoal\" title=\"Minutes per ticket the team should reach. Lower is faster.\">Team speed goal (min/ticket)</label><input id=\"speedGoal\" type=\"text\" inputmode=\"decimal\" placeholder=\"e.g. 12\" value=\"" + (speed.goal == null ? "" : esc(speedFmt(speed.goal))) + "\" style=\"width:90px\" /></div>" +
-      "<div class=\"field\"><label for=\"speedWeekIn\">Pull week</label><input id=\"speedWeekIn\" type=\"text\" inputmode=\"numeric\" placeholder=\"e.g. 561\" value=\"" + esc(speed.pullWeek) + "\" style=\"width:100px\" /></div>" +
-      "<button class=\"primary small\" id=\"speedPullBtn\" type=\"button\"" + (speed.busy || !speed.url ? " disabled" : "") + ">" + (speed.busy ? "Pulling…" : "Pull") + "</button>" + speedStatusLine() + "</div>";
+      "<div class=\"field\"><label for=\"speedWeekIn\">Pull week</label><input id=\"speedWeekIn\" list=\"speedWeekChoices\" type=\"text\" inputmode=\"numeric\" placeholder=\"e.g. 561\" value=\"" + esc(speed.pullWeek) + "\" style=\"width:100px\" /></div>" +
+      "<datalist id=\"speedWeekChoices\">" + weekChoices + "</datalist>" + "<button class=\"primary small\" id=\"speedPullBtn\" type=\"button\"" + (speed.busy || !speed.url ? " disabled" : "") + ">" + (speed.busy ? "Pulling…" : "Pull") + "</button>" + speedStatusLine() + "</div>";
     var body;
     var doc = speed.weeks[speed.week];
     var cohort = state.cohorts.filter(function(c){ return c.id === speed.cohort; })[0];
@@ -4612,6 +4660,7 @@
     var outNow = function(t){ var m = t.trainee_status; return t.cohort_status === "inactive" || (m && m.mode === "manual" && (m.value === "resigned" || m.value === "terminated")); };
     list = list.map(function(t, i){ return { t: t, i: i }; }).sort(function(a, b){ return (outNow(a.t) ? 1 : 0) - (outNow(b.t) ? 1 : 0) || a.i - b.i; }).map(function(x){ return x.t; });
     if (!speed.url) body = "<p class=\"hint\">No Speed sheet yet. Add its Google Sheet link in Settings → Speed Productivity Sheet.</p>";
+    else if (!doc && range) body = "<p class=\"hint\">No week pulled yet for " + esc(pickedCohort.name) + "'s training dates (" + esc(speedFmtDay(range.from)) + " – " + esc(speedFmtDay(range.to)) + ")." + (speed.pullWeek ? " Press Pull to load week " + esc(speed.pullWeek) + "." : " Type a week number in Pull week and press Pull.") + "</p>";
     else if (!doc) body = "<p class=\"hint\">Nothing pulled yet. Type a week number and press Pull; it reads the sheet's first tab (“" + esc(speed.tab_name || "Daily raw data") + "”) for the trainees in your cohorts.</p>";
     else if (!list.length) body = "<p class=\"hint\">No cohort trainees here yet.</p>";
     else {
@@ -4640,7 +4689,8 @@
             days.map(function(d){ return cell(mine.filter(function(x){ return x.d === d; })[0], d, crm, t.name); }).join("") + "</tr>";
         }).join("") + "</tbody></table></div><p class=\"hint\">Speed is minutes per ticket (hours × 60 ÷ cleared tickets), so lower is faster; it recalculates when you change hours or tickets. " + (speed.goal ? "“need N more” is how many more tickets the trainee needed in those hours to hit the " + esc(speedFmt(speed.goal)) + " min goal (0 once met). " : "Set a team speed goal to see the tickets each trainee needs. ") + "Edited boxes are outlined and kept when you pull again.</p>";
     }
-    host.innerHTML = head + body;
+    var hidden = range ? allSaved.length - saved.length : 0;
+    host.innerHTML = head + (hidden > 0 ? "<p class=\"hint\" style=\"margin-top:-4px\">" + hidden + " other pulled week" + (hidden === 1 ? "" : "s") + " outside " + esc(pickedCohort.name) + "'s training dates (" + esc(speedFmtDay(range.from)) + " – " + esc(speedFmtDay(range.to)) + ") " + (hidden === 1 ? "is" : "are") + " hidden. Choose All cohort trainees to see " + (hidden === 1 ? "it" : "them") + ".</p>" : "") + body;
     freezeSpeedHeader(host);
   }
   // The title bar, the controls and the column headings stay in view while the trainee rows scroll under them.
@@ -4702,7 +4752,7 @@
   document.addEventListener("change", function(e){
     var t = e.target;
     if (!t) return;
-    if (t.id === "speedCohort"){ speed.cohort = t.value; renderSpeedPanel(true); }
+    if (t.id === "speedCohort"){ speed.cohort = t.value; speed.cohortTouched = true; speed.week = ""; renderSpeedPanel(true); }
     else if (t.id === "speedWeekSel"){ speed.week = t.value; renderSpeedPanel(true); }
     else if (t.id === "speedGoal") setSpeedGoal(t.value);
     else if (t.classList && t.classList.contains("sp-in")) setSpeedField(t.getAttribute("data-sp-week"), t.getAttribute("data-sp-crm"), t.getAttribute("data-sp-date"), t.getAttribute("data-sp-field"), t.value);

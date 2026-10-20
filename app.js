@@ -1516,6 +1516,7 @@ function openTraineeStatus(content, traineeId) {
     status.textContent = "Saving…";
     cc.updateTrainee(t.id, { trainee_status: v === "auto" ? { mode: "auto", value: "" } : { mode: "manual", value: v } })
       .then(() => {
+        cc.logActivity(t.id, "status", v === "auto" ? "Set status to automatic" : `Set status to ${statusLabel(v) || v}`);
         close();
         refreshAutoStatuses(true);
       })
@@ -1565,11 +1566,46 @@ function openTeamGoals(content, cohortId) {
   sheet.querySelector("input")?.focus();
 }
 
+// Everything the trainer has done on a trainee, newest first: the activity log plus things that carry their own timestamps.
+function traineeActivity(t, cohort) {
+  const out = [];
+  const add = (at, label) => at && !isNaN(new Date(at)) && out.push({ at, label });
+  (Array.isArray(t.activity) ? t.activity : []).forEach((a) => add(a.at, a.text || a.kind));
+  const cc = window.CoachingCompass;
+  (cc?.traineeSpot ? cc.traineeSpot(t.id).checks : []).forEach((x) => {
+    const cat = (x.category === "quiz" ? "Quiz" : "Nesting") + (Number(x.week) ? ` Week ${Number(x.week)}` : "");
+    add(x.created_at, `Recorded a spot check (${cat}, ${Number(x.score)}%)`);
+    if (x.edited_at) add(x.edited_at, "Edited a spot check");
+    if (x.reply_at) add(x.reply_at, "Spot check reply received");
+  });
+  (cohort?.attendance_notes?.[t.id] || []).forEach((n) => add(n.at, `Attendance note: ${String(n.text || "").slice(0, 50)}`));
+  if (t.quiz_analysis?.at) add(t.quiz_analysis.at, "Analyzed quiz performance");
+  if (t.quiz_report?.at) add(t.quiz_report.at, t.quiz_report.kind === "nextstep" ? "Wrote a next-step report" : "Wrote a coaching report");
+  if (t.quiz_report?.sent_at) add(t.quiz_report.sent_at, "Sent a report to the trainee on Slack");
+  if (t.notes_doc?.exported_at) add(t.notes_doc.exported_at, "Exported notes to a Google Doc");
+  return out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+const agoText = (iso) => {
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  if (min < 1440) return `${Math.round(min / 60)}h ago`;
+  if (min < 14 * 1440) return `${Math.round(min / 1440)}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+function lastActivityHtml(t, cohort) {
+  const list = traineeActivity(t, cohort);
+  if (!list.length) return `<small class="td-last muted">No activity yet</small>`;
+  const top = list[0];
+  const rows = list.slice(0, 8).map((x) => `<li><b>${escapeHtml(agoText(x.at))}</b> · ${escapeHtml(x.label)}</li>`).join("");
+  return `<small class="td-last tip-host" tabindex="0">Last: ${escapeHtml(top.label.length > 46 ? `${top.label.slice(0, 44)}…` : top.label)} · ${escapeHtml(agoText(top.at))}<span class="tip-pop" role="tooltip"><b>Recent activity</b><ul>${rows}</ul></span></small>`;
+}
+
 function traineeGroupsHtml(c, members) {
   const item = (t) => {
     const active = !isInactive(t);
     return `<li class="${active ? "" : "is-inactive"}">
-      <span><button type="button" class="td-name" data-td-trainee="${escapeHtml(t.id)}" title="Open ${escapeHtml(t.name)}'s details">${escapeHtml(t.name)}</button> ${statusBadgeHtml(t)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small></span>
+      <span><button type="button" class="td-name" data-td-trainee="${escapeHtml(t.id)}" title="Open ${escapeHtml(t.name)}'s details">${escapeHtml(t.name)}</button> ${statusBadgeHtml(t)}<small>${escapeHtml(t.crm_name || "No CRM name")}</small>${lastActivityHtml(t, c)}</span>
       <span class="member-actions">
         <button type="button" class="status-pill${active ? " on" : ""}" data-toggle-active="${escapeHtml(t.id)}" aria-pressed="${active}" title="${active ? "Click to set Inactive" : "Click to set Active"}">${active ? "Active" : "Inactive"}</button>
         <button type="button" class="outline-btn" data-performance="${escapeHtml(t.id)}">Performance</button>
@@ -1776,7 +1812,9 @@ function wireCohortRows(el, onToggle) {
     btn.addEventListener("click", () => {
       btn.disabled = true;
       const makeActive = btn.getAttribute("aria-pressed") !== "true";
-      cc.updateTrainee(btn.dataset.toggleActive, { cohort_status: makeActive ? "active" : "inactive" }).catch(() => (btn.disabled = false));
+      cc.updateTrainee(btn.dataset.toggleActive, { cohort_status: makeActive ? "active" : "inactive" })
+        .then(() => cc.logActivity(btn.dataset.toggleActive, "status", makeActive ? "Set Active" : "Set Inactive"))
+        .catch(() => (btn.disabled = false));
     })
   );
   el.querySelectorAll("[data-export-cohort]").forEach((b) => b.addEventListener("click", () => exportCohort(el, b.dataset.exportCohort)));
@@ -2557,6 +2595,7 @@ function openPerformance(content, traineeId) {
       const [qid, rid] = b.dataset.runScoreClear.split("|");
       return void window.TrainerQuiz.setRunScore(qid, rid, traineeId, null).then(() => { view.quiz = null; loadQuiz(); draw(); });
     } else if (b.dataset.manualDel) {
+      cc.logActivity(traineeId, "quiz", "Removed an entered quiz score");
       return void saveManualList(manualList().filter((x) => x.id !== b.dataset.manualDel));
     } else if ("manualCancel" in b.dataset) view.quizForm = null;
     else if ("quizRefresh" in b.dataset) {
@@ -2636,7 +2675,7 @@ function openPerformance(content, traineeId) {
     if (f.run) {
       const [qid, rid] = f.run.split("|");
       view.quizForm = null;
-      window.TrainerQuiz.setRunScore(qid, rid, traineeId, pct, f.note.trim()).then(() => { view.quiz = null; loadQuiz(); }, () => { view.quizForm = f; f.error = "Couldn't save. Try again."; draw(); });
+      window.TrainerQuiz.setRunScore(qid, rid, traineeId, pct, f.note.trim()).then(() => { cc.logActivity(traineeId, "quiz", `Entered a score (${pct}%) for a quiz with no reply`); view.quiz = null; loadQuiz(); }, () => { view.quizForm = f; f.error = "Couldn't save. Try again."; draw(); });
       return draw();
     }
     if (!f.type) {
@@ -2650,6 +2689,7 @@ function openPerformance(content, traineeId) {
     else list.push(entry);
     view.quizForm = null;
     saveManualList(list);
+    cc.logActivity(traineeId, "quiz", `${i >= 0 ? "Edited" : "Entered"} a quiz score: ${entry.pct}%${entry.note ? ` (${entry.note.slice(0, 40)})` : ""}`);
   });
   sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
   draw();
@@ -3221,6 +3261,7 @@ function openEditTrainee(content, traineeId) {
       return;
     }
     $("#et-status").textContent = "Saving…";
+    cc.logActivity(traineeId, "profile", "Edited the trainee's profile");
     cc.updateTrainee(traineeId, {
       name,
       email: $("#et-email").value.trim(),

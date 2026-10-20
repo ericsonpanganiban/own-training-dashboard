@@ -47,7 +47,7 @@
             status.textContent = "Saving…";
             cc()
               .updateTrainee(traineeId, { recent_job: val("recent_job"), current_city: val("current_city"), hobbies: val("hobbies"), referred_by: val("referred_by") })
-              .then(() => ((status.textContent = "Saved ✓"), (b.disabled = false)))
+              .then(() => (cc().logActivity?.(traineeId, "details", "Updated personal details"), (status.textContent = "Saved ✓"), (b.disabled = false)))
               .catch(() => ((status.textContent = "Couldn't save. Try again."), (b.disabled = false)));
           });
           off?.();

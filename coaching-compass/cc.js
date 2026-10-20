@@ -5375,6 +5375,23 @@
       renderRosterPanel();
     }
   };
+  // The trainer's own actions on a trainee are kept as a short log on the trainee (trainees/{id}.activity, newest first,
+  // 20 kept) so the trainee list can show the last thing done. Other activity (spot checks, quiz reports, attendance
+  // notes) already carries its own timestamps and is read from there.
+  window.CoachingCompass.logActivity = function(traineeId, kind, text){
+    var t = state.trainees.filter(function(x){ return x.id === traineeId; })[0];
+    if (!t) return Promise.resolve();
+    var list = [{ at: new Date().toISOString(), kind: kind, text: String(text || "").slice(0, 140) }].concat(Array.isArray(t.activity) ? t.activity : []).slice(0, 20);
+    return window.CoachingCompass.updateTrainee(traineeId, { activity: list }).catch(function(){});
+  };
+  (function(n){
+    var snip = function(x){ x = String(x || "").replace(/\s+/g, " ").trim(); return x.length > 60 ? x.slice(0, 57) + "…" : x; };
+    var add = n.add, upd = n.update, rem = n.remove;
+    n.add = function(id, cat, text){ return add.apply(n, arguments).then(function(r){ window.CoachingCompass.logActivity(id, "note", "Added a " + cat + " note: “" + snip(text) + "”"); return r; }); };
+    n.update = function(id, noteId, text){ return upd.apply(n, arguments).then(function(r){ window.CoachingCompass.logActivity(id, "note", "Edited a note: “" + snip(text) + "”"); return r; }); };
+    n.remove = function(id){ return rem.apply(n, arguments).then(function(r){ window.CoachingCompass.logActivity(id, "note", "Deleted a note"); return r; }); };
+  })(window.CoachingCompass.notes);
+
 
   if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(function(){ start(); });
   else start();

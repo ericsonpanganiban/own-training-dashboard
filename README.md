@@ -186,3 +186,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Message Overbreaks.** In Attendance, **Message Overbreaks…** (next to Check Break Replies) reads the thread again, lists trainees more than 2 minutes over their 30 min break or 60 min lunch, and sends each a direct Slack message only after you press Send. You can untick people. Anyone already messaged for the same break or lunch is unticked, so nobody gets the same reminder twice.
 
 **Attendance reminder in Next step reports.** Attendance points run in reverse (0 is best). When a trainee has 0.5 points or more (near 1) or more than 1, the Next step report adds an *Attendance and reliability* section that reminds them to be reliable, whichever targets are ticked, and the form says so before you generate.
+
+**Nesting-only Spot Check tab.** A trainee's Performance → Spot Check lists nesting spot checks only (average, latest score, table, export and Claude's read). Weekly-quiz spot checks show under Performance → Quiz.

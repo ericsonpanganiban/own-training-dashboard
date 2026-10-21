@@ -2050,8 +2050,9 @@ function openPerformance(content, traineeId) {
   };
 
   const spotBody = () => {
-    const sc = cc.traineeSpot(traineeId);
-    if (!sc.count) return `<p class="muted">No spot checks recorded for ${escapeHtml(sc.name)} yet. Record one in Metrics and Coaching → Spot Check.</p>`;
+    const sc0 = cc.traineeSpot(traineeId);
+    const sc = { ...sc0, checks: sc0.nesting };
+    if (!sc.count) return `<p class="muted">No nesting spot checks recorded for ${escapeHtml(sc.name)} yet. Record one in Metrics and Coaching → Spot Check. Weekly quiz spot checks appear under Quiz.</p>`;
     const d = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
     const link = (u) => (/^https?:\/\//i.test(u) ? `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">Open ticket</a>` : escapeHtml(u));
     return `
@@ -2494,7 +2495,7 @@ function openPerformance(content, traineeId) {
     }
     if (view.mode === "spot") {
       const rows = [["Trainee", "Date", "Category", "Ticket", "Feedback on Comms", "Feedback on Resolution", "Score %", "Trainee reply"]];
-      cc.traineeSpot(traineeId).checks.slice().reverse().forEach((x) => rows.push([name, (x.created_at || "").slice(0, 10), spotCatName(x), x.ticket, x.comms, x.resolution, x.score, x.reply || ""]));
+      cc.traineeSpot(traineeId).nesting.slice().reverse().forEach((x) => rows.push([name, (x.created_at || "").slice(0, 10), spotCatName(x), x.ticket, x.comms, x.resolution, x.score, x.reply || ""]));
       return rows;
     }
     if (view.mode === "quiz") {

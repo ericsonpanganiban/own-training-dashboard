@@ -4783,7 +4783,8 @@
   function traineeSpot(traineeId){
     var t = state.trainees.filter(function(x){ return x.id === traineeId; })[0];
     var checks = spotFor(traineeId);
-    return { name: t ? t.name : "", checks: checks, count: checks.length, avg: spotAvg(checks), analysis: spot.analyses[traineeId] || null };
+    var nesting = checks.filter(function(c){ return spotCat(c) === "nesting"; });
+    return { name: t ? t.name : "", checks: checks, nesting: nesting, count: nesting.length, avg: spotAvg(nesting), analysis: spot.analyses[traineeId] || null };
   }
   function startSpotDb(){
     dbFn.collection("spot_checks").onSnapshot(onChangedSnapshot(function(snap){
@@ -4800,7 +4801,7 @@
   // Claude reads one trainee's spot checks and names the common themes and repeated mistakes; saved in spot_analyses/{trainee}.
   function analyzeSpot(traineeId){
     var t = state.trainees.filter(function(x){ return x.id === traineeId; })[0];
-    var checks = spotFor(traineeId).slice().reverse();
+    var checks = spotFor(traineeId).filter(function(c){ return spotCat(c) === "nesting"; }).reverse(); // weekly-quiz spot checks live in Performance → Quiz
     if (!t || !checks.length) return;
     if (!sampleFn) return setSpotMsg("Analysis isn't available in this view.", true);
     var blocks = checks.map(function(c, i){

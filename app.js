@@ -1174,6 +1174,7 @@ const GOAL_DEFS = [
   { key: "qa", label: "QA", unit: "%", hint: "Overall QA score, at or above", dir: "min" },
   { key: "speed", label: "Speed", unit: "min/ticket", hint: "Average minutes per ticket, at or below (lower is faster)", dir: "max" },
   { key: "attendance", label: "Attendance", unit: "points", hint: "Total attendance points, at or below (lower is better)", dir: "max" },
+  { key: "spot", label: "Spot check", unit: "%", hint: "Average nesting spot check score, at or above", dir: "min" },
 ];
 const hasGoals = (c) => GOAL_DEFS.some((g) => Number(c?.team_goals?.[g.key]) > 0 || c?.team_goals?.[g.key] === 0);
 const autoCache = {}; // traineeId -> { status: "pass"|"fail"|null, checks: [...] }
@@ -1253,6 +1254,7 @@ function evaluateTrainee(cohort, t, quiz) {
   const vals = cc.traineeSpeed(t.id).weeks.map((w) => w.value).filter((v) => v != null);
   add(GOAL_DEFS[2], vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
   add(GOAL_DEFS[3], window.TrainerAttendance?.points ? window.TrainerAttendance.points(cohort.id, t.id) : null);
+  add(GOAL_DEFS[4], cc.traineeSpot ? cc.traineeSpot(t.id).avg : null); // nesting spot checks only
   return { status: checks.length ? (checks.every((c) => c.met) ? "pass" : "fail") : null, checks, skipped };
 }
 // Recomputes every automatic projection (at most every 15 s unless forced) and asks the apps to redraw when something changed.

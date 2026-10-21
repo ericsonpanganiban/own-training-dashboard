@@ -190,3 +190,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Nesting-only Spot Check tab.** A trainee's Performance → Spot Check lists nesting spot checks only (average, latest score, table, export and Claude's read). Weekly-quiz spot checks show under Performance → Quiz.
 
 **Spot Check tab actions.** In a trainee's Performance → Spot Check: **Analyze performance** (Claude reads the nesting spot checks and names themes, repeated mistakes and a coaching focus); per row **Check reply** (reads the Slack DM), **Mark acknowledged** (by hand, with Undo) and **Ping** (Slack reminder to reply, counted and dated); **Check all replies** and **Ping N waiting** for every check still unanswered; and **Edit** on every row.
+
+**Spot check goal in the projection.** Set Team Goals has a fifth goal, **Spot check** (average nesting spot check score, at or above). Once a cohort has it set, the pass/fail projection counts each trainee's nesting spot check average like the other goals (skipped while they have no spot checks). Weekly-quiz spot checks are not included.

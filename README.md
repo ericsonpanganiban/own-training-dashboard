@@ -194,3 +194,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Spot check goal in the projection.** Set Team Goals has a fifth goal, **Spot check** (average nesting spot check score, at or above). Once a cohort has it set, the pass/fail projection counts each trainee's nesting spot check average like the other goals (skipped while they have no spot checks). Weekly-quiz spot checks are not included.
 
 **New spot check button in the header.** In Metrics and Coaching → Spot Check, **New spot check** now sits right beside the *Spot Check* title (it turns into Cancel while the form is open). Copy and Check replies stay in the row below.
+
+**Spot check message.** The Slack message sent to the trainee now says they have 10 minutes to review the ticket and send their feedback, before asking for their acknowledgement and action plan.

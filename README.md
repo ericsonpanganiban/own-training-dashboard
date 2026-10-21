@@ -188,3 +188,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Attendance reminder in Next step reports.** Attendance points run in reverse (0 is best). When a trainee has 0.5 points or more (near 1) or more than 1, the Next step report adds an *Attendance and reliability* section that reminds them to be reliable, whichever targets are ticked, and the form says so before you generate.
 
 **Nesting-only Spot Check tab.** A trainee's Performance → Spot Check lists nesting spot checks only (average, latest score, table, export and Claude's read). Weekly-quiz spot checks show under Performance → Quiz.
+
+**Spot Check tab actions.** In a trainee's Performance → Spot Check: **Analyze performance** (Claude reads the nesting spot checks and names themes, repeated mistakes and a coaching focus); per row **Check reply** (reads the Slack DM), **Mark acknowledged** (by hand, with Undo) and **Ping** (Slack reminder to reply, counted and dated); **Check all replies** and **Ping N waiting** for every check still unanswered; and **Edit** on every row.

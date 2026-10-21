@@ -4802,15 +4802,15 @@
   function analyzeSpot(traineeId){
     var t = state.trainees.filter(function(x){ return x.id === traineeId; })[0];
     var checks = spotFor(traineeId).filter(function(c){ return spotCat(c) === "nesting"; }).reverse(); // weekly-quiz spot checks live in Performance → Quiz
-    if (!t || !checks.length) return;
-    if (!sampleFn) return setSpotMsg("Analysis isn't available in this view.", true);
+    if (!t || !checks.length) return Promise.resolve("");
+    if (!sampleFn) return Promise.resolve("Analysis isn't available in this view.");
     var blocks = checks.map(function(c, i){
       return "Spot check " + (i + 1) + " (" + spotCatLabel(c) + ", " + (c.created_at || "").slice(0, 10) + ", score " + spotFmt(spotScore(c.score)) + "%)\nTicket: " + c.ticket + "\nComms feedback: " + c.comms + "\nResolution feedback: " + c.resolution + (c.reply ? "\nTrainee's reply: " + c.reply : "");
     }).join("\n\n");
     var prompt = "You are helping a trainer coach a new-hire support trainee named " + t.name + ". Below are the spot checks of their tickets (oldest first), each with the trainer's feedback on communication and resolution, a score out of 100, and sometimes the trainee's own reply.\n\n" + blocks +
       "\n\nIdentify what keeps showing up. Only use what the feedback says; never invent mistakes, and say \"once\" when something happened only once. Return JSON only: {\"summary\": \"2-3 sentences\", \"themes\": [{\"title\": \"short\", \"area\": \"Comms|Resolution|Both\", \"detail\": \"what the pattern is\", \"spot_checks\": [spot check numbers it appears in]}], \"repeated_mistakes\": [{\"mistake\": \"specific, one sentence\", \"times\": number, \"spot_checks\": [numbers]}], \"trend\": \"is the score improving, flat or slipping, and why\", \"coaching_focus\": [\"up to 3 concrete things to work on next\"]}. Mistakes must appear in at least two spot checks; put one-off issues in themes instead. Use empty arrays when there is nothing.";
     spot.analyzing[traineeId] = true; spot.msg = ""; renderSpotPanel(true);
-    sampleFn.json(prompt, { modelTier: "complex", cache: false }).then(function(data){
+    return sampleFn.json(prompt, { modelTier: "complex", cache: false }).then(function(data){
       var arr = function(v){ return Array.isArray(v) ? v : []; };
       var doc = { count: checks.length, at: new Date().toISOString(), summary: String((data && data.summary) || ""), trend: String((data && data.trend) || ""),
         themes: arr(data && data.themes).map(function(x){ return { title: String(x.title || ""), area: String(x.area || ""), detail: String(x.detail || ""), spot_checks: arr(x.spot_checks) }; }),
@@ -4818,9 +4818,11 @@
         coaching_focus: arr(data && data.coaching_focus).map(String) };
       spot.analyses[traineeId] = doc;
       return dbFn.doc("spot_analyses/" + traineeId).set(doc).catch(function(){});
-    }).then(function(){ delete spot.analyzing[traineeId]; renderSpotPanel(true); }, function(e){
+    }).then(function(){ delete spot.analyzing[traineeId]; renderSpotPanel(true); return ""; }, function(e){
       delete spot.analyzing[traineeId];
-      setSpotMsg((e && e.code === "cancelled") ? "Analysis stopped." : (errorCopy(e && e.code) || "Something went wrong reaching Claude."), true);
+      var m = (e && e.code === "cancelled") ? "Analysis stopped." : (errorCopy(e && e.code) || "Something went wrong reaching Claude.");
+      setSpotMsg(m, true);
+      return m;
     });
   }
   function spotAnalysisHtml(traineeId, n){
@@ -5185,6 +5187,52 @@
     // Speed: weekly numbers pulled from the Speed Productivity Sheet.
     traineeSpeed: traineeSpeed,
     traineeSpot: traineeSpot,
+    // Per-trainee Spot Check tab (Performance): each resolves to "" or a message to show.
+    analyzeSpotFor: analyzeSpot,
+    // Read the DM for replies on these spot checks and save them. Resolves to { got, failed }.
+    readSpotReplies: function(ids){
+      var list = spot.checks.filter(function(c){ return ids.indexOf(c.id) !== -1 && c.slack_sent_at; });
+      var got = 0, failed = 0;
+      return list.reduce(function(chain, c){
+        return chain.then(function(){
+          return readSpotReply(c).then(function(r){
+            var f = { reply_checked_at: new Date().toISOString() };
+            if (r.text && r.text !== c.reply){ got++; f.reply = r.text; f.reply_at = r.at; }
+            return dbFn.doc("spot_checks/" + c.id).update(f).then(function(){ Object.assign(c, f); });
+          }).catch(function(){ failed++; });
+        });
+      }, Promise.resolve()).then(function(){ renderAll(); return { got: got, failed: failed, checked: list.length }; });
+    },
+    // Mark (or unmark) a check as acknowledged by hand, for a reply given somewhere other than the DM.
+    setSpotAck: function(id, on){
+      var f = on ? { ack_at: new Date().toISOString(), ack_by_hand: true } : { ack_at: "", ack_by_hand: false };
+      return dbFn.doc("spot_checks/" + id).update(f).then(function(){
+        spot.checks = spot.checks.map(function(c){ return c.id === id ? Object.assign({}, c, f) : c; });
+        renderAll();
+      });
+    },
+    // DM the trainee a reminder to reply to this spot check. Resolves to "" or the reason it failed.
+    pingSpot: function(id){
+      var c = spot.checks.filter(function(x){ return x.id === id; })[0];
+      var t = c && state.trainees.filter(function(x){ return x.id === c.trainee_id; })[0];
+      var slack = window.TrainerSlack;
+      if (!c || !t) return Promise.resolve("Spot check or trainee not found.");
+      if (!slack) return Promise.resolve("Slack isn't available right now.");
+      if (!c.slack_sent_at) return Promise.resolve("This spot check hasn't been sent on Slack yet.");
+      var first = String(t.name || "").split(/\s+/)[0] || "there";
+      var msg = "Hi " + first + ", a quick reminder about the spot check I sent on " + spotDate(c.slack_sent_at) + " (" + c.ticket + "). I haven't seen your reply yet. Please reply to the message with:\n1. Your *acknowledgement* of the feedback\n2. Your *action plan*: what you'll do differently from now on\n\nThank you!";
+      return slack.userIdFor(t).then(function(uid){
+        if (!uid) throw { plain: "Couldn't find a Slack account for " + (t.email || t.name) + "." };
+        return slack.sendDirect(uid, msg);
+      }).then(function(){
+        var f = { pinged_at: new Date().toISOString(), ping_count: (+c.ping_count || 0) + 1 };
+        return dbFn.doc("spot_checks/" + id).update(f).then(function(){
+          spot.checks = spot.checks.map(function(x){ return x.id === id ? Object.assign({}, x, f) : x; });
+          renderAll();
+          return "";
+        });
+      }, function(err){ return err && err.plain ? err.plain : slack.errorText(err); });
+    },
     // Edit one spot check's fields (ticket, comms, resolution, score) without sending anything on Slack.
     updateSpotCheck: function(id, fields){
       var f = Object.assign({}, fields, { edited_at: new Date().toISOString() });

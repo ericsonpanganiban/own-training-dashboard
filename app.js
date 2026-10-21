@@ -2052,19 +2052,51 @@ function openPerformance(content, traineeId) {
   const spotBody = () => {
     const sc0 = cc.traineeSpot(traineeId);
     const sc = { ...sc0, checks: sc0.nesting };
-    if (!sc.count) return `<p class="muted">No nesting spot checks recorded for ${escapeHtml(sc.name)} yet. Record one in Metrics and Coaching → Spot Check. Weekly quiz spot checks appear under Quiz.</p>`;
+    const busy = view.spotBusy || (view.spotBusy = {});
+    const msg = view.spotMsg ? `<p class="${view.spotMsgBad ? "bad-text" : "ok-text"}" role="status">${escapeHtml(view.spotMsg)}</p>` : "";
+    if (!sc.count) return `${msg}<p class="muted">No nesting spot checks recorded for ${escapeHtml(sc.name)} yet. Record one in Metrics and Coaching → Spot Check. Weekly quiz spot checks appear under Quiz.</p>`;
     const d = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
     const link = (u) => (/^https?:\/\//i.test(u) ? `<a href="${escapeHtml(u)}" target="_blank" rel="noopener">Open ticket</a>` : escapeHtml(u));
+    const an = sc.analysis;
+    const waiting = sc.checks.filter((x) => x.slack_sent_at && !x.reply && !x.ack_at);
+    const reply = (x) => {
+      const id = escapeHtml(x.id);
+      const b = (act, label, extra = "") => `<button type="button" class="linkish" data-spot-${act}="${id}"${busy[x.id + act] ? " disabled" : ""}${extra}>${busy[x.id + act] ? "…" : label}</button>`;
+      if (x.reply) return `${escapeHtml(x.reply)}<br><small class="muted">Replied ${escapeHtml(d(x.reply_at))}</small>`;
+      if (x.ack_at) return `<span class="chip ok">Acknowledged${x.ack_by_hand ? " (marked by you)" : ""}</span> <small class="muted">${escapeHtml(d(x.ack_at))}</small><br>${b("unack", "Undo")}`;
+      if (!x.slack_sent_at) return `<span class="muted">Not sent</span><br>${b("ack", "Mark acknowledged")}`;
+      return `<span class="muted">No reply yet${x.ping_count ? ` · pinged ${x.ping_count}× (last ${escapeHtml(d(x.pinged_at))})` : ""}</span><br>${b("read", "Check reply")} · ${b("ack", "Mark acknowledged")} · ${b("ping", x.ping_count ? "Ping again" : "Ping")}`;
+    };
     return `
+      ${manualForm({})}
       <div class="perf-head"><div class="perf-summary">
         <div class="stat"><div class="value">${sc.avg == null ? "—" : `${num(sc.avg)}%`}</div><div class="label">Average score</div><div class="hint">${sc.count} spot check${sc.count === 1 ? "" : "s"}</div></div>
         <div class="stat"><div class="value">${num(Number(sc.checks[0].score))}%</div><div class="label">Latest score</div><div class="hint">${escapeHtml(d(sc.checks[0].created_at))}</div></div>
-      </div></div>
-      ${sc.analysis ? `<div class="perf-detail"><p><b>Claude's read</b> <small class="muted">from ${sc.analysis.count} spot check${sc.analysis.count === 1 ? "" : "s"}</small></p><p>${escapeHtml(sc.analysis.summary)}</p>${sc.analysis.repeated_mistakes.length ? `<p><b>Repeated mistakes</b></p><ul>${sc.analysis.repeated_mistakes.map((m) => `<li>${escapeHtml(m.mistake)} <small class="muted">${m.times}×</small></li>`).join("")}</ul>` : ""}${sc.analysis.themes.length ? `<p><b>Common themes</b></p><ul>${sc.analysis.themes.map((m) => `<li><b>${escapeHtml(m.title)}</b>: ${escapeHtml(m.detail)}</li>`).join("")}</ul>` : ""}</div>` : ""}
-      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Date</th><th>Category</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th></tr></thead><tbody>${sc.checks
-        .map((x) => `<tr><td>${escapeHtml(d(x.created_at))}</td><td>${spotCatName(x)}</td><td><b>${num(Number(x.score))}%</b></td><td>${link(x.ticket)}</td><td>${escapeHtml(x.comms)}</td><td>${escapeHtml(x.resolution)}</td><td>${x.reply ? escapeHtml(x.reply) : `<span class="muted">${x.slack_sent_at ? "No reply yet" : "Not sent"}</span>`}</td></tr>`)
+        <div class="stat"><div class="value">${waiting.length}</div><div class="label">Awaiting reply</div><div class="hint">${waiting.length ? "not acknowledged yet" : "all acknowledged"}</div></div>
+      </div>
+      <div class="quiz-manual-acts"><button type="button" class="btn btn-primary" data-spot-analyze${busy.analyze ? " disabled" : ""}>${busy.analyze ? "Analyzing…" : an ? "Analyze again" : "Analyze performance"}</button>
+        <button type="button" class="btn" data-spot-readall${busy.readall || !sc.checks.some((x) => x.slack_sent_at) ? " disabled" : ""}>${busy.readall ? "Reading…" : "Check all replies"}</button>
+        <button type="button" class="btn" data-spot-pingall${busy.pingall || !waiting.length ? " disabled" : ""} title="Slack a reminder for every spot check still waiting for a reply">${busy.pingall ? "Pinging…" : `Ping ${waiting.length ? waiting.length + " waiting" : "no-replies"}`}</button></div></div>
+      ${msg}
+      ${an ? `<div class="perf-detail"><p><b>Claude's read</b> <small class="muted">analyzed ${escapeHtml(d(an.at))} from ${an.count} spot check${an.count === 1 ? "" : "s"}${an.count !== sc.count ? ` · ${sc.count} now, analyze again to update` : ""}</small></p>${an.trend ? `<p>${escapeHtml(an.trend)}</p>` : ""}<p>${escapeHtml(an.summary)}</p>${an.repeated_mistakes.length ? `<p><b>Repeated mistakes</b></p><ul>${an.repeated_mistakes.map((m) => `<li>${escapeHtml(m.mistake)} <small class="muted">${m.times}×</small></li>`).join("")}</ul>` : ""}${an.themes.length ? `<p><b>Common themes</b></p><ul>${an.themes.map((m) => `<li><b>${escapeHtml(m.title)}</b>: ${escapeHtml(m.detail)}</li>`).join("")}</ul>` : ""}${(an.coaching_focus || []).length ? `<p><b>Coaching focus</b></p><ul>${an.coaching_focus.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul>` : ""}</div>` : ""}
+      <div class="perf-detail"><table class="speed-weeks"><thead><tr><th>Date</th><th>Category</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th><th></th></tr></thead><tbody>${sc.checks
+        .map((x) => `<tr><td>${escapeHtml(d(x.created_at))}${x.edited_at ? ` <small class="muted">edited</small>` : ""}</td><td>${spotCatName(x)}</td><td><b>${num(Number(x.score))}%</b></td><td>${link(x.ticket)}</td><td>${escapeHtml(x.comms)}</td><td>${escapeHtml(x.resolution)}</td><td>${reply(x)}</td><td><button type="button" class="linkish" data-spot-edit="${escapeHtml(x.id)}">Edit</button></td></tr>`)
         .join("")}</tbody></table></div>`;
   };
+  // Spot Check tab actions: run a promise, show its message, redraw.
+  const spotAct = (key, task, done) => {
+    (view.spotBusy || (view.spotBusy = {}))[key] = true;
+    view.spotMsg = "";
+    draw();
+    Promise.resolve()
+      .then(task)
+      .then((r) => done?.(r), () => done?.("Something went wrong. Try again."))
+      .finally(() => {
+        delete view.spotBusy[key];
+        draw();
+      });
+  };
+  const spotSay = (m, bad) => ((view.spotMsg = m), (view.spotMsgBad = !!bad));
 
   const manualForm = (d) => {
     const f = view.quizForm;
@@ -2593,10 +2625,34 @@ function openPerformance(content, traineeId) {
       const m = manualList().find((x) => x.id === b.dataset.manualEdit);
       if (!m) return;
       view.quizForm = { id: m.id, type: m.type, score: String(m.pct), date: m.date || "", note: m.note || "", error: "" };
+    } else if ("spotAnalyze" in b.dataset) {
+      return void spotAct("analyze", () => cc.analyzeSpotFor(traineeId), (m) => spotSay(m || "Analysis saved.", !!m));
+    } else if (b.dataset.spotRead || "spotReadall" in b.dataset) {
+      const ids = b.dataset.spotRead ? [b.dataset.spotRead] : cc.traineeSpot(traineeId).nesting.map((x) => x.id);
+      return void spotAct(b.dataset.spotRead ? b.dataset.spotRead + "read" : "readall", () => cc.readSpotReplies(ids), (r) => spotSay(r.got ? `Saved ${r.got} new repl${r.got === 1 ? "y" : "ies"} ✓` : r.failed ? `Couldn't read ${r.failed} DM${r.failed === 1 ? "" : "s"}. Try again.` : "No new replies yet.", !r.got && !!r.failed));
+    } else if (b.dataset.spotAck || b.dataset.spotUnack) {
+      const id = b.dataset.spotAck || b.dataset.spotUnack;
+      return void spotAct(id + (b.dataset.spotAck ? "ack" : "unack"), () => cc.setSpotAck(id, !!b.dataset.spotAck).then(() => cc.logActivity(traineeId, "spot", b.dataset.spotAck ? "Marked a spot check as acknowledged" : "Un-marked a spot check acknowledgement")), () => spotSay(b.dataset.spotAck ? "Marked as acknowledged ✓" : "Acknowledgement removed."));
+    } else if (b.dataset.spotPing || "spotPingall" in b.dataset) {
+      const ids = b.dataset.spotPing ? [b.dataset.spotPing] : cc.traineeSpot(traineeId).nesting.filter((x) => x.slack_sent_at && !x.reply && !x.ack_at).map((x) => x.id);
+      return void spotAct(b.dataset.spotPing ? b.dataset.spotPing + "ping" : "pingall", async () => {
+        let ok = 0, err = "";
+        for (const id of ids) {
+          const r = await cc.pingSpot(id);
+          if (r) err = r;
+          else ok++;
+        }
+        if (ok) cc.logActivity(traineeId, "spot", `Pinged for a spot check reply (${ok})`);
+        return { ok, err };
+      }, (r) => spotSay(r.ok ? `Reminder sent on Slack to ${firstName()} ✓${r.err ? ` (${r.err})` : ""}` : r.err || "Nothing to ping.", !r.ok));
     } else if (b.dataset.spotEdit) {
       const it = (view.quiz?.data?.items || []).find((x) => x.spot && x.spotId === b.dataset.spotEdit);
-      if (!it) return;
-      view.quizForm = { spot: it.spotId, catkey: `quiz:${it.week || ""}`, ticket: it.ticket, comms: it.comms, resolution: it.resolution, score: String(it.pct), error: "" };
+      if (it) view.quizForm = { spot: it.spotId, catkey: `quiz:${it.week || ""}`, ticket: it.ticket, comms: it.comms, resolution: it.resolution, score: String(it.pct), error: "" };
+      else {
+        const sx = cc.traineeSpot(traineeId).checks.find((x) => x.id === b.dataset.spotEdit);
+        if (!sx) return;
+        view.quizForm = { spot: sx.id, catkey: `${sx.category === "quiz" ? "quiz" : "nesting"}:${Number(sx.week) || ""}`, ticket: sx.ticket || "", comms: sx.comms || "", resolution: sx.resolution || "", score: String(sx.score ?? ""), error: "" };
+      }
     } else if (b.dataset.runScore) {
       const [qid, rid] = b.dataset.runScore.split("|");
       const it = (view.quiz?.data?.items || []).find((x) => x.quizId === qid && x.runId === rid);

@@ -318,6 +318,7 @@
     el.sectionEyebrow.textContent = meta.eyebrow;
     el.sectionTitle.textContent = meta.title;
     el.sectionSub.textContent = meta.sub;
+    syncSpotNewBtn();
     renderHome();
     renderStats();
     renderBreadcrumb();
@@ -407,6 +408,7 @@
     el.sectionEyebrow.textContent = meta.eyebrow;
     el.sectionTitle.textContent = meta.title;
     el.sectionSub.textContent = meta.sub;
+    syncSpotNewBtn();
     renderAll();
   }
 
@@ -5030,6 +5032,21 @@
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(lines.join("\n")).then(function(){ done(true); }, function(){ done(fallbackCopy(lines.join("\n"))); });
     else done(fallbackCopy(lines.join("\n")));
   }
+  // "New spot check" sits in the page header, right beside the Spot Check title.
+  function syncSpotNewBtn(){
+    var bar = el.topbar, btn = document.getElementById("spotNewBtn");
+    if (!bar) return;
+    if (!btn){
+      btn = document.createElement("button");
+      btn.id = "spotNewBtn"; btn.type = "button";
+      bar.appendChild(btn);
+    }
+    var on = state.section === "spot";
+    btn.hidden = !on;
+    bar.classList.toggle("has-spot-new", on);
+    btn.className = "spot-new" + (spot.form ? " cancel" : "");
+    btn.innerHTML = spot.form ? "Cancel" : "<span aria-hidden=\"true\">+</span> New spot check";
+  }
   function renderSpotPanel(force){
     var host = document.getElementById("spotBody");
     if (!host) return;
@@ -5038,8 +5055,8 @@
     var list = spotList();
     var cohortOpts = "<option value=\"\">All cohort trainees</option>" + state.cohorts.map(function(c){ return "<option value=\"" + esc(c.id) + "\"" + (c.id === spot.cohort ? " selected" : "") + ">" + esc(c.name) + "</option>"; }).join("");
     var viewBtn = function(k, label){ return "<button class=\"ghost small" + (spot.view === k ? " on" : "") + "\" type=\"button\" data-spot-view=\"" + k + "\" aria-pressed=\"" + (spot.view === k) + "\">" + label + "</button>"; };
+    syncSpotNewBtn();
     var head = "<div class=\"spot-top\">" +
-      "<button class=\"spot-new" + (spot.form ? " cancel" : "") + "\" id=\"spotNewBtn\" type=\"button\">" + (spot.form ? "Cancel" : "<span aria-hidden=\"true\">+</span> New spot check") + "</button>" +
       "<span class=\"spot-top-side\">" +
       (spot.view === "cohort" ? "<button class=\"ghost small\" id=\"spotCopyBtn\" type=\"button\" title=\"Copy every spot check in view as rows to paste into a sheet\">Copy</button>" : "") +
       "<button class=\"ghost small\" id=\"spotRepliesBtn\" type=\"button\" title=\"Read the trainees' replies from Slack and save them here\">Check replies</button></span></div>" +

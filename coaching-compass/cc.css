@@ -662,3 +662,6 @@
   :is(.cc-root, .cc-ui) #speedBody .speed-bar{position:sticky;top:var(--sp-top1,0px);z-index:50;background:var(--surface,#fff);margin:0;padding:12px 0 14px;}
   :is(.cc-root, .cc-ui) #speedBody .speed-table thead th{position:sticky;top:var(--sp-top2,0px);z-index:40;background:var(--surface,#fff);box-shadow:0 1px 0 var(--line);}
   :is(.cc-root, .cc-ui) #speedBody .speed-table thead th.sk{z-index:45;}
+
+  :is(.cc-root, .cc-ui) .topbar.has-spot-new{justify-content:flex-start;align-items:center;}
+  :is(.cc-root, .cc-ui) .topbar .spot-new[hidden]{display:none;}

@@ -4847,7 +4847,7 @@
       "*Feedback on Comms:* " + c.comms + "\n" +
       "*Feedback on Resolution:* " + c.resolution + "\n" +
       "*Score:* " + spotFmt(spotScore(c.score)) + "%\n\n" +
-      "You have *10 minutes* to review the ticket and send your feedback. Please reply to this message with:\n1. Your *acknowledgement* of this feedback\n2. Your *action plan*: what you'll do differently from now on\n\nThank you!";
+      "You can spend *10 minutes of non-ticket time* to review the ticket and send your feedback. Please reply to this message with:\n1. Your *acknowledgement* of this feedback\n2. Your *action plan*: what you'll do differently from now on\n\nThank you!";
   }
   function cohortOfTrainee(id){
     return state.cohorts.filter(function(c){ return (c.trainee_ids || []).indexOf(id) !== -1; })[0] || null;

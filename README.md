@@ -195,4 +195,4 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 
 **New spot check button in the header.** In Metrics and Coaching → Spot Check, **New spot check** now sits right beside the *Spot Check* title (it turns into Cancel while the form is open). Copy and Check replies stay in the row below.
 
-**Spot check message.** The Slack message sent to the trainee now says they have 10 minutes to review the ticket and send their feedback, before asking for their acknowledgement and action plan.
+**Spot check message.** The Slack message sent to the trainee now says they can spend 10 minutes of non-ticket time to review the ticket and send their feedback, before asking for their acknowledgement and action plan.

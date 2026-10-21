@@ -196,3 +196,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **New spot check button in the header.** In Metrics and Coaching → Spot Check, **New spot check** now sits right beside the *Spot Check* title (it turns into Cancel while the form is open). Copy and Check replies stay in the row below.
 
 **Spot check message.** The Slack message sent to the trainee now says they can spend 10 minutes of non-ticket time to review the ticket and send their feedback, before asking for their acknowledgement and action plan.
+
+**Overbreak notes log themselves.** Whenever Break & Lunch replies are read (automatic or Check Break Replies), a trainee more than 2 minutes over their break or lunch gets a dated entry in their attendance notes (the Total Points note), for example *Overbreak (2026-10-21): 45 of 30 min allowed, 15 min over.* There is one entry per trainee, break/lunch and message; a later read only updates its minutes (a trainee still out grows until they reply "back"). A note you delete is not added back.

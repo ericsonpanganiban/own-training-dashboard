@@ -508,7 +508,10 @@
           const st = breakState(events[t.id]);
           return st.over.break || st.over.lunch;
         }).length;
-        return saveBreak(cohort.id, graded).then(() => ({ ...graded, summary: { replies, matched, total: members.length, over } }));
+        return logOverNotes(cohort, graded, members)
+          .catch(() => {})
+          .then(() => saveBreak(cohort.id, graded))
+          .then(() => ({ ...graded, summary: { replies, matched, total: members.length, over } }));
       });
   }
 
@@ -1089,6 +1092,32 @@
         })
         .catch((err) => ui.status.set(`${cohortId}:break`, slackError(err)));
     });
+  }
+
+  // More than the grace over break or lunch: add a dated entry to that trainee's attendance notes (the Total Points note).
+  // One entry per trainee, kind and message; a later read just updates its minutes. A note you delete is not added back.
+  function logOverNotes(cohort, session, members) {
+    const logged = (session.overLogged = { ...(session.overLogged || {}) });
+    const notes = JSON.parse(JSON.stringify(cohort.attendance_notes || {}));
+    let changed = false;
+    members.forEach((t) => {
+      const st = breakState(session.events?.[t.id]);
+      overParts(st).forEach((p) => {
+        const id = `ob-${session.id}-${p.k}`;
+        const text = `Over${p.k} (${session.date}): ${p.total} of ${p.allow} min allowed, ${p.over} min over${p.running ? " and still out at last check" : ""}.`;
+        const list = Array.isArray(notes[t.id]) ? notes[t.id] : String(notes[t.id] || "").trim() ? [{ id: "legacy", text: String(notes[t.id]).trim(), at: "" }] : [];
+        const at = list.findIndex((n) => n.id === id);
+        if (at !== -1) {
+          if (list[at].text === text) return;
+          list[at] = { ...list[at], text };
+        } else if (logged[`${t.id}:${p.k}`]) return;
+        else list.push({ id, text, at: new Date().toISOString() });
+        logged[`${t.id}:${p.k}`] = true;
+        notes[t.id] = list;
+        changed = true;
+      });
+    });
+    return changed ? cc().updateCohort(cohort.id, { attendance_notes: notes }) : Promise.resolve();
   }
 
   // ---- Message trainees who are over their break or lunch ----

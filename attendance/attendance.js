@@ -1128,10 +1128,19 @@
     const allow = { break: BREAK_ALLOW_MIN, lunch: LUNCH_ALLOW_MIN };
     return ["break", "lunch"].filter((k) => st.total[k] - allow[k] > BREAK_GRACE_MIN).map((k) => ({ k, over: st.total[k] - allow[k], total: st.total[k], allow: allow[k], running: st.open[k] != null }));
   }
-  const overMessage = (t, parts) =>
-    `Hi ${firstOf(t)}, a quick reminder: ` +
-    parts.map((p) => `your ${p.k} ${p.running ? "has run" : "was"} ${p.over} min over the ${p.allow} min allowed today (${p.total} min used)`).join(" and ") +
-    `.${parts.some((p) => p.running) ? " Please reply \"" + parts.filter((p) => p.running).map((p) => p.k).join("/") + " back\" in the Break & Lunch thread as soon as you're back." : ""} Please keep to the allowed time. Thank you!`;
+  const overMessage = (t, parts) => {
+    const running = parts.filter((p) => p.running);
+    const lines = parts.map((p) => `• Your ${p.k} ${p.running ? "has run" : "was"} *${p.over} min over* the ${p.allow} min allowed (${p.total} min used).`);
+    return [
+      `Hi ${firstOf(t)}, this is a notice about your ${parts.map((p) => p.k).join(" and ")} today.`,
+      "",
+      ...lines,
+      "",
+      `You are allowed ${parts.map((p) => `${p.allow} minutes of ${p.k}`).join(" and ")} a day. Going over is not acceptable. ${running.length ? `If you are still out, come back now and reply "${running.map((p) => p.k).join("/")} back" in the Break & Lunch thread.` : ""}`.trim(),
+      "",
+      "Please reply to this message and explain what happened. I need your reply today.",
+    ].join("\n");
+  };
   function openOverMessage(cohortId) {
     const cohort = cohortById(cohortId);
     const session = newestBreak(cohortId);
@@ -1162,7 +1171,7 @@
     });
     const s = openSheet(
       `<h3>Message overbreaks · ${escapeHtml(cohort.name)}</h3>
-       <p class="muted att-sub">Trainees more than ${BREAK_GRACE_MIN} min over their ${BREAK_ALLOW_MIN} min break or ${LUNCH_ALLOW_MIN} min lunch, from replies read just now. Each gets their own direct message on Slack. Nothing is sent until you press Send.</p>
+       <p class="muted att-sub">Trainees more than ${BREAK_GRACE_MIN} min over their ${BREAK_ALLOW_MIN} min break or ${LUNCH_ALLOW_MIN} min lunch, from replies read just now. Each gets their own direct message on Slack, firm and asking them to explain what happened. Nothing is sent until you press Send.</p>
        ${items.length ? `<div class="att-over-list">${items.join("")}</div><p class="att-note">Example of what is sent:</p><p class="att-over-eg">${escapeHtml(overMessage(rows[0].t, rows[0].parts))}</p>` : `<p>Nobody is more than ${BREAK_GRACE_MIN} min over right now.</p>`}
        <p class="sheet-status" role="status"></p>
        <div class="sheet-actions att-compose-actions"><span class="att-spacer"></span><button type="button" class="btn" data-cancel>${items.length ? "Cancel" : "Close"}</button>${items.length ? `<button type="button" class="btn-primary" data-send>Send</button>` : ""}</div>`,

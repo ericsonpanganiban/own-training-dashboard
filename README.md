@@ -202,3 +202,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Inactive trainees last in Spot Check.** The Spot Check lists (By trainee, Entire cohort, and the New spot check trainee picker) put inactive, resigned and terminated trainees at the bottom.
 
 **Inactive flag in Spot Check.** Inactive, resigned and terminated trainees show in a lighter text colour with an *(Inactive)* flag in the By-trainee list, the Entire-cohort table and the New spot check picker.
+
+**Overbreak message tone.** The Message Overbreaks DM is now direct and firm: it states the minutes over and the daily allowance, says going over is not acceptable, and asks the trainee to reply with an explanation of what happened that same day.

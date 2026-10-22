@@ -666,5 +666,5 @@
   :is(.cc-root, .cc-ui) .topbar.has-spot-new{justify-content:flex-start;align-items:center;}
   :is(.cc-root, .cc-ui) .topbar .spot-new[hidden]{display:none;}
 
-  :is(.cc-root, .cc-ui) .spot-table tr.is-inactive td, :is(.cc-root, .cc-ui) .spot-table tr.is-inactive summary b{color:var(--ink-3,var(--muted,#8a8f98));font-weight:500;}
-  :is(.cc-root, .cc-ui) .spot-flag{font-size:11.5px;font-weight:600;color:var(--ink-3,var(--muted,#8a8f98));margin-left:4px;}
+  :is(.cc-root, .cc-ui) .spot-table tr.is-inactive td, :is(.cc-root, .cc-ui) .spot-table tr.is-inactive summary b{color:var(--ink-3,var(--muted,#8a8f98));opacity:.6;font-weight:500;}
+  :is(.cc-root, .cc-ui) .spot-flag{font-size:11.5px;font-weight:600;margin-left:4px;}

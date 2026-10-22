@@ -2555,6 +2555,150 @@ function openPerformance(content, traineeId) {
     }, 5000);
   };
 
+  // ---- Send the analysis to the trainee as coaching (QA, Speed, Spot Check) ----
+  const COACH_FOOTER = "You have *15 minutes* to review this and reply to this message with:\n1. Your *acknowledgement* of this coaching\n2. Your *action plan*: what you'll do differently from now on\n\nThank you!";
+  const coachSource = () => {
+    const mode = view.mode;
+    if (mode === "qa") {
+      const p = cc.traineePerformance(traineeId);
+      const w = p.weeks.find((x) => x.week === view.week) || p.weeks[0];
+      if (!w) return { error: "No saved QA week to build coaching from yet." };
+      if (!w.brief) return { error: "This QA week isn't analyzed yet. Analyze it in Metrics and Coaching first, then send it." };
+      return { label: `QA · Week ${w.week}`, data: { area: "QA audits", week: w.week, audits: w.audits, passed: w.pass, total: w.total, analysis: w.brief } };
+    }
+    if (mode === "speed") {
+      const sp = cc.traineeSpeed(traineeId);
+      if (!sp.weeks.length) return { error: "No Speed weeks to build coaching from yet." };
+      const w = sp.weeks.find((x) => x.week === view.sweek) || sp.weeks[0];
+      return { label: `Speed · Week ${w.week}`, data: { area: "Speed (minutes per ticket, lower is faster)", team_goal: sp.goal || null, selected_week: { week: w.week, speed: w.value, hours: w.hours, tickets: w.tickets, days: w.days.map((x) => ({ date: x.date, speed: x.speed, hours: x.hours, tickets: x.tickets })) }, all_weeks: sp.weeks.map((x) => ({ week: x.week, speed: x.value })) } };
+    }
+    if (mode === "spot") {
+      const sc = cc.traineeSpot(traineeId);
+      if (!sc.nesting.length) return { error: "No nesting spot checks to build coaching from yet." };
+      return { label: "Spot Check", data: { area: "Nesting spot checks", average: sc.avg, analysis: sc.analysis || null, checks: sc.nesting.slice().reverse().map((x) => ({ date: (x.created_at || "").slice(0, 10), score: x.score, comms_feedback: x.comms, resolution_feedback: x.resolution })) } };
+    }
+    return { error: "" };
+  };
+  const coachSends = () => (traineeRec()?.coaching_sends || []).filter((x) => x.mode === view.mode).slice().reverse();
+  const saveSends = (list) => cc.updateTrainee(traineeId, { coaching_sends: list });
+  const coachHtml = () => {
+    const co = view.coach;
+    if (!co) return "";
+    return `<form class="quiz-manual-form" data-coach-form>
+      <h4>Send ${escapeHtml(co.label)} to ${escapeHtml(firstName())} as coaching</h4>
+      ${co.loading && !co.text ? `<p class="muted">Claude is writing the message…</p>` : `<label>Message <small class="muted">edit it however you like. It is not sent until you press Send.</small>
+        <textarea data-cf="text" rows="14">${escapeHtml(co.text)}</textarea></label>`}
+      ${co.error ? `<p class="bad-text" role="alert">${escapeHtml(co.error)}</p>` : ""}
+      <div class="quiz-manual-acts"><button type="button" class="btn btn-primary" data-coach-send${co.loading || !co.text ? " disabled" : ""}>${co.loading && co.text ? "Sending…" : `Send to ${escapeHtml(firstName())} on Slack`}</button>
+        <button type="button" class="btn" data-coach-regen${co.loading ? " disabled" : ""}>Write again</button>
+        <button type="button" class="btn" data-coach-cancel>Cancel</button></div></form>`;
+  };
+  const coachListHtml = () => {
+    const list = coachSends();
+    if (!list.length) return "";
+    const d = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+    const busy = view.coachBusy || (view.coachBusy = {});
+    const b = (act, id, label) => `<button type="button" class="linkish" data-coach-${act}="${escapeHtml(id)}"${busy[id + act] ? " disabled" : ""}>${busy[id + act] ? "…" : label}</button>`;
+    return `<div class="perf-detail"><p><b>Coaching sent to ${escapeHtml(firstName())}</b></p>${view.coachMsg ? `<p class="${view.coachBad ? "bad-text" : "ok-text"}" role="status">${escapeHtml(view.coachMsg)}</p>` : ""}
+      <table class="speed-weeks"><thead><tr><th>Sent</th><th>About</th><th>Message</th><th>Acknowledgement</th></tr></thead><tbody>${list
+        .map((x) => {
+          const st = x.reply
+            ? `${escapeHtml(x.reply)}<br><small class="muted">Replied ${escapeHtml(d(x.reply_at))}</small>`
+            : x.ack_at
+              ? `<span class="chip ok">Acknowledged${x.ack_by_hand ? " (marked by you)" : ""}</span> <small class="muted">${escapeHtml(d(x.ack_at))}</small><br>${b("unack", x.id, "Undo")}`
+              : `<span class="muted">No reply yet${x.ping_count ? ` · pinged ${x.ping_count}× (last ${escapeHtml(d(x.pinged_at))})` : ""}</span><br>${b("read", x.id, "Check reply")} · ${b("ack", x.id, "Mark acknowledged")} · ${b("ping", x.id, x.ping_count ? "Ping again" : "Ping")}`;
+          return `<tr><td>${escapeHtml(d(x.sent_at))}</td><td>${escapeHtml(x.label)}</td><td><details><summary>Read</summary><div style="white-space:pre-wrap">${escapeHtml(x.text)}</div></details></td><td>${st}</td></tr>`;
+        })
+        .join("")}</tbody></table></div>`;
+  };
+  const coachGenerate = async () => {
+    const co = view.coach;
+    const src = coachSource();
+    if (src.error) return void (co.error = src.error, (co.loading = false), draw());
+    const sample = await window.TrainerUse("sample").catch(() => null);
+    if (!sample) return void (co.error = "Claude isn't available in this view.", (co.loading = false), draw());
+    co.loading = true;
+    co.error = "";
+    co.text = "";
+    draw();
+    const prompt = `You are the trainer writing to your trainee, ${firstName()}, in a Slack DM. Write in first person as the trainer, warm but clear and direct. Turn the analysis data below into a coaching message: a one-line greeting; *What's going well*; *What to work on* (the specific patterns, with what to do differently); *What I expect next*. Use only the facts in the data; never invent scores, dates or policies; do not mention other trainees; say "once" if something happened only once. Plain text with Slack formatting: *bold* headings and "•" bullets. Under 220 words. Do not ask them to reply or acknowledge, that is added afterwards. Output only the message.\n\nDATA (${src.label}):\n${JSON.stringify(src.data).slice(0, 20000)}`;
+    try {
+      const out = await sample(prompt, { modelTier: "complex", cache: false });
+      const body = String(out?.text || "").trim();
+      if (!body) throw new Error("empty");
+      co.text = `${body}\n\n${COACH_FOOTER}`;
+      co.label = src.label;
+    } catch (err) {
+      co.error = err?.code === "rate_limited" ? "Too many requests. Wait a minute and try again." : "Claude couldn't write the message just now. Try again.";
+    }
+    co.loading = false;
+    draw();
+  };
+  const coachSend = async () => {
+    const co = view.coach;
+    const t = traineeRec();
+    if (!co?.text.trim() || !t || co.loading) return;
+    co.loading = true;
+    co.error = "";
+    draw();
+    try {
+      const r = await cc.dmSend(t, co.text);
+      const rec = { id: `c${Date.now().toString(36)}`, mode: view.mode, label: co.label, text: co.text, sent_at: r.sentAt, uid: r.uid, channel: r.channel, ts: r.ts, reply: "", reply_at: "", ack_at: "" };
+      await saveSends([...(t.coaching_sends || []), rec]);
+      cc.logActivity(traineeId, "coaching", `Sent ${co.label} coaching on Slack`);
+      view.coach = null;
+      view.coachMsg = `Sent to ${firstName()} on Slack ✓`;
+      view.coachBad = false;
+    } catch (err) {
+      co.loading = false;
+      co.error = err?.plain || "Couldn't send. Try again.";
+    }
+    draw();
+  };
+  const coachUpdate = (id, fields) => saveSends((traineeRec()?.coaching_sends || []).map((x) => (x.id === id ? { ...x, ...fields } : x)));
+  const coachAct = (key, task, done) => {
+    (view.coachBusy || (view.coachBusy = {}))[key] = true;
+    view.coachMsg = "";
+    draw();
+    Promise.resolve()
+      .then(task)
+      .then((r) => done?.(r), (e) => done?.({ err: e?.plain || "Something went wrong. Try again." }))
+      .finally(() => {
+        delete view.coachBusy[key];
+        draw();
+      });
+  };
+  const coachSay = (m, bad) => ((view.coachMsg = m), (view.coachBad = !!bad));
+  const handleCoach = (b) => {
+    const ds = b.dataset;
+    if ("coachOpen" in ds) {
+      const src = coachSource();
+      view.coach = { label: src.label || "", text: "", loading: false, error: src.error || "" };
+      if (!src.error) coachGenerate();
+      else draw();
+    } else if ("coachRegen" in ds) coachGenerate();
+    else if ("coachCancel" in ds) {
+      view.coach = null;
+      draw();
+    } else if ("coachSend" in ds) coachSend();
+    else if (ds.coachRead || ds.coachAck || ds.coachUnack || ds.coachPing) {
+      const id = ds.coachRead || ds.coachAck || ds.coachUnack || ds.coachPing;
+      const rec = (traineeRec()?.coaching_sends || []).find((x) => x.id === id);
+      if (!rec) return true;
+      const act = ds.coachRead ? "read" : ds.coachAck ? "ack" : ds.coachUnack ? "unack" : "ping";
+      coachAct(id + act, () => {
+        if (act === "read") return window.CoachingCompass.dmReplies(rec).then((r) => (r.text && r.text !== rec.reply ? coachUpdate(id, { reply: r.text, reply_at: r.at }).then(() => ({ ok: "Saved their reply ✓" })) : { ok: "No new reply yet." }));
+        if (act === "ack") return coachUpdate(id, { ack_at: new Date().toISOString(), ack_by_hand: true }).then(() => ({ ok: "Marked as acknowledged ✓" }));
+        if (act === "unack") return coachUpdate(id, { ack_at: "", ack_by_hand: false }).then(() => ({ ok: "Acknowledgement removed." }));
+        return cc.dmSend(traineeRec(), `Hi ${firstName()}, a quick reminder about the ${rec.label} coaching I sent on ${new Date(rec.sent_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}. I haven't seen your reply yet. Please reply with:\n1. Your *acknowledgement*\n2. Your *action plan*: what you'll do differently from now on\n\nThank you!`).then(() => coachUpdate(id, { pinged_at: new Date().toISOString(), ping_count: (+rec.ping_count || 0) + 1 })).then(() => ({ ok: `Reminder sent to ${firstName()} ✓` }));
+      }, (r) => coachSay(r?.err || r?.ok || "", !!r?.err));
+    } else return false;
+    return true;
+  };
+  card.addEventListener("input", (e) => {
+    if (e.target.matches("[data-cf=text]") && view.coach) view.coach.text = e.target.value;
+  });
+
   const draw = () => {
     const p = cc.traineePerformance(traineeId);
     const body = !p.name
@@ -2563,6 +2707,7 @@ function openPerformance(content, traineeId) {
     card.innerHTML = `
       <div class="perf-title"><h3 data-crumb="${modeLabel()}">Performance${p.name ? ` · ${escapeHtml(p.name)}` : ""}</h3>
         <span class="sheet-status" data-copy-msg role="status">${escapeHtml(view.copyMsg)}</span>
+        ${view.mode !== "quiz" && p.name ? `<button type="button" class="btn btn-primary" data-coach-open title="Turn this analysis into a coaching message for ${escapeHtml(p.name)} on Slack">Send as coaching…</button>` : ""}
         <button type="button" class="btn" data-copy-view title="Copy this view as rows to paste into a sheet">Copy</button>
         <button type="button" class="btn" data-cancel>← Back</button></div>
       <div class="perf-modes" role="tablist" aria-label="Performance view">
@@ -2571,7 +2716,7 @@ function openPerformance(content, traineeId) {
         <button type="button" role="tab" class="pill${view.mode === "quiz" ? " on" : ""}" aria-selected="${view.mode === "quiz"}" data-mode="quiz">Quiz</button>
         <button type="button" role="tab" class="pill${view.mode === "spot" ? " on" : ""}" aria-selected="${view.mode === "spot"}" data-mode="spot">Spot Check</button>
       </div>
-      ${body}`;
+      ${view.mode !== "quiz" ? coachHtml() : ""}${body}${view.mode !== "quiz" ? coachListHtml() : ""}`;
     // The cohort, the trainee and the page are crumbs ahead of the QA / Speed view.
     const cohort = cohortOf();
     setCrumbs(appId, [...(cohort ? [{ label: cohort.name }] : []), { label: p.name || "Trainee" }, { label: "Performance" }]);
@@ -2596,10 +2741,12 @@ function openPerformance(content, traineeId) {
   card.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
+    if (handleCoach(b)) return;
     if (b.dataset.week) view.week = b.dataset.week;
     else if (b.dataset.tab) view.tab = b.dataset.tab;
     else if (b.dataset.mode) {
       view.mode = b.dataset.mode;
+      view.coach = null;
       if (view.mode === "quiz" && !view.quiz) {
         view.manualSig = quizSig();
         loadQuiz();

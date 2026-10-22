@@ -5199,6 +5199,7 @@
           pass: tally.pass,
           total: tally.total,
           analyzed: !!wk.brief,
+          brief: wk.brief || null,
           talkingHtml: talkingPointsModalHtml(item),
           markdownsHtml: markdownsModalHtml(item, { headers: wk.headers }, true)
         };
@@ -5208,6 +5209,29 @@
     // Speed: weekly numbers pulled from the Speed Productivity Sheet.
     traineeSpeed: traineeSpeed,
     traineeSpot: traineeSpot,
+    // Send a DM to a trainee and note where it landed, so replies can be read later. Resolves to { uid, channel, ts, sentAt } or rejects with { plain }.
+    dmSend: function(t, text){
+      var slack = window.TrainerSlack, uid = null;
+      if (!slack) return Promise.reject({ plain: "Slack isn't available right now." });
+      return slack.userIdFor(t).then(function(id){
+        uid = id;
+        if (!uid) throw { plain: "Couldn't find a Slack account for " + (t.email || t.name) + ". Check the work email in Settings → Roster." };
+        return slack.sendDirect(uid, text);
+      }).then(function(){
+        var out = { uid: uid, channel: "", ts: "", sentAt: new Date().toISOString() };
+        out.ts = String(Date.parse(out.sentAt) / 1000);
+        return slack.call("slack_read_channel", { channel_id: uid, limit: 3, response_format: "detailed" }, { cache: false }).then(function(r){
+          var parsed = parseSlackChannel(r && r.payload && r.payload.messages);
+          var mine = parsed.messages.filter(function(m){ return m.userId !== uid; }).sort(function(a, b){ return parseFloat(b.ts) - parseFloat(a.ts); })[0];
+          out.channel = parsed.channel || "";
+          if (mine) out.ts = mine.ts;
+        }).catch(function(){}).then(function(){ return out; });
+      }, function(err){ throw (err && err.plain) ? err : { plain: slack.errorText(err) }; });
+    },
+    // Everything the trainee wrote in that DM after the message. Resolves to { text, at }.
+    dmReplies: function(s){
+      return readSpotReplyFrom(window.TrainerSlack, { slack_user_id: s.uid, slack_ts: s.ts, slack_channel: s.channel });
+    },
     // Per-trainee Spot Check tab (Performance): each resolves to "" or a message to show.
     analyzeSpotFor: analyzeSpot,
     // Read the DM for replies on these spot checks and save them. Resolves to { got, failed }.

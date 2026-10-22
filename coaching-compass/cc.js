@@ -5013,8 +5013,11 @@
     state.cohorts.forEach(function(c){ (c.trainee_ids || []).forEach(function(id){ inAny[id] = true; }); });
     var cohort = state.cohorts.filter(function(c){ return c.id === spot.cohort; })[0];
     var byId = function(id){ return state.trainees.filter(function(t){ return t.id === id; })[0]; };
-    return cohort ? (cohort.trainee_ids || []).map(byId).filter(Boolean) : state.trainees.filter(function(t){ return inAny[t.id]; });
+    var list = cohort ? (cohort.trainee_ids || []).map(byId).filter(Boolean) : state.trainees.filter(function(t){ return inAny[t.id]; });
+    // Inactive, resigned and terminated trainees go to the bottom, keeping their order otherwise.
+    return list.map(function(t, i){ return { t: t, i: i }; }).sort(function(a, b){ return (spotOut(a.t) - spotOut(b.t)) || (a.i - b.i); }).map(function(x){ return x.t; });
   }
+  function spotOut(t){ var m = t.trainee_status; return (t.cohort_status === "inactive" || (m && m.mode === "manual" && (m.value === "resigned" || m.value === "terminated"))) ? 1 : 0; }
   // Every spot check of the trainees in view, by trainee then oldest first.
   function spotCohortRows(list){
     var rows = [];
@@ -5095,7 +5098,7 @@
     else body = "<div class=\"speed-wrap\"><table class=\"preview full-text spot-table spot-by\"><thead><tr><th>Trainee</th><th>Spot checks</th><th>Average score</th><th>Latest</th></tr></thead><tbody>" +
       list.map(function(t){
         var cs = spotFor(t.id).filter(spotInView);
-        return "<tr" + (t.cohort_status === "inactive" ? " class=\"is-inactive\"" : "") + "><td>" + (cs.length ? "<details data-spot-open=\"" + esc(t.id) + "\"" + (spot.open[t.id] ? " open" : "") + "><summary><b>" + esc(t.name) + "</b></summary>" + spotAnalysisHtml(t.id, cs.length) + cs.map(spotCheckHtml).join("") + "</details>" : esc(t.name)) + "</td><td>" + cs.length + "</td><td><b>" + (cs.length ? spotFmt(spotAvg(cs)) + "%" : "—") + "</b></td><td>" + (cs[0] ? spotFmt(spotScore(cs[0].score)) + "% · " + esc(spotDate(cs[0].created_at)) : "—") + "</td></tr>";
+        return "<tr" + (spotOut(t) ? " class=\"is-inactive\"" : "") + "><td>" + (cs.length ? "<details data-spot-open=\"" + esc(t.id) + "\"" + (spot.open[t.id] ? " open" : "") + "><summary><b>" + esc(t.name) + "</b></summary>" + spotAnalysisHtml(t.id, cs.length) + cs.map(spotCheckHtml).join("") + "</details>" : esc(t.name)) + "</td><td>" + cs.length + "</td><td><b>" + (cs.length ? spotFmt(spotAvg(cs)) + "%" : "—") + "</b></td><td>" + (cs[0] ? spotFmt(spotScore(cs[0].score)) + "% · " + esc(spotDate(cs[0].created_at)) : "—") + "</td></tr>";
       }).join("") + "</tbody></table></div><p class=\"hint\">Open a trainee to see each spot check, edit it, and read their reply. There's no fixed number of spot checks per trainee.</p>";
     host.innerHTML = head + form + body;
   }

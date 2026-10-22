@@ -5017,6 +5017,7 @@
     // Inactive, resigned and terminated trainees go to the bottom, keeping their order otherwise.
     return list.map(function(t, i){ return { t: t, i: i }; }).sort(function(a, b){ return (spotOut(a.t) - spotOut(b.t)) || (a.i - b.i); }).map(function(x){ return x.t; });
   }
+  function spotName(t){ return esc(t.name) + (spotOut(t) ? " <span class=\"spot-flag\">(Inactive)</span>" : ""); }
   function spotOut(t){ var m = t.trainee_status; return (t.cohort_status === "inactive" || (m && m.mode === "manual" && (m.value === "resigned" || m.value === "terminated"))) ? 1 : 0; }
   // Every spot check of the trainees in view, by trainee then oldest first.
   function spotCohortRows(list){
@@ -5070,7 +5071,7 @@
     var form = "";
     if (spot.form){
       var editing = !!spot.editId;
-      var traineeOpts = "<option value=\"\">Pick a trainee…</option>" + list.concat(editing ? state.trainees.filter(function(t){ return t.id === spot.trainee && list.indexOf(t) === -1; }) : []).map(function(t){ return "<option value=\"" + esc(t.id) + "\"" + (t.id === spot.trainee ? " selected" : "") + ">" + esc(t.name) + "</option>"; }).join("");
+      var traineeOpts = "<option value=\"\">Pick a trainee…</option>" + list.concat(editing ? state.trainees.filter(function(t){ return t.id === spot.trainee && list.indexOf(t) === -1; }) : []).map(function(t){ return "<option value=\"" + esc(t.id) + "\"" + (t.id === spot.trainee ? " selected" : "") + ">" + esc(t.name) + (spotOut(t) ? " (Inactive)" : "") + "</option>"; }).join("");
       var d = spot.draft;
       form = "<div class=\"card spot-form\"><h3 class=\"card-title\">" + (editing ? "Edit spot check" : "New spot check") + "</h3>" +
         "<div class=\"field\"><label for=\"spotTrainee\">Trainee</label><select id=\"spotTrainee\"" + (editing ? " disabled" : "") + ">" + traineeOpts + "</select></div>" +
@@ -5092,13 +5093,13 @@
         (rows.length ? "<div class=\"speed-wrap\"><table class=\"preview full-text spot-table\"><thead><tr><th>Trainee</th><th>Date</th><th>Category</th><th>Score</th><th>Ticket</th><th>Comms</th><th>Resolution</th><th>Trainee reply</th><th></th></tr></thead><tbody>" +
           rows.map(function(r){
             var c = r.c;
-            return "<tr><td>" + esc(r.t.name) + "</td><td>" + esc(spotDate(c.created_at)) + (c.edited_at ? " <small class=\"muted\">edited</small>" : "") + "</td><td>" + spotCatLabel(c) + "</td><td><b>" + spotFmt(spotScore(c.score)) + "%</b></td><td>" + spotLink(c.ticket) + "</td><td>" + esc(c.comms) + "</td><td>" + esc(c.resolution) + "</td><td>" + (c.reply ? esc(c.reply).replace(/\n/g, "<br>") : "<span class=\"muted\">" + (c.slack_sent_at ? "No reply yet" : "Not sent") + "</span>") + "</td><td><button class=\"link-btn\" type=\"button\" data-spot-edit=\"" + esc(c.id) + "\">Edit</button></td></tr>";
+            return "<tr" + (spotOut(r.t) ? " class=\"is-inactive\"" : "") + "><td>" + spotName(r.t) + "</td><td>" + esc(spotDate(c.created_at)) + (c.edited_at ? " <small class=\"muted\">edited</small>" : "") + "</td><td>" + spotCatLabel(c) + "</td><td><b>" + spotFmt(spotScore(c.score)) + "%</b></td><td>" + spotLink(c.ticket) + "</td><td>" + esc(c.comms) + "</td><td>" + esc(c.resolution) + "</td><td>" + (c.reply ? esc(c.reply).replace(/\n/g, "<br>") : "<span class=\"muted\">" + (c.slack_sent_at ? "No reply yet" : "Not sent") + "</span>") + "</td><td><button class=\"link-btn\" type=\"button\" data-spot-edit=\"" + esc(c.id) + "\">Edit</button></td></tr>";
           }).join("") + "</tbody></table></div>" : "<p class=\"hint\">No spot checks recorded for this cohort yet.</p>");
     }
     else body = "<div class=\"speed-wrap\"><table class=\"preview full-text spot-table spot-by\"><thead><tr><th>Trainee</th><th>Spot checks</th><th>Average score</th><th>Latest</th></tr></thead><tbody>" +
       list.map(function(t){
         var cs = spotFor(t.id).filter(spotInView);
-        return "<tr" + (spotOut(t) ? " class=\"is-inactive\"" : "") + "><td>" + (cs.length ? "<details data-spot-open=\"" + esc(t.id) + "\"" + (spot.open[t.id] ? " open" : "") + "><summary><b>" + esc(t.name) + "</b></summary>" + spotAnalysisHtml(t.id, cs.length) + cs.map(spotCheckHtml).join("") + "</details>" : esc(t.name)) + "</td><td>" + cs.length + "</td><td><b>" + (cs.length ? spotFmt(spotAvg(cs)) + "%" : "—") + "</b></td><td>" + (cs[0] ? spotFmt(spotScore(cs[0].score)) + "% · " + esc(spotDate(cs[0].created_at)) : "—") + "</td></tr>";
+        return "<tr" + (spotOut(t) ? " class=\"is-inactive\"" : "") + "><td>" + (cs.length ? "<details data-spot-open=\"" + esc(t.id) + "\"" + (spot.open[t.id] ? " open" : "") + "><summary><b>" + spotName(t) + "</b></summary>" + spotAnalysisHtml(t.id, cs.length) + cs.map(spotCheckHtml).join("") + "</details>" : spotName(t)) + "</td><td>" + cs.length + "</td><td><b>" + (cs.length ? spotFmt(spotAvg(cs)) + "%" : "—") + "</b></td><td>" + (cs[0] ? spotFmt(spotScore(cs[0].score)) + "% · " + esc(spotDate(cs[0].created_at)) : "—") + "</td></tr>";
       }).join("") + "</tbody></table></div><p class=\"hint\">Open a trainee to see each spot check, edit it, and read their reply. There's no fixed number of spot checks per trainee.</p>";
     host.innerHTML = head + form + body;
   }

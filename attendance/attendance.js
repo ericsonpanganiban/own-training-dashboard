@@ -367,6 +367,7 @@
     ].join("\n");
 
   // One trainee's day from their out/back events: what they're doing now and the minutes used so far.
+  const OVER_SHOW_MIN = 1;
   function breakState(events, now = Date.now()) {
     const used = { break: 0, lunch: 0 };
     const open = { break: null, lunch: null };
@@ -395,7 +396,8 @@
     ["break", "lunch"].forEach((k) => open[k] != null && log.push({ k, from: open[k], to: null }));
     log.sort((a, b) => a.from - b.from);
     const total = { break: used.break + live.break, lunch: used.lunch + live.lunch };
-    const over = { break: total.break > BREAK_ALLOW_MIN, lunch: total.lunch > LUNCH_ALLOW_MIN };
+    // Flagged as over only when more than a minute past the allowance.
+    const over = { break: total.break - BREAK_ALLOW_MIN > OVER_SHOW_MIN, lunch: total.lunch - LUNCH_ALLOW_MIN > OVER_SHOW_MIN };
     const now_ = open.lunch != null ? "lunch" : open.break != null ? "break" : null;
     return { used, open, total, over, missing, live, now: now_, any: (events || []).length > 0, log };
   }

@@ -32,7 +32,8 @@
   const causeLabel = (k) => (CAUSES.find((c) => c[0] === k) || [k, k])[1];
   const causesOf = (f) => String(f.root || "").split(",").filter(Boolean);
   const rootLine = (f) => (causesOf(f).length ? `Area of concern: ${causesOf(f).map(causeLabel).join("; ")}.` : "");
-  const standingBlock = (f, head) => (String(f.standing || "").trim() ? [head, String(f.standing).trim(), ""] : []);
+  const bulletLines = (txt) => String(txt || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => (/^[-•*]\s/.test(l) ? "- " + l.replace(/^[-•*]\s+/, "") : "- " + l));
+  const standingBlock = (f, head) => (String(f.standing || "").trim() ? [head, ...bulletLines(f.standing), ""] : []);
   const ROOT_FIELDS = [
     { key: "root", label: "Root cause", kind: "causes", hint: "Tick what the notice is about. The record below is pulled for these." },
     { key: "standing", label: "Record and standing", kind: "standing" },
@@ -94,20 +95,17 @@
     },
     nod: {
       name: "Notice of Decision",
-      blurb: "Tells the person the findings and the decision after their explanation was reviewed.",
+      blurb: "Tells the person the outcome of the review of their training: the factors considered and the decision.",
       fields: [
-        { key: "nte_date", label: "Date of the Notice to Explain", kind: "date" },
-        { key: "subject", label: "Subject / short title of the case", kind: "text" },
-        { key: "incident", label: "Summary of the charge", kind: "area", polish: true },
         ...ROOT_FIELDS,
-        { key: "explanation", label: "Explanation (summary)", kind: "area", polish: true, hint: "Write \"No explanation was submitted\" if none was." },
-        { key: "findings", label: "Findings", kind: "area", polish: true, hint: "What the evidence and the explanation established." },
+        { key: "findings", label: "Evaluation details", kind: "area", polish: true, hint: "The detail behind the factors, for example what the QA audits, spot checks and coaching showed. Written to them." },
+        { key: "coaching", label: "Coaching and timeframe statement", kind: "area", def: "While coaching, guidance, and feedback were provided throughout training, the expected level of improvement was not achieved within the allotted timeframe." },
         { key: "path", label: "Decision", kind: "select", options: [PATH_FINAL, PATH_REMOVE], def: PATH_FINAL, rerender: true },
         { key: "goals", label: "Goals to achieve", kind: "goals", showIf: isFinal, hint: "One per line, specific and measurable. Use the button to start from the class goals and where they stand now." },
         { key: "deadline", label: "Goals must be met by", kind: "date", showIf: isFinal },
         { key: "review", label: "Progress review on", kind: "date", showIf: isFinal },
         { key: "support", label: "Support you will give (optional)", kind: "area", showIf: isFinal, hint: "e.g. daily check-in, a coaching session, shadowing" },
-        { key: "effective", label: "Removal effective", kind: "date", showIf: (f) => !isFinal(f) },
+        { key: "effective", label: "Removal effective (optional)", kind: "date", showIf: (f) => !isFinal(f) },
         { key: "next_steps", label: "Next steps (optional)", kind: "area", showIf: (f) => !isFinal(f), hint: "e.g. access ends, what to return, final pay arrangements" },
       ],
       build: (f, c) =>
@@ -116,26 +114,19 @@
           "",
           `Date: ${longDate(f.date)}`,
           `To: ${c.employee}${f.position ? `, ${f.position}` : ""}${c.cohort ? ` (${c.cohort})` : ""}`,
-          `From: ${f.issuer}${f.issuer_role ? `, ${f.issuer_role}` : ""}`,
-          `Subject: ${f.subject ? `Decision: ${f.subject}` : "Notice of Decision"}`,
           "",
-          `Dear ${c.first},`,
+          "This is a formal Notice of Decision regarding your standing in the training.",
           "",
-          `This refers to the Notice to Explain dated ${longDate(f.nte_date) || "[date]"} regarding the following:`,
+          "This letter is to formally communicate the outcome of the review of your training progress. Your performance during the training period was evaluated based on attendance, Quality Assurance results, productivity expectations, and overall adherence to training guidelines. During the review, the following factors were considered:",
           "",
-          f.incident || "[Summary of the charge.]",
-          "",
-          ...(rootLine(f) ? [rootLine(f), ""] : []),
-          ...standingBlock(f, "Your record on file:"),
-          "Your explanation:",
-          f.explanation || "[Summary of the explanation.]",
-          "",
-          "Findings:",
-          f.findings || "[What the evidence and the explanation established.]",
+          ...(String(f.standing || "").trim() ? [...bulletLines(f.standing), ""] : ["[Gather the record and standing above, or list the factors considered.]", ""]),
+          ...(String(f.findings || "").trim() ? [String(f.findings).trim(), ""] : []),
+          ...(String(f.coaching || "").trim() ? [String(f.coaching).trim(), ""] : []),
+          "Decision:",
           "",
           ...(isFinal(f)
             ? [
-                "Decision: Final warning, with a final chance to continue in training.",
+                "This is a final warning, with a final chance to continue in training.",
                 "",
                 `Continuing in training depends on meeting the following goals${f.deadline ? ` by ${longDate(f.deadline)}` : ""}:`,
                 ...(String(f.goals || "").trim()
@@ -145,25 +136,17 @@
                 ...(f.review ? [`Your progress will be reviewed on ${longDate(f.review)}.`, ""] : []),
                 ...(String(f.support || "").trim() ? ["Support:", String(f.support).trim(), ""] : []),
                 `If these goals are not met${f.deadline ? ` by ${longDate(f.deadline)}` : ""}, or if there is any further violation, you may be removed from training.`,
-                "",
               ]
             : [
-                "Decision:",
                 "With all these in consideration, we are ending your contractor agreement with Homeaglow. This decision was made in accordance with company training standards and based on documented observations and performance results. Still, we wish you the best in your future endeavors.",
                 ...(f.effective ? ["", `Effective date: ${longDate(f.effective)}.`] : []),
-                "",
-                ...(String(f.next_steps || "").trim() ? ["Next steps:", String(f.next_steps).trim(), ""] : []),
+                ...(String(f.next_steps || "").trim() ? ["", "Next steps:", String(f.next_steps).trim()] : []),
               ]),
-          "Please acknowledge receipt of this notice by signing below.",
           "",
           "",
-          `${line(f.issuer)}`,
-          `${f.issuer_role || "Issued by"}`,
-          "",
-          "",
-          "Received by: ____________________________",
-          "Signature over printed name",
-          "Date and time received: ____________________",
+          "Regards,",
+          f.issuer || "[Your name]",
+          f.issuer_role || "",
         ].join("\n"),
     },
     delib: {
@@ -331,7 +314,7 @@
     }
     if (fd.kind === "standing") {
       return `<div class="hrd-f"><span>${esc(fd.label)} <button type="button" class="linkish" data-hrd-gather${busy.gather ? " disabled" : ""}>${busy.gather ? "Gathering…" : "Gather from dashboard data"}</button></span>
-        <textarea id="${id}" data-hrd-f="${fd.key}" rows="6" placeholder="Pick the root cause and name above, then Gather. Claude writes this from the data pulled from across the dashboard. Edit it as you like.">${esc(v)}</textarea>
+        <textarea id="${id}" data-hrd-f="${fd.key}" rows="6" placeholder="Pick the root cause and name above, then Gather. Claude writes one line per area (Attendance, Weekly QA, Quizzes, Spot checks, Speed) from the data across the dashboard. Edit it as you like.">${esc(v)}</textarea>
         ${cur.facts ? `<details class="hrd-facts"><summary>Data it was written from</summary><pre>${esc(cur.facts)}</pre></details>` : `<small class="muted">Uses the attendance, break and lunch, QA, Speed, Quiz, Spot Check, notes and coaching records for this name.</small>`}</div>`;
     }
     let input;
@@ -598,11 +581,13 @@
       let text = "";
       const sample = await window.TrainerUse("sample").catch(() => null);
       if (sample) {
-        const prompt = `You are helping an HR coordinator write the "record and standing" section of a formal notice for ${ctx().employee}. The root cause(s) of the notice: ${causes.map(causeLabel).join("; ")}.${causes.includes("other") && cur.fields.incident ? ` Other context: ${cur.fields.incident}` : ""}\n\nWrite a short analysis of this person's standing as ONE plain paragraph addressed directly to them in the second person ("you", "your"), because it will be read by them inside the notice, never about them in the third person and never to the coordinator. Do not use their name or start with a status label. Do not mention the dashboard, any projection, "projected to pass or fail", or internal status labels; describe only the actual figures and records. Begin with the concern itself (for example your attendance or your QA results). Length: 3 to 5 sentences, under 100 words, no bullets, no headings, no lists of every number. Interpret the data: say what the pattern is, whether it is improving or getting worse, and how it relates to the selected root cause(s), then add any other standing that matters (such as goals met or missed overall). Mention only the key figures that support the point (a few numbers, weeks or dates), not every record. Use plain, concise, easy-to-understand wording. Where there is no data, say "no record on file" once rather than guessing. Stick to what the data shows: no conclusions about guilt, no motives, no penalties, no advice, and never invent anything.\n\nDATA:\n${cur.facts}`;
+        const extra = [causes.includes("breaks") ? "Break and lunch" : "", causes.includes("conduct") ? "Conduct" : ""].filter(Boolean);
+        const prompt = `You are helping an HR coordinator write the factors considered in a formal notice to ${ctx().employee}. The root cause(s) of the notice: ${causes.map(causeLabel).join("; ")}.${causes.includes("other") && cur.fields.incident ? ` Other context: ${cur.fields.incident}` : ""}\n\nWrite one bullet per area, each on its own line in exactly this format: "- Label: analysis". Use only these labels, in this order: Attendance; Weekly QA; Quizzes; Spot checks; Speed${extra.length ? "; " + extra.join("; ") : ""}. Each bullet is 1 or 2 sentences of analysis, not a list of records: give the key figure against the goal where there is one, then the pattern (for example late arrivals on certain days, or whether it continued or improved) and nothing else. Address the person in the second person where you describe what they did ("You had..."), never in the third person and never to the coordinator. Do not use their name. Do not mention the dashboard, any projection or internal status labels. Where the data has nothing, write "no record on file" for that area. Give the selected root cause(s) the most detail. Stick to what the data shows: no conclusions about guilt, no motives, no penalties, no advice, never invent anything. Output only the bullets.\n\nDATA:\n${cur.facts}`;
         const out = await sample(prompt, { modelTier: "complex", cache: false });
         text = String((out && out.text) || "").trim();
       }
-      cur.fields.standing = text || cur.facts.split("\n").filter((l) => l.startsWith("•")).join("\n");
+      const AREAS = [["attendance", "Attendance"], ["qa", "Weekly QA"], ["quiz", "Quizzes"], ["spot", "Spot checks"], ["speed", "Speed"], ...(causes.includes("breaks") ? [["breaks", "Break and lunch"]] : []), ...(causes.includes("conduct") ? [["conduct", "Conduct"]] : [])];
+      cur.fields.standing = text ? bulletLines(text).join("\n") : AREAS.map(([k, l]) => `- ${l}: ${facts[k].join(" ")}`).join("\n");
       if (!cur.edited) rebuild();
       msg = text ? "Record added. Check the numbers against the data underneath before you issue it." : "Claude wasn't available, so the raw record was added. Edit it as you like.";
     } catch (e) {

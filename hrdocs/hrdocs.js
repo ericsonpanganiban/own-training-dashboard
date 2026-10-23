@@ -1,5 +1,5 @@
 // HR Docs: fill in a form, get a formal document (Notice to Explain, Notice of Decision, Deliberation Document, or a
-// blank one), edit the wording, save it on this workspace, copy it or download it as a Word file.
+// blank one), edit the wording, save it on this workspace, copy it or export it to Google Docs.
 // Documents live in hr_docs/ of the viewer's workspace (through TrainerUse, so the usual Trainer / read-only rules apply).
 (function () {
   "use strict";
@@ -78,7 +78,6 @@
         { key: "decision", label: "Decision", kind: "select", options: DECISIONS, def: "Written warning" },
         { key: "detail", label: "Penalty details (optional)", kind: "text", hint: "e.g. 3 working days without pay, Oct 28-30" },
         { key: "effective", label: "Effective date", kind: "date" },
-        { key: "appeal_days", label: "Appeal within (days)", kind: "text", def: "5" },
       ],
       build: (f, c) =>
         [
@@ -104,8 +103,6 @@
           `Decision: ${f.decision || "[Decision]"}${f.detail ? `. ${f.detail}` : ""}.`,
           "",
           ...(f.effective ? [`This decision is effective ${longDate(f.effective)}.`, ""] : []),
-          `If you disagree with this decision, you may submit a written appeal within ${f.appeal_days || "5"} days from receipt of this notice.`,
-          "",
           "Please acknowledge receipt of this notice by signing below.",
           "",
           "",
@@ -189,6 +186,7 @@
   let view = "list"; // list | edit
   let cur = null; // the document being edited: { id, type, employee_id, fields, text, edited, status, created_at }
   let msg = "";
+  let msgUrl = "";
   let busy = {};
   let filter = "all";
   let pendingDel = ""; // two clicks to delete (confirm dialogs are blocked in the page)
@@ -246,7 +244,7 @@
   function listHtml() {
     const shown = docs.filter((d) => filter === "all" || d.type === filter).sort((a, b) => String(b.updated_at || b.created_at).localeCompare(String(a.updated_at || a.created_at)));
     return `
-      <p class="hrd-sub">Create a document from a template, edit the wording, then copy it or download it as a Word file. These are general drafts: have HR or legal review them before they are issued.</p>
+      <p class="hrd-sub">Create a document from a template, edit the wording, then copy it or export it to Google Docs. These are general drafts: have HR or legal review them before they are issued.</p>
       <div class="hrd-new">${ORDER.map((k) => `<button type="button" class="hrd-card" data-hrd-new="${k}"><b>${esc(TEMPLATES[k].name)}</b><small>${esc(TEMPLATES[k].blurb)}</small></button>`).join("")}</div>
       <div class="hrd-head"><h4>Saved documents</h4>
         <select data-hrd-filter aria-label="Filter by type"><option value="all">All types</option>${ORDER.map((k) => `<option value="${k}"${filter === k ? " selected" : ""}>${esc(TEMPLATES[k].name)}</option>`).join("")}</select></div>
@@ -297,11 +295,11 @@
       <div class="hrd-head"><h4>Document</h4><span class="hrd-acts"><button type="button" class="btn" data-hrd-rebuild title="Rewrite the document from the fields above (discards manual edits)">Rebuild from fields</button></span></div>
       <textarea class="hrd-text" data-hrd-text rows="22" spellcheck="true">${esc(cur.text)}</textarea>
       <p class="hrd-note" data-hrd-note>${cur.edited ? "You edited the document by hand: changing the fields above no longer rewrites it. Use Rebuild from fields to start over." : "The document updates as you fill in the fields. Edit it directly to fine-tune the wording."}</p>
-      ${msg ? `<p class="hrd-msg" role="status">${esc(msg)}</p>` : ""}
+      ${msg ? `<p class="hrd-msg" role="status">${esc(msg)}${msgUrl ? ` <a href="${esc(msgUrl)}" target="_blank" rel="noopener noreferrer">Open in Google Docs</a>` : ""}</p>` : ""}
       <div class="hrd-bar">
         <button type="button" class="btn btn-primary" data-hrd-save${busy.save ? " disabled" : ""}>${busy.save ? "Saving…" : cur.id ? "Save changes" : "Save draft"}</button>
         <button type="button" class="btn" data-hrd-copy>Copy</button>
-        <button type="button" class="btn" data-hrd-download>Download (.doc)</button>
+        <button type="button" class="btn" data-hrd-export${busy.export ? " disabled" : ""}>${busy.export ? "Exporting…" : "Export to Google Docs"}</button>
         ${cur.id && cur.status !== "issued" ? `<button type="button" class="btn" data-hrd-issue title="Mark as given to the employee">Mark as issued</button>` : ""}
         ${cur.id && cur.status === "issued" ? `<button type="button" class="btn" data-hrd-unissue>Back to draft</button>` : ""}
         ${follow.map((k) => `<button type="button" class="btn" data-hrd-next="${k}">Start ${esc(TEMPLATES[k].name)} from this</button>`).join("")}
@@ -315,6 +313,7 @@
   }
   const say = (m) => {
     msg = m;
+    msgUrl = "";
     paint();
   };
 
@@ -368,17 +367,26 @@
     const rest = lines.slice(1).join("\n");
     return `<html><head><meta charset="utf-8"><title>${esc(title)}</title></head><body style="font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.4"><h2 style="text-align:center;margin-bottom:18pt">${esc(title)}</h2><div style="white-space:pre-wrap">${esc(rest)}</div></body></html>`;
   }
-  async function download() {
-    const dl = await window.TrainerUse("downloads").catch(() => null);
-    const emp = ctx().employee.replace(/[^\w]+/g, "-").replace(/^-|-$/g, "") || "employee";
-    const name = `${TEMPLATES[cur.type].name.replace(/\s+/g, "-")}-${emp}-${cur.fields.date || today()}.doc`;
-    if (!dl || !dl.save) return say("Downloading isn't available in this view. Use Copy instead.");
+  async function exportDoc() {
+    const mcp = await window.TrainerUse("mcp").catch(() => null);
+    if (!mcp) return say("Google Drive isn't available in this view. Use Copy instead.");
+    busy.export = true;
+    msg = "Exporting to Google Docs…";
+    msgUrl = "";
+    paint();
+    const title = `${TEMPLATES[cur.type].name} — ${ctx().employee} — ${cur.fields.date || today()}`;
     try {
-      await dl.save({ filename: name, data: htmlDoc() });
-      say("Downloaded ✓");
+      const r = await mcp.callTool("Google Drive", "create_file", { title, textContent: htmlDoc(), contentMimeType: "text/html" });
+      const p = (r && r.payload) || {};
+      const url = p.viewUrl || (p.id ? `https://docs.google.com/document/d/${p.id}/edit` : "");
+      if (!url) throw new Error("no link");
+      msg = "Exported to Google Docs ✓";
+      msgUrl = url;
     } catch (e) {
-      say("Couldn't download. Use Copy instead.");
+      msg = e && e.code === "not_granted" ? "Google Drive isn't allowed from this page. Allow it from the Permissions menu." : "Couldn't export to Google Docs. Use Copy instead.";
     }
+    delete busy.export;
+    paint();
   }
   function copy() {
     const ok = () => say("Copied. Paste it into a document.");
@@ -443,7 +451,7 @@
       paint();
     } else if ("hrdSave" in d) save();
     else if ("hrdCopy" in d) copy();
-    else if ("hrdDownload" in d) download();
+    else if ("hrdExport" in d) exportDoc();
     else if ("hrdIssue" in d) setStatus("issued");
     else if ("hrdUnissue" in d) setStatus("draft");
     else if (d.hrdNext) {

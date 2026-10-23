@@ -29,6 +29,11 @@
     ["conduct", "Conduct and behavior"],
     ["other", "Other"],
   ];
+  // "NH 10/5/2026" -> "10/5/2026 Cohort"; a name without a date is used as it is.
+  const cohortTitle = (name) => {
+    const m = /\d{1,2}\/\d{1,2}\/\d{2,4}/.exec(name || "");
+    return m ? `${m[0]} Cohort` : name ? `${name} cohort` : "[Cohort] cohort";
+  };
   const causeLabel = (k) => (CAUSES.find((c) => c[0] === k) || [k, k])[1];
   const causesOf = (f) => String(f.root || "").split(",").filter(Boolean);
   const rootLine = (f) => (causesOf(f).length ? `Area of concern: ${causesOf(f).map(causeLabel).join("; ")}.` : "");
@@ -107,6 +112,7 @@
         { key: "deadline", label: "Goals must be met by", kind: "date", showIf: isFinal },
         { key: "review", label: "Progress review on", kind: "date", showIf: isFinal },
         { key: "support", label: "Support you will give (optional)", kind: "area", showIf: isFinal, hint: "e.g. daily check-in, a coaching session, shadowing" },
+        { key: "reason", label: "Why you are removing them (written to them)", kind: "reason", showIf: (f) => !isFinal(f), hint: "e.g. You have missed a significant portion of the training program, and the conflicting explanations for your absence mean we cannot confirm your readiness or commitment to continue." },
         { key: "effective", label: "Removal effective", kind: "date", showIf: (f) => !isFinal(f) },
         { key: "next_steps", label: "Next steps (optional)", kind: "area", showIf: (f) => !isFinal(f), hint: "e.g. access ends, what to return, final pay arrangements" },
       ],
@@ -148,7 +154,8 @@
                 "",
               ]
             : [
-                `Decision: Removal from training${f.effective ? `, effective ${longDate(f.effective)}` : ""}.`,
+                "Decision:",
+                `${String(f.reason || "").trim() ? String(f.reason).trim().replace(/\s+/g, " ") + " " : ""}As a result, you are removed from the ${cohortTitle(c.cohort)} and offboarded${f.effective ? `, effective ${longDate(f.effective)}` : ""}.`,
                 "",
                 ...(String(f.next_steps || "").trim() ? ["Next steps:", String(f.next_steps).trim(), ""] : []),
               ]),
@@ -319,6 +326,10 @@
     const v = cur.fields[fd.key] || "";
     const id = `hrd-${fd.key}`;
     const hint = fd.hint ? `<small class="muted">${esc(fd.hint)}</small>` : "";
+    if (fd.kind === "reason") {
+      return `<div class="hrd-f"><span>${esc(fd.label)} <button type="button" class="linkish" data-hrd-draftreason${busy.reason ? " disabled" : ""}>${busy.reason ? "Drafting…" : "Draft with Claude"}</button></span>
+        <textarea id="${id}" data-hrd-f="${fd.key}" rows="3">${esc(v)}</textarea>${hint}</div>`;
+    }
     if (fd.kind === "goals") {
       return `<div class="hrd-f"><span>${esc(fd.label)} <button type="button" class="linkish" data-hrd-fillgoals${busy.goals ? " disabled" : ""}>${busy.goals ? "Filling…" : "Fill from class goals and standing"}</button></span>
         <textarea id="${id}" data-hrd-f="${fd.key}" rows="5">${esc(v)}</textarea>${hint}</div>`;
@@ -641,6 +652,29 @@
     paint();
   }
 
+  // Claude drafts the reason for removal in the second person, from the case so far.
+  async function draftReason() {
+    const f = cur.fields;
+    if (!String(f.findings || f.incident || "").trim()) return say("Fill in the charge and the findings first, so the reason can be drafted from them.");
+    const sample = await window.TrainerUse("sample").catch(() => null);
+    if (!sample) return say("Claude isn't available in this view.");
+    busy.reason = true;
+    paint();
+    const prompt = `Write the reason part of a removal decision, addressed directly to the person in the second person ("you", "your"). One or two sentences, under 60 words, plain and firm. It states what happened and why we cannot continue, based only on the case below, and it must read naturally when followed by this sentence (do not write that sentence): "As a result, you are removed from the cohort and offboarded, effective [date]." Do not include a date, a penalty, a greeting, the person's name, or anything about a dashboard or projection. Never invent facts. Output only the sentence(s).\n\nEXAMPLE OF THE STYLE: You have missed a significant portion of the training program, and the conflicting explanations for your absence, together with the missed session without notice, mean we cannot confirm your readiness or commitment to continue.\n\nCASE:\nCharge: ${f.incident || ""}\nExplanation: ${f.explanation || ""}\nFindings: ${f.findings || ""}\nRecord: ${f.standing || ""}`;
+    try {
+      const out = await sample(prompt, { cache: false });
+      const t = String((out && out.text) || "").trim();
+      if (!t) throw new Error("empty");
+      f.reason = t;
+      if (!cur.edited) rebuild();
+      msg = "Drafted. Check it before you issue the document.";
+    } catch (e) {
+      msg = e && e.code === "rate_limited" ? "Too many requests. Wait a minute and try again." : "Claude couldn't draft that just now. Try again.";
+    }
+    delete busy.reason;
+    paint();
+  }
+
   // ---- Events ----
   function onClick(e) {
     const b = e.target.closest("button");
@@ -686,6 +720,7 @@
     } else if (d.hrdPolish) polish(d.hrdPolish);
     else if ("hrdGather" in d) gather();
     else if ("hrdFillgoals" in d) fillGoals();
+    else if ("hrdDraftreason" in d) draftReason();
   }
   function onInput(e) {
     const t = e.target;

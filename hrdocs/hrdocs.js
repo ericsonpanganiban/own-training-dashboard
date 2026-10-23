@@ -23,7 +23,7 @@
   const TEMPLATES = {
     nte: {
       name: "Notice to Explain",
-      blurb: "Tells the employee what they are accused of and asks for a written explanation.",
+      blurb: "Tells the person what they are accused of and asks for a written explanation.",
       fields: [
         { key: "incident_date", label: "Date of incident", kind: "date" },
         { key: "subject", label: "Subject / short title of the incident", kind: "text", hint: "e.g. Unauthorized absence on October 15" },
@@ -68,12 +68,12 @@
     },
     nod: {
       name: "Notice of Decision",
-      blurb: "Tells the employee the findings and the decision after their explanation was reviewed.",
+      blurb: "Tells the person the findings and the decision after their explanation was reviewed.",
       fields: [
         { key: "nte_date", label: "Date of the Notice to Explain", kind: "date" },
         { key: "subject", label: "Subject / short title of the case", kind: "text" },
         { key: "incident", label: "Summary of the charge", kind: "area", polish: true },
-        { key: "explanation", label: "Employee's explanation (summary)", kind: "area", polish: true, hint: "Write \"No explanation was submitted\" if none was." },
+        { key: "explanation", label: "Explanation (summary)", kind: "area", polish: true, hint: "Write \"No explanation was submitted\" if none was." },
         { key: "findings", label: "Findings", kind: "area", polish: true, hint: "What the evidence and the explanation established." },
         { key: "decision", label: "Decision", kind: "select", options: DECISIONS, def: "Written warning" },
         { key: "detail", label: "Penalty details (optional)", kind: "text", hint: "e.g. 3 working days without pay, Oct 28-30" },
@@ -95,7 +95,7 @@
           f.incident || "[Summary of the charge.]",
           "",
           "Your explanation:",
-          f.explanation || "[Summary of the employee's explanation.]",
+          f.explanation || "[Summary of the explanation.]",
           "",
           "Findings:",
           f.findings || "[What the evidence and the explanation established.]",
@@ -124,7 +124,7 @@
         { key: "panel", label: "Panel members (one per line)", kind: "area" },
         { key: "charge", label: "Charge or allegation", kind: "area", polish: true },
         { key: "facts", label: "Facts of the case", kind: "area", polish: true },
-        { key: "explanation", label: "Employee's explanation", kind: "area", polish: true },
+        { key: "explanation", label: "Explanation", kind: "area", polish: true },
         { key: "evidence", label: "Evidence reviewed (one per line)", kind: "area" },
         { key: "issues", label: "Issues", kind: "area", hint: "e.g. Was the rule violated? Is the penalty proportionate?" },
         { key: "analysis", label: "Discussion and analysis", kind: "area", polish: true },
@@ -137,7 +137,7 @@
           "DELIBERATION DOCUMENT",
           "",
           `Case: ${f.case_ref || "[Case title]"}`,
-          `Employee: ${c.employee}${f.position ? `, ${f.position}` : ""}${c.cohort ? ` (${c.cohort})` : ""}`,
+          `Name: ${c.employee}${f.position ? `, ${f.position}` : ""}${c.cohort ? ` (${c.cohort})` : ""}`,
           `Date prepared: ${longDate(f.date)}`,
           `Deliberation: ${f.meeting || "[date and place]"}`,
           `Prepared by: ${f.issuer}${f.issuer_role ? `, ${f.issuer_role}` : ""}`,
@@ -151,7 +151,7 @@
           "FACTS OF THE CASE",
           f.facts || "[Facts]",
           "",
-          "EMPLOYEE'S EXPLANATION",
+          "EXPLANATION",
           f.explanation || "[Explanation, or that none was submitted]",
           "",
           "EVIDENCE REVIEWED",
@@ -198,8 +198,8 @@
   };
   const ctx = () => {
     const t = trainees().find((x) => x.id === cur.employee_id);
-    const name = t ? t.name : cur.fields.employee_name || "[Employee name]";
-    return { employee: name, first: String(name).split(/\s+/)[0] || "Employee", cohort: (cohortOf(cur.employee_id) || {}).name || "" };
+    const name = t ? t.name : cur.fields.employee_name || "[Name]";
+    return { employee: name, first: String(name).split(/\s+/)[0] || "there", cohort: (cohortOf(cur.employee_id) || {}).name || "" };
   };
   const rebuild = () => {
     cur.text = TEMPLATES[cur.type].build(cur.fields, ctx());
@@ -253,7 +253,7 @@
         shown.length
           ? shown
               .map(
-                (d) => `<div class="hrd-row"><div class="hrd-main"><b>${esc(TEMPLATES[d.type]?.name || d.type)}</b> · ${esc(d.employee_name || "No employee")}
+                (d) => `<div class="hrd-row"><div class="hrd-main"><b>${esc(TEMPLATES[d.type]?.name || d.type)}</b> · ${esc(d.employee_name || "No name")}
                 <small>${esc(d.status === "issued" ? `Issued ${shortDate(d.issued_at)}` : "Draft")} · updated ${esc(shortDate(d.updated_at || d.created_at))}</small></div>
                 <span class="chip ${d.status === "issued" ? "hrd-issued" : ""}">${d.status === "issued" ? "Issued" : "Draft"}</span>
                 <span class="hrd-acts"><button type="button" class="btn" data-hrd-open="${esc(d.id)}">Open</button><button type="button" class="btn${pendingDel === d.id ? " hrd-danger" : ""}" data-hrd-del="${esc(d.id)}">${pendingDel === d.id ? "Click again to delete" : "Delete"}</button></span></div>`
@@ -285,7 +285,7 @@
       <div class="hrd-head"><h4>${esc(T.name)}${cur.status === "issued" ? ` <span class="chip hrd-issued">Issued</span>` : ""}</h4>
         <button type="button" class="btn" data-hrd-back>← All documents</button></div>
       <div class="hrd-grid">
-        <label class="hrd-f"><span>Employee</span><select data-hrd-emp><option value="">Pick an employee…</option>${emps.map((t) => `<option value="${esc(t.id)}"${t.id === cur.employee_id ? " selected" : ""}>${esc(t.name)}${inactive(t) ? " (Inactive)" : ""}</option>`).join("")}</select></label>
+        <label class="hrd-f"><span>Name</span><select data-hrd-emp><option value="">Pick a name…</option>${emps.map((t) => `<option value="${esc(t.id)}"${t.id === cur.employee_id ? " selected" : ""}>${esc(t.name)}${inactive(t) ? " (Inactive)" : ""}</option>`).join("")}</select></label>
         <label class="hrd-f"><span>Position</span><input type="text" data-hrd-f="position" value="${esc(cur.fields.position)}" placeholder="e.g. Customer Care Trainee"></label>
         <label class="hrd-f"><span>Date of notice</span><input type="date" data-hrd-f="date" value="${esc(cur.fields.date)}"></label>
         <label class="hrd-f"><span>Issued by</span><input type="text" data-hrd-f="issuer" value="${esc(cur.fields.issuer)}"></label>
@@ -300,7 +300,7 @@
         <button type="button" class="btn btn-primary" data-hrd-save${busy.save ? " disabled" : ""}>${busy.save ? "Saving…" : cur.id ? "Save changes" : "Save draft"}</button>
         <button type="button" class="btn" data-hrd-copy>Copy</button>
         <button type="button" class="btn" data-hrd-export${busy.export ? " disabled" : ""}>${busy.export ? "Exporting…" : "Export to Google Docs"}</button>
-        ${cur.id && cur.status !== "issued" ? `<button type="button" class="btn" data-hrd-issue title="Mark as given to the employee">Mark as issued</button>` : ""}
+        ${cur.id && cur.status !== "issued" ? `<button type="button" class="btn" data-hrd-issue title="Mark as given to them">Mark as issued</button>` : ""}
         ${cur.id && cur.status === "issued" ? `<button type="button" class="btn" data-hrd-unissue>Back to draft</button>` : ""}
         ${follow.map((k) => `<button type="button" class="btn" data-hrd-next="${k}">Start ${esc(TEMPLATES[k].name)} from this</button>`).join("")}
       </div>`;

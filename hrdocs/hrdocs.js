@@ -39,6 +39,9 @@
   ];
 
   // ---- Templates. A field is { key, label, kind: text|date|area|select, options?, polish?, hint?, def? } ----
+  const PATH_FINAL = "Final warning with goals";
+  const PATH_REMOVE = "Removal from training";
+  const isFinal = (f) => f.path !== PATH_REMOVE;
   const DECISIONS = ["Dismissed: no violation found", "Verbal reminder", "Written warning", "Final written warning", "Suspension", "Termination for just cause", "Other (see details)"];
   const TEMPLATES = {
     nte: {
@@ -99,9 +102,13 @@
         ...ROOT_FIELDS,
         { key: "explanation", label: "Explanation (summary)", kind: "area", polish: true, hint: "Write \"No explanation was submitted\" if none was." },
         { key: "findings", label: "Findings", kind: "area", polish: true, hint: "What the evidence and the explanation established." },
-        { key: "decision", label: "Decision", kind: "select", options: DECISIONS, def: "Written warning" },
-        { key: "detail", label: "Penalty details (optional)", kind: "text", hint: "e.g. 3 working days without pay, Oct 28-30" },
-        { key: "effective", label: "Effective date", kind: "date" },
+        { key: "path", label: "Decision", kind: "select", options: [PATH_FINAL, PATH_REMOVE], def: PATH_FINAL, rerender: true },
+        { key: "goals", label: "Goals to achieve", kind: "goals", showIf: isFinal, hint: "One per line, specific and measurable. Use the button to start from the class goals and where they stand now." },
+        { key: "deadline", label: "Goals must be met by", kind: "date", showIf: isFinal },
+        { key: "review", label: "Progress review on", kind: "date", showIf: isFinal },
+        { key: "support", label: "Support you will give (optional)", kind: "area", showIf: isFinal, hint: "e.g. daily check-in, a coaching session, shadowing" },
+        { key: "effective", label: "Removal effective", kind: "date", showIf: (f) => !isFinal(f) },
+        { key: "next_steps", label: "Next steps (optional)", kind: "area", showIf: (f) => !isFinal(f), hint: "e.g. access ends, what to return, final pay arrangements" },
       ],
       build: (f, c) =>
         [
@@ -126,9 +133,25 @@
           "Findings:",
           f.findings || "[What the evidence and the explanation established.]",
           "",
-          `Decision: ${f.decision || "[Decision]"}${f.detail ? `. ${f.detail}` : ""}.`,
-          "",
-          ...(f.effective ? [`This decision is effective ${longDate(f.effective)}.`, ""] : []),
+          ...(isFinal(f)
+            ? [
+                "Decision: Final warning, with a final chance to continue in training.",
+                "",
+                `Continuing in training depends on meeting the following goals${f.deadline ? ` by ${longDate(f.deadline)}` : ""}:`,
+                ...(String(f.goals || "").trim()
+                  ? String(f.goals).trim().split(/\r?\n/).filter(Boolean).map((x, i) => `${i + 1}. ${x.replace(/^\s*(\d+[.)]|[-•*])\s*/, "")}`)
+                  : ["[List the specific goals.]"]),
+                "",
+                ...(f.review ? [`Your progress will be reviewed on ${longDate(f.review)}.`, ""] : []),
+                ...(String(f.support || "").trim() ? ["Support:", String(f.support).trim(), ""] : []),
+                `If these goals are not met${f.deadline ? ` by ${longDate(f.deadline)}` : ""}, or if there is any further violation, you may be removed from training.`,
+                "",
+              ]
+            : [
+                `Decision: Removal from training${f.effective ? `, effective ${longDate(f.effective)}` : ""}.`,
+                "",
+                ...(String(f.next_steps || "").trim() ? ["Next steps:", String(f.next_steps).trim(), ""] : []),
+              ]),
           "Please acknowledge receipt of this notice by signing below.",
           "",
           "",
@@ -254,6 +277,7 @@
       if (from.type === "delib" && type === "nod") {
         base.incident = from.fields.charge || "";
         base.findings = from.fields.analysis || "";
+        base.path = /terminat|removal/i.test(from.fields.decision || "") ? PATH_REMOVE : PATH_FINAL;
       }
     }
     cur = { id: "", type, employee_id: from ? from.employee_id : "", facts: from ? from.facts || "" : "", fields: base, text: "", edited: false, status: "draft", created_at: "" };
@@ -295,6 +319,10 @@
     const v = cur.fields[fd.key] || "";
     const id = `hrd-${fd.key}`;
     const hint = fd.hint ? `<small class="muted">${esc(fd.hint)}</small>` : "";
+    if (fd.kind === "goals") {
+      return `<div class="hrd-f"><span>${esc(fd.label)} <button type="button" class="linkish" data-hrd-fillgoals${busy.goals ? " disabled" : ""}>${busy.goals ? "Filling…" : "Fill from class goals and standing"}</button></span>
+        <textarea id="${id}" data-hrd-f="${fd.key}" rows="5">${esc(v)}</textarea>${hint}</div>`;
+    }
     if (fd.kind === "causes") {
       const on = causesOf(cur.fields);
       return `<div class="hrd-f"><span>${esc(fd.label)}</span><div class="hrd-causes">${CAUSES.map(([k, l]) => `<label class="hrd-cause"><input type="checkbox" data-hrd-cause="${k}"${on.includes(k) ? " checked" : ""}> ${esc(l)}</label>`).join("")}</div>${hint}</div>`;
@@ -328,7 +356,7 @@
         <label class="hrd-f"><span>Issued by</span><input type="text" data-hrd-f="issuer" value="${esc(cur.fields.issuer)}"></label>
         <label class="hrd-f"><span>Role</span><input type="text" data-hrd-f="issuer_role" value="${esc(cur.fields.issuer_role)}"></label>
       </div>
-      <div class="hrd-fields">${T.fields.map(fieldHtml).join("")}</div>
+      <div class="hrd-fields">${T.fields.filter((fd) => !fd.showIf || fd.showIf(cur.fields)).map(fieldHtml).join("")}</div>
       <div class="hrd-head"><h4>Document</h4><span class="hrd-acts"><button type="button" class="btn" data-hrd-rebuild title="Rewrite the document from the fields above (discards manual edits)">Rebuild from fields</button></span></div>
       <textarea class="hrd-text" data-hrd-text rows="22" spellcheck="true">${esc(cur.text)}</textarea>
       <p class="hrd-note" data-hrd-note>${cur.edited ? "You edited the document by hand: changing the fields above no longer rewrites it. Use Rebuild from fields to start over." : "The document updates as you fill in the fields. Edit it directly to fine-tune the wording."}</p>
@@ -583,6 +611,37 @@
     paint();
   }
 
+  // Starts the goals list from the class goals and where this person stands now (quiz is left out: nesting has no quizzes).
+  async function fillGoals() {
+    if (!cur.employee_id) return say("Pick the name first, so their standing can be used.");
+    const t = trainees().find((x) => x.id === cur.employee_id);
+    const cohort = cohortOf(cur.employee_id);
+    if (!t || !cohort) return say("This name isn't in a class, so there are no class goals to start from.");
+    busy.goals = true;
+    paint();
+    const g = cohort.team_goals || {};
+    let checks = [];
+    try { checks = typeof evaluateTrainee === "function" ? evaluateTrainee(cohort, t, null).checks : []; } catch (e) {}
+    const cur_ = (k) => checks.find((c) => c.key === k);
+    const rows = [
+      ["qa", "QA score", "at least", "%"],
+      ["speed", "Speed", "at most", " minutes per ticket"],
+      ["attendance", "Attendance points", "at most", " pts"],
+      ["spot", "Spot check average", "at least", "%"],
+    ];
+    const lines = rows
+      .filter(([k]) => g[k] !== "" && g[k] != null && !isNaN(Number(g[k])))
+      .map(([k, label, dir, unit]) => {
+        const c = cur_(k);
+        return `${label}: ${dir} ${fmtNum(Number(g[k]))}${unit}${c ? ` (currently ${fmtNum(c.value)}${unit}${c.met ? ", already met: keep it there" : ""})` : " (no data yet)"}`;
+      });
+    cur.fields.goals = lines.length ? lines.join("\n") : "";
+    if (!cur.edited) rebuild();
+    msg = lines.length ? "Goals filled from the class goals. Change or add to them as needed." : "This class has no goals set yet. Write the goals in by hand.";
+    delete busy.goals;
+    paint();
+  }
+
   // ---- Events ----
   function onClick(e) {
     const b = e.target.closest("button");
@@ -627,6 +686,7 @@
       paint();
     } else if (d.hrdPolish) polish(d.hrdPolish);
     else if ("hrdGather" in d) gather();
+    else if ("hrdFillgoals" in d) fillGoals();
   }
   function onInput(e) {
     const t = e.target;
@@ -668,7 +728,11 @@
         const ta = root.querySelector("[data-hrd-text]");
         if (ta) ta.value = cur.text;
       }
-    } else if (t.matches("select[data-hrd-f]")) onInput(e);
+    } else if (t.matches("select[data-hrd-f]")) {
+      onInput(e);
+      const fd = (TEMPLATES[cur.type].fields || []).find((x) => x.key === t.dataset.hrdF);
+      if (fd && fd.rerender) paint();
+    }
   }
 
   APPS.hrdocs = {

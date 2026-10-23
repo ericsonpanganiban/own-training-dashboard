@@ -1,0 +1,27 @@
+.hrd { padding: 4px 2px 12px; }
+.hrd-sub { margin: 0 0 12px; font-size: 12.5px; color: var(--muted); }
+.hrd-new { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.hrd-card { text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card, transparent); color: inherit; cursor: pointer; font: inherit; }
+.hrd-card:hover { border-color: #b45309; box-shadow: 0 4px 14px rgba(180, 83, 9, .14); }
+.hrd-card b { font-size: 14px; }
+.hrd-card small { font-size: 12px; color: var(--muted); line-height: 1.35; }
+.hrd-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 6px 0 8px; }
+.hrd-head h4 { margin: 0; font-size: 14px; }
+.hrd-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; }
+.hrd-main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.hrd-main small { display: block; font-size: 12px; color: var(--muted); }
+.hrd-acts { display: flex; gap: 6px; }
+.hrd-empty { padding: 16px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 10px; }
+.hrd-msg { margin: 6px 0; font-size: 12.5px; color: var(--muted); }
+.hrd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.hrd-fields { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 8px; }
+.hrd-f { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.hrd-f > span { font-weight: 600; }
+.hrd-f input, .hrd-f select, .hrd-f textarea, .hrd-text { padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--card, transparent); color: inherit; font: inherit; font-weight: 400; width: 100%; box-sizing: border-box; }
+.hrd-f textarea { resize: vertical; }
+.hrd-f :focus-visible, .hrd-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.hrd-text { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12.5px; line-height: 1.5; resize: vertical; white-space: pre-wrap; }
+.hrd-note { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
+.hrd-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.chip.hrd-issued { background: var(--success-bg); color: var(--success-ink); }
+.hrd-danger { background: #dc2626; color: #fff; border-color: #dc2626; }

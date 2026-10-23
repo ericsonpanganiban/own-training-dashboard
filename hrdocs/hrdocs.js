@@ -18,6 +18,26 @@
   const inactive = (t) => (typeof isInactive === "function" ? isInactive(t) : t.cohort_status === "inactive");
   const line = (s, n = 36) => (s ? s : "_".repeat(n));
 
+  // Root causes the notice can be about, and the record pulled from the dashboard for each.
+  const CAUSES = [
+    ["attendance", "Attendance and reliability"],
+    ["breaks", "Break and lunch overage"],
+    ["qa", "QA quality"],
+    ["speed", "Speed and productivity"],
+    ["quiz", "Quiz and knowledge"],
+    ["spot", "Spot check results"],
+    ["conduct", "Conduct and behavior"],
+    ["other", "Other"],
+  ];
+  const causeLabel = (k) => (CAUSES.find((c) => c[0] === k) || [k, k])[1];
+  const causesOf = (f) => String(f.root || "").split(",").filter(Boolean);
+  const rootLine = (f) => (causesOf(f).length ? `Area of concern: ${causesOf(f).map(causeLabel).join("; ")}.` : "");
+  const standingBlock = (f, head) => (String(f.standing || "").trim() ? [head, String(f.standing).trim(), ""] : []);
+  const ROOT_FIELDS = [
+    { key: "root", label: "Root cause", kind: "causes", hint: "Tick what the notice is about. The record below is pulled for these." },
+    { key: "standing", label: "Record and standing", kind: "standing" },
+  ];
+
   // ---- Templates. A field is { key, label, kind: text|date|area|select, options?, polish?, hint?, def? } ----
   const DECISIONS = ["Dismissed: no violation found", "Verbal reminder", "Written warning", "Final written warning", "Suspension", "Termination for just cause", "Other (see details)"];
   const TEMPLATES = {
@@ -29,6 +49,7 @@
         { key: "subject", label: "Subject / short title of the incident", kind: "text", hint: "e.g. Unauthorized absence on October 15" },
         { key: "incident", label: "What happened", kind: "area", polish: true, hint: "State the facts: who, what, when, where. No opinions." },
         { key: "policy", label: "Policy or rule violated", kind: "text", hint: "e.g. Code of Conduct, Section 4.2 (Attendance)" },
+        ...ROOT_FIELDS,
         { key: "reply_within", label: "Reply within", kind: "select", options: ["24 hours", "48 hours", "72 hours", "5 calendar days"], def: "48 hours" },
         { key: "hearing", label: "Administrative hearing (optional)", kind: "text", hint: "Date, time and place or link, if any" },
       ],
@@ -49,6 +70,8 @@
           "",
           f.policy ? `This conduct may constitute a violation of: ${f.policy}.` : "This conduct may constitute a violation of company policy.",
           "",
+          ...(rootLine(f) ? [rootLine(f), ""] : []),
+          ...standingBlock(f, "Your record on file at the time of this notice:"),
           `In line with due process, you are directed to submit a written explanation of why no disciplinary action should be taken against you. Your written explanation must be submitted within ${f.reply_within || "48 hours"} from your receipt of this notice.`,
           "",
           ...(f.hearing ? [`An administrative hearing is set for ${f.hearing}. You may bring any document or witness that supports your explanation.`, ""] : []),
@@ -73,6 +96,7 @@
         { key: "nte_date", label: "Date of the Notice to Explain", kind: "date" },
         { key: "subject", label: "Subject / short title of the case", kind: "text" },
         { key: "incident", label: "Summary of the charge", kind: "area", polish: true },
+        ...ROOT_FIELDS,
         { key: "explanation", label: "Explanation (summary)", kind: "area", polish: true, hint: "Write \"No explanation was submitted\" if none was." },
         { key: "findings", label: "Findings", kind: "area", polish: true, hint: "What the evidence and the explanation established." },
         { key: "decision", label: "Decision", kind: "select", options: DECISIONS, def: "Written warning" },
@@ -94,6 +118,8 @@
           "",
           f.incident || "[Summary of the charge.]",
           "",
+          ...(rootLine(f) ? [rootLine(f), ""] : []),
+          ...standingBlock(f, "Your record on file:"),
           "Your explanation:",
           f.explanation || "[Summary of the explanation.]",
           "",
@@ -124,6 +150,7 @@
         { key: "panel", label: "Panel members (one per line)", kind: "area" },
         { key: "charge", label: "Charge or allegation", kind: "area", polish: true },
         { key: "facts", label: "Facts of the case", kind: "area", polish: true },
+        ...ROOT_FIELDS,
         { key: "explanation", label: "Explanation", kind: "area", polish: true },
         { key: "evidence", label: "Evidence reviewed (one per line)", kind: "area" },
         { key: "issues", label: "Issues", kind: "area", hint: "e.g. Was the rule violated? Is the penalty proportionate?" },
@@ -151,6 +178,7 @@
           "FACTS OF THE CASE",
           f.facts || "[Facts]",
           "",
+          ...(rootLine(f) || String(f.standing || "").trim() ? ["RECORD AND STANDING", ...(rootLine(f) ? [rootLine(f)] : []), String(f.standing || "").trim(), ""] : []),
           "EXPLANATION",
           f.explanation || "[Explanation, or that none was submitted]",
           "",
@@ -213,7 +241,7 @@
     T.fields.forEach((fd) => (base[fd.key] = fd.def || ""));
     if (from) {
       // Carry over what the two documents share.
-      const keep = ["position", "issuer", "issuer_role", "subject", "incident", "explanation", "decision", "detail", "policy", "case_ref"];
+      const keep = ["position", "issuer", "issuer_role", "subject", "incident", "explanation", "decision", "detail", "policy", "case_ref", "root", "standing"];
       keep.forEach((k) => {
         if (from.fields[k] && (k in base)) base[k] = from.fields[k];
       });
@@ -228,7 +256,7 @@
         base.findings = from.fields.analysis || "";
       }
     }
-    cur = { id: "", type, employee_id: from ? from.employee_id : "", fields: base, text: "", edited: false, status: "draft", created_at: "" };
+    cur = { id: "", type, employee_id: from ? from.employee_id : "", facts: from ? from.facts || "" : "", fields: base, text: "", edited: false, status: "draft", created_at: "" };
     rebuild();
     view = "edit";
     msg = "";
@@ -267,6 +295,15 @@
     const v = cur.fields[fd.key] || "";
     const id = `hrd-${fd.key}`;
     const hint = fd.hint ? `<small class="muted">${esc(fd.hint)}</small>` : "";
+    if (fd.kind === "causes") {
+      const on = causesOf(cur.fields);
+      return `<div class="hrd-f"><span>${esc(fd.label)}</span><div class="hrd-causes">${CAUSES.map(([k, l]) => `<label class="hrd-cause"><input type="checkbox" data-hrd-cause="${k}"${on.includes(k) ? " checked" : ""}> ${esc(l)}</label>`).join("")}</div>${hint}</div>`;
+    }
+    if (fd.kind === "standing") {
+      return `<div class="hrd-f"><span>${esc(fd.label)} <button type="button" class="linkish" data-hrd-gather${busy.gather ? " disabled" : ""}>${busy.gather ? "Gathering…" : "Gather from dashboard data"}</button></span>
+        <textarea id="${id}" data-hrd-f="${fd.key}" rows="6" placeholder="Pick the root cause and name above, then Gather. Claude writes this from the data pulled from across the dashboard. Edit it as you like.">${esc(v)}</textarea>
+        ${cur.facts ? `<details class="hrd-facts"><summary>Data it was written from</summary><pre>${esc(cur.facts)}</pre></details>` : `<small class="muted">Uses the attendance, break and lunch, QA, Speed, Quiz, Spot Check, notes and coaching records for this name.</small>`}</div>`;
+    }
     let input;
     if (fd.kind === "area") input = `<textarea id="${id}" data-hrd-f="${fd.key}" rows="4">${esc(v)}</textarea>`;
     else if (fd.kind === "select") input = `<select id="${id}" data-hrd-f="${fd.key}">${fd.options.map((o) => `<option${o === v ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
@@ -333,7 +370,7 @@
   }
   const record = () => {
     const c = ctx();
-    return { type: cur.type, employee_id: cur.employee_id, employee_name: cur.employee_id ? c.employee : cur.fields.employee_name || "", fields: cur.fields, text: cur.text, edited: !!cur.edited, status: cur.status, issued_at: cur.issued_at || "", updated_at: new Date().toISOString() };
+    return { type: cur.type, employee_id: cur.employee_id, employee_name: cur.employee_id ? c.employee : cur.fields.employee_name || "", fields: cur.fields, facts: cur.facts || "", text: cur.text, edited: !!cur.edited, status: cur.status, issued_at: cur.issued_at || "", updated_at: new Date().toISOString() };
   };
   async function save() {
     if (!db) return say("Saving isn't available right now.");
@@ -416,6 +453,136 @@
     paint();
   }
 
+  // ---- The record pulled from across the dashboard ----
+  const notesOnce = (id) =>
+    new Promise((res) => {
+      const cc = window.CoachingCompass;
+      if (!cc || !cc.notes) return res([]);
+      let un = null, done = false;
+      const fin = (v) => {
+        if (done) return;
+        done = true;
+        try { un && un(); } catch (e) {}
+        res(v || []);
+      };
+      try { un = cc.notes.subscribe(id, (list) => fin(list)); } catch (e) { fin([]); }
+      setTimeout(() => fin([]), 2500);
+    });
+  const dshort = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+  const clip = (t, n) => { t = String(t || "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
+  const DAYLBL = { ontime: "on time", late25: ".25 late", late50: ".50 late", late75: ".75 late", late100: "1.00 late", absent: "absent", ncns: "NCNS" };
+  async function factsFor(id) {
+    const cc = window.CoachingCompass;
+    const t = trainees().find((x) => x.id === id);
+    const cohort = cohortOf(id);
+    const out = { overall: [], attendance: [], breaks: [], qa: [], speed: [], quiz: [], spot: [], conduct: [] };
+    if (!t || !cc) return out;
+    const goals = (cohort && cohort.team_goals) || {};
+    // Quiz
+    let qr = null;
+    try { qr = window.TrainerQuiz && window.TrainerQuiz.traineeResults ? await window.TrainerQuiz.traineeResults(id) : null; } catch (e) {}
+    // Overall standing against the cohort's goals
+    try {
+      const ev = typeof evaluateTrainee === "function" && cohort ? evaluateTrainee(cohort, t, qr ? { [id]: { taken: qr.taken, weighted: qr.weighted, avg: qr.avg } } : null) : null;
+      const st = typeof traineeStatusOf === "function" ? traineeStatusOf(t) : null;
+      out.overall.push(`Class: ${cohort ? cohort.name : "none"}${cohort && cohort.training_start_date ? `, started ${cohort.training_start_date}` : ""}. Active in the program: ${inactive(t) ? "no (inactive)" : "yes"}.`);
+      if (st) out.overall.push(`Status on the dashboard: ${typeof statusLabel === "function" ? statusLabel(st.key) : st.key}${st.auto ? " (automatic projection)" : " (set by hand)"}.`);
+      if (ev) {
+        ev.checks.forEach((c) => out.overall.push(`${c.label}: ${fmtNum(c.value)}${c.unit === "%" ? "%" : " " + c.unit} against a goal of ${c.dir === "min" ? "at least" : "at most"} ${fmtNum(c.goal)} (${c.met ? "met" : "not met"}).`));
+        if (ev.skipped.length) out.overall.push(`No data yet for: ${ev.skipped.join(", ")}.`);
+      }
+    } catch (e) {}
+    // Attendance and break/lunch notes
+    if (cohort) {
+      const pts = window.TrainerAttendance && window.TrainerAttendance.points ? window.TrainerAttendance.points(cohort.id, id) : null;
+      const days = (cohort.attendance_days && cohort.attendance_days[id]) || {};
+      const keys = Object.keys(days).filter((k) => days[k]).sort((a, b) => +a - +b);
+      out.attendance.push(`Attendance points: ${pts == null ? "none recorded" : fmtNum(pts)} (0 is best; higher means less reliable)${goals.attendance !== "" && goals.attendance != null ? `; the class goal is at most ${goals.attendance}` : ""}.`);
+      if (keys.length) {
+        const bad = keys.filter((k) => days[k] !== "ontime");
+        out.attendance.push(`Days graded: ${keys.length}; on time: ${keys.length - bad.length}.${bad.length ? ` Not on time: ${bad.map((k) => `Day ${k} (${DAYLBL[days[k]] || days[k]})`).join(", ")}.` : ""}`);
+      }
+      const notes = (cohort.attendance_notes && cohort.attendance_notes[id]) || [];
+      (Array.isArray(notes) ? notes : String(notes).trim() ? [{ text: String(notes), at: "" }] : []).forEach((n) => {
+        const line = `${n.at ? dshort(n.at) + ": " : ""}${clip(n.text, 200)}`;
+        if (String(n.id || "").startsWith("ob-") || /^over(break|lunch)/i.test(n.text || "")) out.breaks.push(line);
+        else out.attendance.push(`Attendance note, ${line}`);
+      });
+    }
+    if (!out.breaks.length) out.breaks.push("No break or lunch overage on record.");
+    // QA
+    try {
+      const perf = cc.traineePerformance(id);
+      const all = perf.weeks.reduce((a, w) => ({ pass: a.pass + w.pass, total: a.total + w.total }), { pass: 0, total: 0 });
+      if (perf.weeks.length) {
+        out.qa.push(`QA overall: ${all.total ? `${Math.round((all.pass / all.total) * 100)}% (${fmtNum(all.pass)} of ${all.total} audits passed)` : "no Pass/Fail scores"}${goals.qa !== "" && goals.qa != null ? `; goal at least ${goals.qa}%` : ""}.`);
+        perf.weeks.forEach((w) => out.qa.push(`Week ${w.week}: ${w.total ? `${Math.round((w.pass / w.total) * 100)}% (${fmtNum(w.pass)} of ${w.total})` : "no scores"}.`));
+      } else out.qa.push("No QA weeks saved for this name yet.");
+    } catch (e) { out.qa.push("QA data unavailable."); }
+    // Speed
+    try {
+      const sp = cc.traineeSpeed(id);
+      if (sp.weeks.length) {
+        out.speed.push(`Speed (minutes per ticket, lower is faster)${sp.goal ? `; team goal ${fmtNum(sp.goal)}` : ""}: ${sp.weeks.map((w) => `Week ${w.week} ${w.value == null ? "none" : fmtNum(w.value)}`).join(", ")}.`);
+      } else out.speed.push("No Speed data pulled for this name yet.");
+    } catch (e) { out.speed.push("Speed data unavailable."); }
+    // Quiz
+    if (qr) {
+      const items = (qr.items || []).filter((x) => x.pct != null).slice(0, 10);
+      out.quiz.push(`Quizzes taken: ${qr.taken}; average ${qr.avg == null ? "n/a" : qr.avg + "%"}; weighted ${qr.weighted == null ? "n/a" : qr.weighted + "%"}.`);
+      items.forEach((x) => out.quiz.push(`${x.title}${x.week ? ` (Week ${x.week})` : ""}: ${x.pct}% (passing ${x.passing}%)${x.status === "No submission (0)" ? ", no submission" : ""}.`));
+      (qr.items || []).filter((x) => x.pct == null && /no submission|no reply/i.test(x.status || "")).slice(0, 5).forEach((x) => out.quiz.push(`${x.title}: ${x.status}.`));
+    } else out.quiz.push("Quiz data unavailable.");
+    // Spot checks (nesting)
+    try {
+      const sc = cc.traineeSpot(id);
+      if (sc.nesting.length) {
+        out.spot.push(`Nesting spot checks: ${sc.nesting.length}; average ${sc.avg == null ? "n/a" : fmtNum(sc.avg) + "%"}.`);
+        sc.nesting.slice(0, 6).forEach((x) => out.spot.push(`${dshort(x.created_at)}: ${x.score}%. Comms: ${clip(x.comms, 160)}; Resolution: ${clip(x.resolution, 160)}. ${x.reply || x.ack_at ? "(acknowledged)" : x.slack_sent_at ? "(no acknowledgement yet)" : ""}`));
+        if (sc.analysis && sc.analysis.summary) out.spot.push(`Analysis: ${clip(sc.analysis.summary, 300)}${(sc.analysis.repeated_mistakes || []).length ? ` Repeated mistakes: ${sc.analysis.repeated_mistakes.map((m) => `${m.mistake} (${m.times}x)`).join("; ")}.` : ""}`);
+      } else out.spot.push("No nesting spot checks on record.");
+    } catch (e) { out.spot.push("Spot check data unavailable."); }
+    // Notes and coaching sent
+    const notes = await notesOnce(id);
+    notes.slice(0, 8).forEach((n) => out.conduct.push(`Note (${n.category || "note"}, ${dshort(n.created_at)}): ${clip(n.text, 220)}`));
+    const sent = t.coaching_sends || [];
+    if (sent.length) out.conduct.push(`Coaching sent on Slack: ${sent.length}; acknowledged: ${sent.filter((x) => x.reply || x.ack_at).length}. ${sent.slice(-4).map((x) => `${x.label} (${dshort(x.sent_at)}, ${x.reply || x.ack_at ? "acknowledged" : "no reply"})`).join("; ")}.`);
+    if (!out.conduct.length) out.conduct.push("No notes or coaching on record.");
+    return out;
+  }
+  const FACT_TITLES = { overall: "OVERALL STANDING", attendance: "ATTENDANCE", breaks: "BREAK AND LUNCH", qa: "QA", speed: "SPEED", quiz: "QUIZ", spot: "SPOT CHECKS", conduct: "NOTES AND COACHING" };
+  const factsText = (facts, causes) => {
+    const first = causes.filter((c) => facts[c]);
+    const keys = ["overall", ...first, ...Object.keys(facts).filter((k) => k !== "overall" && !first.includes(k))];
+    return keys.map((k) => `${FACT_TITLES[k]}${first.includes(k) ? " (selected)" : ""}\n${facts[k].map((l) => "• " + l).join("\n")}`).join("\n\n");
+  };
+  async function gather() {
+    if (!cur.employee_id) return say("Pick the name first, so the record can be pulled.");
+    if (!causesOf(cur.fields).length) return say("Tick at least one root cause first.");
+    busy.gather = true;
+    msg = "";
+    paint();
+    try {
+      const facts = await factsFor(cur.employee_id);
+      const causes = causesOf(cur.fields);
+      cur.facts = factsText(facts, causes);
+      let text = "";
+      const sample = await window.TrainerUse("sample").catch(() => null);
+      if (sample) {
+        const prompt = `You are helping an HR coordinator write the "record and standing" section of a formal notice for ${ctx().employee}. The root cause(s) of the notice: ${causes.map(causeLabel).join("; ")}.${causes.includes("other") && cur.fields.incident ? ` Other context: ${cur.fields.incident}` : ""}\n\nWrite a short factual summary (under 170 words, plain text, no headings, bullets with "•" allowed) of this person's standing, focusing on the selected root cause(s) first and then any other standing that matters (overall goals met or missed). Use specific numbers, weeks and dates from the data. Where the data says there is none, say "no record on file" rather than guessing. State facts only: no conclusions about guilt, no motives, no penalties, no advice, and never invent anything.\n\nDATA:\n${cur.facts}`;
+        const out = await sample(prompt, { modelTier: "complex", cache: false });
+        text = String((out && out.text) || "").trim();
+      }
+      cur.fields.standing = text || cur.facts.split("\n").filter((l) => l.startsWith("•")).join("\n");
+      if (!cur.edited) rebuild();
+      msg = text ? "Record added. Check the numbers against the data underneath before you issue it." : "Claude wasn't available, so the raw record was added. Edit it as you like.";
+    } catch (e) {
+      msg = e && e.code === "rate_limited" ? "Too many requests. Wait a minute and try again." : "Couldn't pull the record just now. Try again.";
+    }
+    delete busy.gather;
+    paint();
+  }
+
   // ---- Events ----
   function onClick(e) {
     const b = e.target.closest("button");
@@ -427,7 +594,7 @@
     } else if (d.hrdOpen) {
       const x = docs.find((y) => y.id === d.hrdOpen);
       if (!x) return;
-      cur = { id: x.id, type: x.type, employee_id: x.employee_id || "", fields: { ...(x.fields || {}) }, text: x.text || "", edited: !!x.edited, status: x.status || "draft", issued_at: x.issued_at || "", created_at: x.created_at };
+      cur = { id: x.id, type: x.type, employee_id: x.employee_id || "", fields: { ...(x.fields || {}) }, facts: x.facts || "", text: x.text || "", edited: !!x.edited, status: x.status || "draft", issued_at: x.issued_at || "", created_at: x.created_at };
       view = "edit";
       msg = "";
       paint();
@@ -459,6 +626,7 @@
       newDoc(d.hrdNext, from);
       paint();
     } else if (d.hrdPolish) polish(d.hrdPolish);
+    else if ("hrdGather" in d) gather();
   }
   function onInput(e) {
     const t = e.target;
@@ -490,6 +658,16 @@
       if (tr && !cur.fields.position) cur.fields.position = "Trainee";
       if (!cur.edited) rebuild();
       paint();
+    } else if (t.matches("[data-hrd-cause]")) {
+      const set = new Set(causesOf(cur.fields));
+      if (t.checked) set.add(t.dataset.hrdCause);
+      else set.delete(t.dataset.hrdCause);
+      cur.fields.root = CAUSES.map((c) => c[0]).filter((k) => set.has(k)).join(",");
+      if (!cur.edited) {
+        rebuild();
+        const ta = root.querySelector("[data-hrd-text]");
+        if (ta) ta.value = cur.text;
+      }
     } else if (t.matches("select[data-hrd-f]")) onInput(e);
   }
 

@@ -1779,6 +1779,7 @@ function cohortRowHtml(c, byId, today, open) {
           <span class="row-actions">
             <button type="button" class="btn btn-small" data-add-trainee="${escapeHtml(c.id)}">+ Add Trainee</button>
             <button type="button" class="btn btn-small" data-team-docs="${escapeHtml(c.id)}">Team Docs</button>
+            <button type="button" class="btn btn-small" data-team-perf="${escapeHtml(c.id)}">Team Performance</button>
             <button type="button" class="btn btn-small${c.completed ? " is-done" : ""}" data-complete-cohort="${escapeHtml(c.id)}" aria-pressed="${!!c.completed}" title="${c.completed ? "Put this class back among the current ones" : "Move this class to Completed"}">${c.completed ? "Reopen" : "Mark completed"}</button>
             <button type="button" class="square-btn kebab" title="Cohort options" aria-label="Options for ${escapeHtml(c.name)}" data-cohort-menu="${escapeHtml(c.id)}">⋮</button>
           </span>
@@ -1811,6 +1812,7 @@ function wireCohortRows(el, onToggle) {
   );
   el.querySelectorAll("[data-add-trainee]").forEach((b) => b.addEventListener("click", () => openAddTrainee(el, b.dataset.addTrainee)));
   el.querySelectorAll("[data-team-docs]").forEach((b) => b.addEventListener("click", () => window.TeamDocs?.open(el, b.dataset.teamDocs)));
+  el.querySelectorAll("[data-team-perf]").forEach((b) => b.addEventListener("click", () => openTeamPerformance(el, b.dataset.teamPerf)));
   el.querySelectorAll("[data-toggle-active]").forEach((btn) =>
     btn.addEventListener("click", () => {
       btn.disabled = true;
@@ -1971,6 +1973,145 @@ async function copyText(text) {
     ta.remove();
     return ok;
   }
+}
+
+// Team Performance: a cohort's nesting Week 1 and Week 2 QA and Speed as a team, and each trainee's scores.
+// Breadcrumbs: Trainer Desk › Cohorts › cohort › Team Performance.
+function openTeamPerformance(content, cohortId) {
+  const win = content.closest(".window");
+  if (win.querySelector(".sheet")) return;
+  const cc = window.CoachingCompass;
+  const appId = win.dataset.app;
+  const sheet = document.createElement("div");
+  sheet.className = "sheet page";
+  sheet.innerHTML = `<div class="sheet-card perf-card" role="region" aria-label="Team Performance"></div>`;
+  win.appendChild(sheet);
+  const card = sheet.querySelector(".sheet-card");
+  const savedCrumbs = crumbState[appId]?.items || [];
+  const num = (v) => String(Math.round(v * 100) / 100);
+  const cohortNow = () => cc.data().cohorts.find((c) => c.id === cohortId);
+  // Week numbers follow the Speed sheet's calendar: any pulled Speed day anchors the numbering (Mon of that week = its number).
+  const FALLBACK_ANCHOR = { week: 560, monday: "2026-09-21" };
+  const weekNumberFor = (isoDay, memberIds) => {
+    let anchor = null;
+    for (const id of memberIds) {
+      const w = cc.traineeSpeed(id).weeks.find((x) => x.days.length && x.days[0].date);
+      if (w && !isNaN(parseFloat(w.week))) {
+        const d = new Date(`${w.days[0].date}T00:00:00`);
+        d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+        anchor = { week: parseFloat(w.week), monday: isoDate(d) };
+        break;
+      }
+    }
+    anchor = anchor || FALLBACK_ANCHOR;
+    const days = Math.round((new Date(`${isoDay}T00:00:00`) - new Date(`${anchor.monday}T00:00:00`)) / 864e5);
+    return anchor.week + Math.floor(days / 7);
+  };
+  const dayLabel = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+  const data = () => {
+    const c = cohortNow();
+    if (!c) return null;
+    const sch = c.training_start_date ? cohortSchedule(c.training_start_date) : null;
+    const byId = new Map(cc.data().trainees.map((t) => [t.id, t]));
+    const members = (c.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
+    const ids = members.map((t) => t.id);
+    const weeks = sch ? [sch.weeks[2], sch.weeks[3]].map((w, i) => ({ label: `Week ${i + 1}`, start: w.start, end: w.end, no: String(weekNumberFor(w.start, ids)) })) : [];
+    const goals = c.team_goals || {};
+    const rows = members.map((t) => {
+      const qa = cc.traineePerformance(t.id).weeks;
+      const sp = cc.traineeSpeed(t.id).weeks;
+      const per = weeks.map((w) => {
+        const q = qa.find((x) => String(x.week) === w.no);
+        const s = sp.find((x) => String(x.week) === w.no);
+        return { pass: q ? q.pass : 0, total: q ? q.total : 0, qa: q && q.total ? (q.pass / q.total) * 100 : null, speed: s && s.value != null ? s.value : null };
+      });
+      const tp = per.reduce((a, x) => a + x.pass, 0), tt = per.reduce((a, x) => a + x.total, 0);
+      const sv = per.map((x) => x.speed).filter((v) => v != null);
+      return { t, out: isInactive(t), per, qaAvg: tt ? (tp / tt) * 100 : null, speedAvg: sv.length ? sv.reduce((a, b) => a + b, 0) / sv.length : null };
+    });
+    rows.sort((a, b) => (a.out - b.out) || String(a.t.name).localeCompare(String(b.t.name)));
+    const team = weeks.map((w, i) => {
+      const withQa = rows.filter((r) => r.per[i].total > 0);
+      const withSp = rows.filter((r) => r.per[i].speed != null);
+      const pass = withQa.reduce((a, r) => a + r.per[i].pass, 0), total = withQa.reduce((a, r) => a + r.per[i].total, 0);
+      return { qa: total ? (pass / total) * 100 : null, audits: total, passed: pass, qaN: withQa.length, speed: withSp.length ? withSp.reduce((a, r) => a + r.per[i].speed, 0) / withSp.length : null, speedN: withSp.length };
+    });
+    const allQa = team.reduce((a, x) => ({ pass: a.pass + x.passed, total: a.total + x.audits }), { pass: 0, total: 0 });
+    const spVals = team.map((x) => x.speed).filter((v) => v != null);
+    return { c, weeks, rows, team, goals, qaAvg: allQa.total ? (allQa.pass / allQa.total) * 100 : null, speedAvg: spVals.length ? spVals.reduce((a, b) => a + b, 0) / spVals.length : null };
+  };
+
+  const qaCls = (v, g) => (v == null || !(Number(g) > 0) ? "" : v >= Number(g) ? "q-ok" : "q-bad");
+  const spCls = (v, g) => (v == null || !(Number(g) > 0) ? "" : v <= Number(g) ? "q-ok" : "q-bad");
+  const qaTxt = (v) => (v == null ? "—" : `${Math.round(v)}%`);
+  const spTxt = (v) => (v == null ? "—" : num(v));
+
+  const draw = () => {
+    const d = data();
+    if (!d) {
+      card.innerHTML = `<div class="perf-title"><h3>Team Performance</h3><button type="button" class="btn" data-cancel>← Back</button></div><p class="muted">This cohort no longer exists.</p>`;
+      return;
+    }
+    const { c, weeks, rows, team } = d;
+    if (!weeks.length) {
+      card.innerHTML = `<div class="perf-title"><h3>Team Performance · ${escapeHtml(c.name)}</h3><button type="button" class="btn" data-cancel>← Back</button></div><p class="muted">Set the cohort's start date so its nesting weeks can be worked out.</p>`;
+      return;
+    }
+    const stat = (value, label, hint, cls = "") => `<div class="stat"><div class="value ${cls}">${value}</div><div class="label">${escapeHtml(label)}</div><div class="hint">${hint}</div></div>`;
+    const qaG = Number(d.goals.qa) > 0 ? Number(d.goals.qa) : null, spG = Number(d.goals.speed) > 0 ? Number(d.goals.speed) : null;
+    const qaStats = weeks.map((w, i) => stat(qaTxt(team[i].qa), `${w.label} QA`, team[i].audits ? `${team[i].passed} of ${team[i].audits} audits passed · ${team[i].qaN} trainee${team[i].qaN === 1 ? "" : "s"}` : `Week ${escapeHtml(w.no)}: no audits saved`, qaCls(team[i].qa, qaG))).join("");
+    const spStats = weeks.map((w, i) => stat(spTxt(team[i].speed), `${w.label} Speed`, team[i].speedN ? `min per ticket · ${team[i].speedN} trainee${team[i].speedN === 1 ? "" : "s"}` : `Week ${escapeHtml(w.no)}: no Speed pulled`, spCls(team[i].speed, spG))).join("");
+    const cell = (txt, cls) => `<td class="${cls}"${cls ? "" : ""}>${cls ? `<b>${txt}</b>` : txt}</td>`;
+    card.innerHTML = `
+      <div class="perf-title"><h3 data-crumb="Team Performance">Team Performance · ${escapeHtml(c.name)}</h3>
+        <span class="sheet-status" data-copy-msg role="status"></span>
+        <button type="button" class="btn" data-copy-view title="Copy the table as rows to paste into a sheet">Copy</button>
+        <button type="button" class="btn" data-cancel>← Back</button></div>
+      <p class="muted perf-meta">Nesting ${weeks.map((w) => `${w.label} · ${escapeHtml(dayLabel(w.start))} to ${escapeHtml(dayLabel(w.end))} (Week ${escapeHtml(w.no)})`).join(" · ")}</p>
+      <div class="perf-head">
+        <p class="perf-group"><b>QA</b>${qaG ? ` <small class="muted">goal at least ${num(qaG)}%</small>` : ""}</p>
+        <div class="perf-summary">${qaStats}${stat(qaTxt(d.qaAvg), "Average QA", "both weeks combined", qaCls(d.qaAvg, qaG))}</div>
+        <p class="perf-group"><b>Speed</b>${spG ? ` <small class="muted">goal at most ${num(spG)} min per ticket</small>` : ""}</p>
+        <div class="perf-summary">${spStats}${stat(spTxt(d.speedAvg), "Average Speed", "of the weekly team speeds", spCls(d.speedAvg, spG))}</div>
+      </div>
+      <div class="perf-detail"><table class="speed-weeks team-perf"><thead><tr><th>Trainee</th>${weeks.map((w) => `<th>${w.label} QA</th>`).join("")}<th>QA avg</th>${weeks.map((w) => `<th>${w.label} Speed</th>`).join("")}<th>Speed avg</th></tr></thead><tbody>${
+        rows.length
+          ? rows
+              .map(
+                (r) => `<tr class="${r.out ? "is-inactive" : ""}"><td>${escapeHtml(r.t.name || "Trainee")}${r.out ? ` <small>(Inactive)</small>` : ""}</td>${r.per.map((x) => cell(qaTxt(x.qa), qaCls(x.qa, qaG))).join("")}${cell(qaTxt(r.qaAvg), qaCls(r.qaAvg, qaG))}${r.per.map((x) => cell(spTxt(x.speed), spCls(x.speed, spG))).join("")}${cell(spTxt(r.speedAvg), spCls(r.speedAvg, spG))}</tr>`
+              )
+              .join("")
+          : `<tr><td colspan="${3 + weeks.length * 2}" class="muted">No trainees in this cohort yet.</td></tr>`
+      }</tbody></table></div>
+      <p class="muted perf-meta">Team QA is audits passed ÷ audits, across every trainee with audits that week. Team Speed is the average of the trainees' minutes per ticket (lower is faster). Colors compare with the cohort's team goals. Inactive trainees are listed last and count in a week only if they have data for it.</p>`;
+    setCrumbs(appId, [...(c ? [{ label: c.name }] : []), { label: "Team Performance" }]);
+  };
+
+  const unsubscribe = cc.onChange(() => sheet.isConnected && draw());
+  const close = () => {
+    unsubscribe();
+    sheet.remove();
+    setCrumbs(appId, savedCrumbs);
+  };
+  card.addEventListener("click", async (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if ("cancel" in b.dataset) return close();
+    if ("copyView" in b.dataset) {
+      const d = data();
+      if (!d) return;
+      const out = [["Trainee", "Status", ...d.weeks.map((w) => `${w.label} QA %`), "QA avg %", ...d.weeks.map((w) => `${w.label} Speed (min/ticket)`), "Speed avg"]];
+      d.rows.forEach((r) => out.push([r.t.name, r.out ? "Inactive" : "Active", ...r.per.map((x) => (x.qa == null ? "" : Math.round(x.qa))), r.qaAvg == null ? "" : Math.round(r.qaAvg), ...r.per.map((x) => (x.speed == null ? "" : num(x.speed))), r.speedAvg == null ? "" : num(r.speedAvg)]));
+      out.push(["Team", "", ...d.team.map((x) => (x.qa == null ? "" : Math.round(x.qa))), d.qaAvg == null ? "" : Math.round(d.qaAvg), ...d.team.map((x) => (x.speed == null ? "" : num(x.speed))), d.speedAvg == null ? "" : num(d.speedAvg)]);
+      const ok = await copyText(toTsv(out));
+      const m = card.querySelector("[data-copy-msg]");
+      if (m) m.textContent = ok ? "Copied. Paste into a sheet." : "Couldn't copy. Your browser blocked it.";
+    }
+  });
+  sheet.addEventListener("keydown", (e) => e.key === "Escape" && close());
+  draw();
+  card.querySelector("[data-cancel]")?.focus();
 }
 
 // Performance: a full page in the window (not a floating dialog), with the trainee's two views:

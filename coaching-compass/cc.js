@@ -3481,7 +3481,7 @@
         entryByTraineeId[t.id] = entry;
         var disabledAttr = entry ? "" : " disabled title=\"No data for this trainee yet\"";
         var chip = entry ? scoreChipHtml(tallyPassRate(weekPick.headers, entry.rawRows)) : "";
-        return "<div class=\"cohort-trainee-row\">" +
+        return "<div class=\"cohort-trainee-row" + (spotOut(t) ? " is-inactive" : "") + "\">" +
           "<span class=\"row\" style=\"gap:8px;\"><button class=\"trainee-name-link\" data-goto=\"individual\" data-trainee=\"" + esc(t.name) + "\" data-week=\"" + esc(weekPick.week) + "\" type=\"button\">" + esc(t.name) + "</button>" + chip + "</span>" +
           "<div class=\"row\" style=\"gap:8px;\">" +
             "<button class=\"ghost small\" data-open-talking=\"" + esc(t.id) + "\" type=\"button\"" + disabledAttr + ">Coaching talking points</button>" +
@@ -3490,7 +3490,7 @@
           "</div>" +
         "</div>";
       }
-      return "<div class=\"cohort-trainee-row\">" +
+      return "<div class=\"cohort-trainee-row" + (spotOut(t) ? " is-inactive" : "") + "\">" +
         "<button class=\"trainee-name-link\" data-goto=\"individual\" data-trainee=\"" + esc(t.name) + "\" type=\"button\">" + esc(t.name) + "</button>" +
         "<button class=\"del-btn\" data-remove-cohort-trainee=\"" + esc(t.id) + "\" title=\"Remove from cohort\" type=\"button\">&times;</button>" +
       "</div>";

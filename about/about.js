@@ -59,6 +59,9 @@
       <li>Viewers must first be given access to the artifact, then added in Settings → Viewers. Everything they see is read-only.</li>
     </ul>
 
+    <h3>Moving to another copy</h3>
+    <p>Menu bar <b>Data</b> exports everything saved here to one file and imports it into another copy of the dashboard.</p>
+
     <h3>Good to know</h3>
     <ul>
       <li>Names that look like links open a floating window with details. Menus with ⋮ hold edit and delete options.</li>

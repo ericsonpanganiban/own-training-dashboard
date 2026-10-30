@@ -1499,6 +1499,91 @@
     return k ? index[k].name : state.selectedTrainee;
   }
 
+  // ---- Individual coaching: all saved weeks combined, and Claude's analysis across them ----
+  var indAnalyses = {}, indBusy = {}, indMsg = {};
+  function indDocId(sel){ return "ind_" + String(sel).replace(/[^A-Za-z0-9_-]+/g, "_"); }
+  // A few of the failed audits' markdown comments for one week, so the analysis sees the detail behind the brief.
+  function weekEvidence(headers, rows){
+    var si = findScoreIndex(headers || []);
+    var ci = (headers || []).map(function(h, i){ return /markdown|comment|note|feedback/i.test(h || "") ? i : -1; }).filter(function(i){ return i !== -1; });
+    var out = [];
+    (rows || []).forEach(function(r){
+      if (out.length >= 8) return;
+      if (si !== -1 && passFailValue(r[si]) !== 0) return;
+      var t = ci.map(function(i){ return clip(r[i], 260); }).filter(function(x){ return x && !/^n\/?a$/i.test(x); }).join(" / ");
+      if (t) out.push(t);
+    });
+    return out;
+  }
+  function combinedWeeks(sel, entry, weeksDesc){
+    return weeksDesc.slice().reverse().map(function(w){
+      var wk = entry.weeks[w], b = wk.brief;
+      return { week: w, tally: traineeTally(sel, wk.headers, wk.rows), brief: b, evidence: weekEvidence(wk.headers, wk.rows) };
+    });
+  }
+  function combinedHtml(sel, entry, weeksDesc){
+    var ws = combinedWeeks(sel, entry, weeksDesc);
+    var pool = ws.reduce(function(a, x){ return { pass: a.pass + (x.tally ? x.tally.pass : 0), total: a.total + (x.tally ? x.tally.total : 0) }; }, { pass: 0, total: 0 });
+    var uniq = function(list){ var seen = {}; return list.filter(function(s){ var k = String(s).toLowerCase(); if (seen[k]) return false; seen[k] = true; return true; }); };
+    var strengths = uniq([].concat.apply([], ws.map(function(x){ return x.brief ? x.brief.strengths : []; })));
+    var rowsHtml = ws.slice().reverse().map(function(x){
+      var issues = x.brief ? x.brief.recurring_issues : [];
+      return "<tr><td><b>Week " + esc(x.week) + "</b></td><td>" + (x.tally && x.tally.total ? "<b>" + pctText(x.tally) + "</b> <small class=\"muted\">" + esc(passDetail(x.tally)) + "</small>" : "—") + "</td><td>" +
+        (issues.length ? "<ul style=\"margin:0;padding-left:18px;\">" + issues.map(function(s){ return "<li>" + esc(s) + "</li>"; }).join("") + "</ul>" : "<span class=\"hint\" style=\"margin:0;\">" + (x.brief ? "No recurring issues in this brief." : "Saved without a coaching brief.") + "</span>") + "</td></tr>";
+    }).join("");
+    var a = indAnalyses[indDocId(sel)];
+    var busy = indBusy[sel];
+    var ana = "<div class=\"spot-analysis\"><div><button class=\"primary small\" type=\"button\" data-ind-analyze=\"" + esc(sel) + "\"" + (busy || !sampleFn ? " disabled" : "") + ">" + (busy ? "Analyzing…" : a ? "Analyze again" : "Analyze all weeks") + "</button> " +
+      (a ? "<small class=\"muted\">Analyzed " + esc(spotDate(a.at)) + " from " + a.count + " week" + (a.count === 1 ? "" : "s") + (a.count !== ws.length ? " · " + ws.length + " saved now, analyze again to update" : "") + "</small>" : "<small class=\"muted\">Claude reads every saved week for " + esc(entry.name) + " and writes the pattern across them.</small>") + "</div>" +
+      (indMsg[sel] ? "<p class=\"hint\" style=\"margin:6px 0;\">" + esc(indMsg[sel]) + "</p>" : "");
+    if (a){
+      var list = function(items, fn){ return items && items.length ? "<ul>" + items.map(fn).join("") + "</ul>" : ""; };
+      var wk = function(x){ return x && x.weeks && x.weeks.length ? " <small class=\"muted\">(week" + (x.weeks.length === 1 ? " " : "s ") + x.weeks.map(esc).join(", ") + ")</small>" : ""; };
+      ana += "<div class=\"summary-callout\"><p class=\"eyebrow\">Analysis</p>" + esc(a.summary || "") + "</div>" +
+        (a.trend ? "<p><b>Trend.</b> " + esc(a.trend) + "</p>" : "") +
+        (a.persistent_issues && a.persistent_issues.length ? "<h4>Keeps coming back</h4>" + list(a.persistent_issues, function(x){ return "<li><b>" + esc(x.issue) + "</b>" + wk(x) + (x.detail ? ": " + esc(x.detail) : "") + "</li>"; }) : "") +
+        (a.improving && a.improving.length ? "<h4>Improving</h4>" + list(a.improving, function(x){ return "<li><b>" + esc(x.issue) + "</b>" + (x.detail ? ": " + esc(x.detail) : "") + "</li>"; }) : "") +
+        (a.new_issues && a.new_issues.length ? "<h4>New lately</h4>" + list(a.new_issues, function(x){ return "<li><b>" + esc(x.issue) + "</b>" + wk(x) + "</li>"; }) : "") +
+        (a.strengths && a.strengths.length ? "<h4>Strengths</h4>" + list(a.strengths, function(x){ return "<li>" + esc(x) + "</li>"; }) : "") +
+        (a.coaching_focus && a.coaching_focus.length ? "<div class=\"focus-line\"><b>Coaching focus &mdash; </b>" + a.coaching_focus.map(esc).join(" &middot; ") + "</div>" : "") +
+        (a.talking_points && a.talking_points.length ? "<h4>Talking points</h4><ul class=\"talk\">" + a.talking_points.map(function(x){ return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" : "");
+    }
+    ana += "</div>";
+    return "<h3>" + esc(entry.name) + "</h3>" +
+      "<div class=\"trainee-meta\">All saved weeks combined &middot; " + ws.length + " week" + (ws.length === 1 ? "" : "s") + (pool.total ? " &middot; <b>Score " + Math.round(pool.pass / pool.total * 100) + "%</b> (" + esc(Math.round(pool.pass * 100) / 100 + " of " + pool.total + " passed") + ")" : "") + "</div>" +
+      "<h4>Recurring issues by week</h4>" +
+      "<div class=\"speed-wrap\"><table class=\"preview full-text\"><thead><tr><th>Week</th><th>Score</th><th>Recurring issues</th></tr></thead><tbody>" + rowsHtml + "</tbody></table></div>" +
+      (strengths.length ? "<div class=\"mini-card good\" style=\"margin-top:14px;\"><h4>Doing well across weeks</h4><ul>" + strengths.map(function(s){ return "<li>" + esc(s) + "</li>"; }).join("") + "</ul></div>" : "") +
+      "<h4 style=\"margin-top:18px;\">Analysis across weeks</h4>" + ana;
+  }
+  function analyzeIndividual(sel){
+    var index = traineeWeekIndex();
+    var entry = index[sel];
+    if (!entry) return;
+    if (!sampleFn){ indMsg[sel] = "Analysis isn't available in this view."; return renderIndividual(); }
+    var weeks = combinedWeeks(sel, entry, sortedWeeks(entry));
+    var data = weeks.map(function(x){
+      var b = x.brief || {};
+      return { week: x.week, audits_passed: x.tally ? x.tally.pass : null, audits_total: x.tally ? x.tally.total : null, strengths: b.strengths || [], recurring_issues: b.recurring_issues || [], suggested_focus: b.suggested_focus || "", talking_points: b.talking_points || [], failed_audit_comments: x.evidence };
+    });
+    var prompt = "You are helping a trainer coach a new-hire support trainee named " + entry.name + ". Below are their saved QA weeks, oldest first: each week's pass rate, the coaching brief (strengths, recurring issues, suggested focus, talking points) and comments from failed audits. Write an analysis across the weeks. Use only this data; never invent issues, numbers or weeks; say \"once\" when something appeared in only one week. Compare weeks: what keeps coming back, what is improving or gone, what is new lately, and whether the score is improving, flat or slipping.\n\nReturn JSON only: {\"summary\": \"3-4 sentences\", \"trend\": \"improving, flat or slipping, with the week-by-week pass rates that show it\", \"persistent_issues\": [{\"issue\": \"short\", \"weeks\": [\"week numbers it appeared in\"], \"detail\": \"what the pattern is\"}], \"improving\": [{\"issue\": \"short\", \"detail\": \"how it improved\"}], \"new_issues\": [{\"issue\": \"short\", \"weeks\": [\"week numbers\"]}], \"strengths\": [\"up to 3\"], \"coaching_focus\": [\"up to 3 concrete things to work on next\"], \"talking_points\": [\"up to 4 things to say in the next 1:1\"]}.\n\nDATA:\n" + JSON.stringify(data).slice(0, 40000);
+    indBusy[sel] = true; indMsg[sel] = ""; renderIndividual();
+    var arr = function(v){ return Array.isArray(v) ? v : []; };
+    sampleFn.json(prompt, { modelTier: "complex", cache: false }).then(function(r){
+      var doc = { count: weeks.length, at: new Date().toISOString(), summary: String((r && r.summary) || ""), trend: String((r && r.trend) || ""),
+        persistent_issues: arr(r && r.persistent_issues).map(function(x){ return { issue: String(x.issue || ""), weeks: arr(x.weeks).map(String), detail: String(x.detail || "") }; }),
+        improving: arr(r && r.improving).map(function(x){ return { issue: String(x.issue || ""), detail: String(x.detail || "") }; }),
+        new_issues: arr(r && r.new_issues).map(function(x){ return { issue: String(x.issue || ""), weeks: arr(x.weeks).map(String) }; }),
+        strengths: arr(r && r.strengths).map(String), coaching_focus: arr(r && r.coaching_focus).map(String), talking_points: arr(r && r.talking_points).map(String) };
+      indAnalyses[indDocId(sel)] = doc;
+      return dbFn ? dbFn.doc("ind_analyses/" + indDocId(sel)).set(doc).catch(function(){}) : null;
+    }).then(function(){ delete indBusy[sel]; renderIndividual(); }, function(e){
+      delete indBusy[sel];
+      indMsg[sel] = (e && e.code === "cancelled") ? "Analysis stopped." : (errorCopy(e && e.code) || "Something went wrong reaching Claude.");
+      renderIndividual();
+    });
+  }
+
   function renderIndividual(){
     var index = traineeWeekIndex();
     var allKeys = Object.keys(index).sort(function(a, b){ return index[a].name.localeCompare(index[b].name); });
@@ -1548,19 +1633,24 @@
     var sel = (want && keys.indexOf(want) !== -1) ? want : keys[0];
     var entry = index[sel];
     var weeks = sortedWeeks(entry);
-    var wk = (state.selectedWeek && entry.weeks[state.selectedWeek]) ? state.selectedWeek : weeks[0];
+    var wk = (state.selectedWeek === "__all" || (state.selectedWeek && entry.weeks[state.selectedWeek])) ? state.selectedWeek : weeks[0];
 
     el.traineePicker.innerHTML = keys.map(function(k){
       return "<button class=\"pill" + (k === sel ? " active" : "") + "\" data-trainee=\"" + esc(k) + "\" type=\"button\">" + esc(index[k].name) + "</button>";
     }).join("");
 
     el.traineeWeekTabs.hidden = false;
-    el.traineeWeekTabs.innerHTML = weeks.map(function(w){
+    el.traineeWeekTabs.innerHTML = "<button class=\"subtab" + (wk === "__all" ? " active" : "") + "\" data-week=\"__all\" type=\"button\">All weeks <span class=\"week-score\">" + weeks.length + "</span></button>" + weeks.map(function(w){
       var t = traineeTally(sel, entry.weeks[w].headers, entry.weeks[w].rows);
       return "<button class=\"subtab" + (w === wk ? " active" : "") + "\" data-week=\"" + esc(w) + "\" type=\"button\">Week " + esc(w) +
         (t && t.total ? " <span class=\"week-score\">" + pctText(t) + "</span>" : "") + "</button>";
     }).join("");
 
+    if (wk === "__all"){
+      el.traineeCard.innerHTML = combinedHtml(sel, entry, weeks);
+      renderBreadcrumb();
+      return;
+    }
     var w = entry.weeks[wk];
     var d = w.doc;
     var meta = "Week " + esc(wk) + (d.mode === "cohort" && d.target_label ? " &middot; " + esc(d.target_label) : d.mode === "trainee" ? " &middot; individual pull" : "");
@@ -4243,6 +4333,10 @@
     state.selectedWeek = null;
     renderIndividual();
   });
+  el.traineeCard.addEventListener("click", function(e){
+    var b = e.target.closest("[data-ind-analyze]");
+    if (b) analyzeIndividual(b.getAttribute("data-ind-analyze"));
+  });
   el.traineeWeekTabs.addEventListener("click", function(e){
     var btn = e.target.closest("[data-week]");
     if (!btn) return;
@@ -4841,6 +4935,12 @@
   function startSpotDb(){
     dbFn.collection("spot_checks").onSnapshot(onChangedSnapshot(function(snap){
       spot.checks = snap.docs.map(function(d){ return Object.assign({ id: d.id }, thawed(d.data())); });
+      renderAll();
+    }), function(){});
+    dbFn.collection("ind_analyses").onSnapshot(onChangedSnapshot(function(snap){
+      var next = {};
+      snap.docs.forEach(function(d){ next[d.id] = thawed(d.data()); });
+      indAnalyses = next;
       renderAll();
     }), function(){});
     dbFn.collection("spot_analyses").onSnapshot(onChangedSnapshot(function(snap){

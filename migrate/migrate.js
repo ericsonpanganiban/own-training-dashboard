@@ -22,6 +22,7 @@
     ["analyses", []],
     ["spot_checks", []],
     ["spot_analyses", []],
+    ["ind_analyses", []],
     ["speed_weeks", []],
     ["settings", []],
     ["quiz_trash", []],

@@ -226,3 +226,5 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Data export and import.** The menu bar has **Data**: **Export all data** saves everything this dashboard holds as one file, and **Import** loads such a file into another copy (for example after moving the artifact to another Claude organization). Training Managers, Viewers and other Trainers' workspaces are not carried over. See `MIGRATION.md` for the full steps.
 
 **Reading Drive downloads.** Drive's download result comes back in different shapes over time (JSON with base64 content, text blocks, or an embedded resource with a blob or text). The page now understands all of them for QA and Speed pulls. If a download comes back in a shape it still can't read, the Speed pull error says what came back, so the shape can be added.
+
+**Spot Check list columns.** In Metrics and Coaching → Spot Check (By trainee) the columns are now Trainee, Average score, Spot checks, Latest.

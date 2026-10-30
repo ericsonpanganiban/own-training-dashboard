@@ -4506,9 +4506,12 @@
     return mcpFn.callTool("Google Drive", "download_file_content", { fileId: fileId, exportMimeType: "text/csv" })
       .then(function(result){
         var text = downloadedText(result);
-        return text ? speedRowsFromCells(parseCSV(text.replace(/^﻿/, "")), week, crms) : null;
+        // No text at all means Drive didn't hand the sheet over inline: that happens when the first tab is large (about 4 MB and up).
+        if (!text) return { tooBig: true };
+        return speedRowsFromCells(parseCSV(text.replace(/^﻿/, "")), week, crms);
       }, function(e){ return Promise.reject({ message: "Google Drive couldn't open that sheet (" + ((e && e.code) || "error") + ")." }); })
       .then(function(got){
+        if (got && got.tooBig) return Promise.reject({ message: "Google Drive didn't return that sheet's data. Its first tab is probably too large to read here (about 4 MB or more). Point Settings → Speed Productivity Sheet at a smaller sheet that only holds recent weeks." });
         if (!got) return Promise.reject({ message: "Couldn't find the CRM_NAME, WEEK_NUM and SPEED columns in the first tab of that sheet." });
         if (!got.rows.length) return Promise.reject({ message: "No rows for week " + week + " matched a trainee in one of your cohorts." });
         var old = speed.weeks[week] ? speed.weeks[week].rows : [];

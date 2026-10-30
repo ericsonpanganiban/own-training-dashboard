@@ -732,14 +732,61 @@
     return new TextDecoder("utf-8").decode(bytes);
   }
 
+  // The text of a downloaded Drive file. The connector has handed it back in several shapes over time: a JSON payload with
+  // base64 `content`, text blocks holding that JSON, or an embedded resource block with a base64 `blob` or plain `text`.
+  var lastDownloadShape = "";
+  function describeDownload(result){
+    try {
+      var bits = [];
+      if (!result || typeof result !== "object") return typeof result;
+      bits.push("keys: " + Object.keys(result).join(","));
+      var p = result.payload;
+      if (p && typeof p === "object") bits.push("payload keys: " + Object.keys(p).join(","));
+      else if (typeof p === "string") bits.push("payload text: " + p.slice(0, 120));
+      if (Array.isArray(result.content)) bits.push("blocks: " + result.content.map(function(x){ return (x && x.type) + (x && x.resource ? "(" + Object.keys(x.resource).join("/") + ")" : "") + (x && typeof x.text === "string" ? ":" + x.text.slice(0, 80) : ""); }).join(" | "));
+      return bits.join("; ").slice(0, 400);
+    } catch (e){ return "unreadable"; }
+  }
+  function textFromBlob(v){
+    if (typeof v !== "string" || !v) return null;
+    try { return base64ToUtf8(v); } catch (e){ return null; }
+  }
   function downloadedText(result){
+    lastDownloadShape = describeDownload(result);
+    var found = null;
+    var fromObj = function(p){
+      if (!p || typeof p !== "object") return null;
+      if (typeof p.content === "string") return textFromBlob(p.content);
+      var keys = ["blob", "base64Content", "data"];
+      for (var i = 0; i < keys.length; i++){ var t = textFromBlob(p[keys[i]]); if (t) return t; }
+      if (typeof p.text === "string" && p.text) return p.text;
+      if (p.resource) return fromObj(p.resource);
+      if (Array.isArray(p.contents)) for (var j = 0; j < p.contents.length && !found; j++) found = fromObj(p.contents[j]);
+      return found;
+    };
     var p = result && result.payload;
-    if (typeof p === "string"){ try { p = JSON.parse(p); } catch (e){ p = null; } }
-    if ((!p || !p.content) && result && Array.isArray(result.content)){
-      var t = result.content.filter(function(b){ return b && b.type === "text"; }).map(function(b){ return b.text; }).join("");
-      try { p = JSON.parse(t); } catch (e){ p = null; }
+    if (typeof p === "string"){ var raw = p; try { p = JSON.parse(p); } catch (e){ p = null; } if (!p && /,/.test(raw) && /\n/.test(raw)) return raw; }
+    found = fromObj(p);
+    if (found) return found;
+    if (result && Array.isArray(result.content)){
+      var texts = [];
+      for (var k = 0; k < result.content.length; k++){
+        var b = result.content[k];
+        if (!b) continue;
+        var f = b.resource ? fromObj(b.resource) : (b.type !== "text" ? fromObj(b) : null);
+        if (f) return f;
+        if (b.type === "text" && typeof b.text === "string") texts.push(b.text);
+      }
+      var t = texts.join("");
+      if (t){
+        var j2 = null;
+        try { j2 = JSON.parse(t); } catch (e){}
+        var g = fromObj(j2);
+        if (g) return g;
+        if (!j2 && /,/.test(t) && /\n/.test(t)) return t;
+      }
     }
-    return p && typeof p.content === "string" ? base64ToUtf8(p.content) : null;
+    return found || fromObj(result);
   }
 
   // Complete source: Drive's CSV export is the first tab only, in full, with real column
@@ -4506,12 +4553,12 @@
     return mcpFn.callTool("Google Drive", "download_file_content", { fileId: fileId, exportMimeType: "text/csv" })
       .then(function(result){
         var text = downloadedText(result);
-        // No text at all means Drive didn't hand the sheet over inline: that happens when the first tab is large (about 4 MB and up).
+        // No text at all: Drive answered in a shape downloadedText doesn't know. The message below says what came back.
         if (!text) return { tooBig: true };
         return speedRowsFromCells(parseCSV(text.replace(/^﻿/, "")), week, crms);
       }, function(e){ return Promise.reject({ message: "Google Drive couldn't open that sheet (" + ((e && e.code) || "error") + ")." }); })
       .then(function(got){
-        if (got && got.tooBig) return Promise.reject({ message: "Google Drive didn't return that sheet's data. Its first tab is probably too large to read here (about 4 MB or more). Point Settings → Speed Productivity Sheet at a smaller sheet that only holds recent weeks." });
+        if (got && got.tooBig) return Promise.reject({ message: "Google Drive didn't return that sheet's data in a form this page can read. What came back: " + lastDownloadShape });
         if (!got) return Promise.reject({ message: "Couldn't find the CRM_NAME, WEEK_NUM and SPEED columns in the first tab of that sheet." });
         if (!got.rows.length) return Promise.reject({ message: "No rows for week " + week + " matched a trainee in one of your cohorts." });
         var old = speed.weeks[week] ? speed.weeks[week].rows : [];

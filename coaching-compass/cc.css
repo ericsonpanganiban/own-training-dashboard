@@ -678,3 +678,4 @@
   :is(.cc-root, .cc-ui) table.speed-report tr.sp-team td{border-top:2px solid var(--line);background:var(--surface-2);}
   :is(.cc-root, .cc-ui) table.speed-report .sp-ok{color:#15803d;}
   :is(.cc-root, .cc-ui) table.speed-report .sp-bad{color:#b91c1c;}
+  :is(.cc-root, .cc-ui) table.speed-report .sp-sub{display:block;font-size:11px;font-weight:400;color:var(--ink-3,var(--muted));}

@@ -671,3 +671,10 @@
 
   :is(.cc-root, .cc-ui) .cohort-trainee-row.is-inactive{opacity:.55;}
   :is(.cc-root, .cc-ui) .cohort-trainee-row.is-inactive .trainee-name-link{color:var(--ink-3,var(--muted,#8a8f98));}
+
+  :is(.cc-root, .cc-ui) table.speed-report th, :is(.cc-root, .cc-ui) table.speed-report td{text-align:right;white-space:nowrap;}
+  :is(.cc-root, .cc-ui) table.speed-report th:first-child, :is(.cc-root, .cc-ui) table.speed-report td:first-child{text-align:left;min-width:220px;}
+  :is(.cc-root, .cc-ui) table.speed-report tr.is-inactive td{opacity:.55;}
+  :is(.cc-root, .cc-ui) table.speed-report tr.sp-team td{border-top:2px solid var(--line);background:var(--surface-2);}
+  :is(.cc-root, .cc-ui) table.speed-report .sp-ok{color:#15803d;}
+  :is(.cc-root, .cc-ui) table.speed-report .sp-bad{color:#b91c1c;}

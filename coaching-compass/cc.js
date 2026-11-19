@@ -4542,7 +4542,7 @@
   // with columns A, E, D, F, K as the fallback. You type the week to pull; only roster trainees are kept, one
   // document per week in speed_weeks/{week}: rows { d: date, c: CRM name, h: hours, v: speed, m: 1 when hours were typed in }.
   var speedHost = null, speedSettingsHost = null;
-  var speed = { url: "", tab_name: "", goal: null, weeks: {}, label: "Speed", busy: false, msg: "", err: false, cohort: "", week: "", pullWeek: "", cohortTouched: false };
+  var speed = { view: "daily", url: "", tab_name: "", goal: null, weeks: {}, label: "Speed", busy: false, msg: "", err: false, cohort: "", week: "", pullWeek: "", cohortTouched: false };
 
   function speedNorm(c){ return String(c == null ? "" : c).trim().toLowerCase().replace(/[_\s]+/g, " "); }
   function speedHeader(cells){
@@ -4756,6 +4756,55 @@
     return { from: speedIso(s), to: speedIso(new Date(s.getFullYear(), s.getMonth(), s.getDate() + 27)) };
   }
   function speedFmtDay(iso){ var d = speedDateOf(iso); return d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""; }
+  // Report view: one read-only table, a row per trainee and a column per pulled week (the cohort's weeks when one is picked).
+  function speedReportData(list, weeksAsc, outNow){
+    var rowsOf = function(t, w){
+      var keys = [(t.crm_name || "").trim().toLowerCase(), (t.name || "").trim().toLowerCase()].filter(Boolean);
+      return (speed.weeks[w] && speed.weeks[w].rows || []).filter(function(r){ return keys.indexOf(String(r.c).toLowerCase()) !== -1; });
+    };
+    var people = list.map(function(t){
+      var per = weeksAsc.map(function(w){ var mine = rowsOf(t, w); return mine.length ? speedTotals(mine) : null; });
+      var all = [].concat.apply([], weeksAsc.map(function(w){ return rowsOf(t, w); }));
+      var tot = all.length ? speedTotals(all) : null;
+      return { t: t, out: !!outNow(t), per: per, tot: tot };
+    });
+    // Rank: fastest average first, among trainees still in training.
+    var ranked = people.filter(function(p){ return !p.out && p.tot && p.tot.value != null; }).sort(function(a, b){ return a.tot.value - b.tot.value; });
+    ranked.forEach(function(p, i){ p.rank = i + 1; });
+    var team = weeksAsc.map(function(w, i){
+      var vs = people.filter(function(p){ return !p.out && p.per[i] && p.per[i].value != null; }).map(function(p){ return p.per[i].value; });
+      return vs.length ? { v: vs.reduce(function(a, b){ return a + b; }, 0) / vs.length, n: vs.length } : null;
+    });
+    var tv = ranked.map(function(p){ return p.tot.value; });
+    var teamAvg = tv.length ? tv.reduce(function(a, b){ return a + b; }, 0) / tv.length : null;
+    return { people: people, team: team, teamAvg: teamAvg, ranked: ranked.length };
+  }
+  function speedReportHtml(list, weeksAsc, cohort, outNow){
+    if (!weeksAsc.length) return "<p class=\"hint\">No pulled weeks to report on yet.</p>";
+    var d = speedReportData(list, weeksAsc, outNow), g = speed.goal;
+    var cls = function(v){ return v == null || !(g > 0) ? "" : v <= g ? "sp-ok" : "sp-bad"; };
+    var cell = function(v){ return "<td class=\"" + cls(v) + "\">" + (v == null ? "—" : "<b>" + speedFmt(v) + "</b>") + "</td>"; };
+    var span = speedFmtDay(speedWeekSpan(weeksAsc[0]) ? speedWeekSpan(weeksAsc[0]).from : "") + " – " + speedFmtDay(speedWeekSpan(weeksAsc[weeksAsc.length - 1]) ? speedWeekSpan(weeksAsc[weeksAsc.length - 1]).to : "");
+    var rows = d.people.map(function(p){
+      var status = !g || !p.tot || p.tot.value == null ? "—" : p.tot.value <= g ? "<span class=\"sp-ok\">Met</span>" : "<span class=\"sp-bad\">Over by " + speedFmt(p.tot.value - g) + "</span>";
+      return "<tr" + (p.out ? " class=\"is-inactive\"" : "") + "><td>" + esc(p.t.name) + (p.out ? " <small>(Inactive)</small>" : "") + "</td>" + p.per.map(function(x){ return cell(x ? x.value : null); }).join("") +
+        cell(p.tot ? p.tot.value : null) + "<td>" + (p.tot ? speedFmt(p.tot.hours) : "—") + "</td><td>" + (p.tot ? speedFmt(p.tot.tickets) : "—") + "</td><td>" + status + "</td><td>" + (p.rank ? "#" + p.rank : "—") + "</td></tr>";
+    }).join("");
+    var teamRow = "<tr class=\"sp-team\"><td><b>Team average</b> <small>(trainees in training)</small></td>" + d.team.map(function(x){ return cell(x ? x.v : null); }).join("") + cell(d.teamAvg) + "<td></td><td></td><td>" + (g && d.teamAvg != null ? (d.teamAvg <= g ? "<span class=\"sp-ok\">Met</span>" : "<span class=\"sp-bad\">Over by " + speedFmt(d.teamAvg - g) + "</span>") : "—") + "</td><td></td></tr>";
+    return "<div class=\"card\"><div class=\"row\" style=\"justify-content:space-between;gap:10px;flex-wrap:wrap;\"><h3 class=\"card-title\" style=\"margin:0;\">Speed report · " + esc(cohort ? cohort.name : "All cohort trainees") + "</h3>" +
+      "<span><span id=\"speedRepMsg\" class=\"save-status\"></span> <button class=\"ghost small\" type=\"button\" id=\"speedRepCopy\" title=\"Copy the table as rows to paste into a sheet\">Copy</button></span></div>" +
+      "<p class=\"hint\" style=\"margin:4px 0 12px;\">" + weeksAsc.length + " week" + (weeksAsc.length === 1 ? "" : "s") + " (" + esc(span) + ")" + (g ? " · goal at most " + speedFmt(g) + " min per ticket" : " · no team goal set") + " · " + d.ranked + " ranked</p>" +
+      "<div class=\"speed-wrap\"><table class=\"preview full-text speed-report\"><thead><tr><th>Trainee</th>" + weeksAsc.map(function(w){ return "<th>Week " + esc(w) + "</th>"; }).join("") + "<th>Average</th><th>Hours</th><th>Tickets</th><th>vs goal</th><th>Rank</th></tr></thead><tbody>" + rows + teamRow + "</tbody></table></div>" +
+      "<p class=\"hint\">Speed is minutes per ticket (hours × 60 ÷ cleared tickets), so lower is faster. Each week column is that week's speed; Average, Hours and Tickets cover all the weeks shown. Rank is fastest first among trainees still in training. Inactive trainees are listed last.</p></div>";
+  }
+  function copySpeedReport(){
+    var host = document.getElementById("speedBody");
+    var t = host && host.querySelector("table.speed-report");
+    if (!t) return;
+    var lines = [].map.call(t.rows, function(r){ return [].map.call(r.cells, function(c){ return c.textContent.replace(/[\t\r\n]+/g, " ").replace(/\s+/g, " ").trim(); }).join("\t"); });
+    copyText(lines.join("\n"), document.getElementById("speedRepMsg"));
+  }
+
   function renderSpeedPanel(force){
     var host = document.getElementById("speedBody");
     if (!host) return;
@@ -4792,6 +4841,7 @@
     }
     var head = "<div class=\"speed-bar\">" +
       "<div class=\"field\"><label for=\"speedCohort\">Cohort</label><select id=\"speedCohort\">" + cohortOpts + "</select></div>" +
+      "<div class=\"spot-views\" role=\"group\" aria-label=\"Speed view\"><button class=\"ghost small" + (speed.view !== "report" ? " on" : "") + "\" type=\"button\" data-speed-view=\"daily\" aria-pressed=\"" + (speed.view !== "report") + "\">Daily entry</button><button class=\"ghost small" + (speed.view === "report" ? " on" : "") + "\" type=\"button\" data-speed-view=\"report\" aria-pressed=\"" + (speed.view === "report") + "\">Report</button></div>" +
       (saved.length ? "<div class=\"field\"><label for=\"speedWeekSel\">Saved week</label><select id=\"speedWeekSel\">" + weekOpts + "</select></div>" : "") +
       "<div class=\"field\"><label for=\"speedGoal\" title=\"Minutes per ticket the team should reach. Lower is faster.\">Team speed goal (min/ticket)</label><input id=\"speedGoal\" type=\"text\" inputmode=\"decimal\" placeholder=\"e.g. 12\" value=\"" + (speed.goal == null ? "" : esc(speedFmt(speed.goal))) + "\" style=\"width:90px\" /></div>" +
       "<div class=\"field\"><label for=\"speedWeekIn\">Pull week</label><input id=\"speedWeekIn\" list=\"speedWeekChoices\" type=\"text\" inputmode=\"numeric\" placeholder=\"e.g. 561\" value=\"" + esc(speed.pullWeek) + "\" style=\"width:100px\" /></div>" +
@@ -4809,6 +4859,7 @@
     else if (!doc && range) body = "<p class=\"hint\">No week pulled yet for " + esc(pickedCohort.name) + "'s training dates (" + esc(speedFmtDay(range.from)) + " – " + esc(speedFmtDay(range.to)) + ")." + (speed.pullWeek ? " Press Pull to load week " + esc(speed.pullWeek) + "." : " Type a week number in Pull week and press Pull.") + "</p>";
     else if (!doc) body = "<p class=\"hint\">Nothing pulled yet. Type a week number and press Pull; it reads the sheet's first tab (“" + esc(speed.tab_name || "Daily raw data") + "”) for the trainees in your cohorts.</p>";
     else if (!list.length) body = "<p class=\"hint\">No cohort trainees here yet.</p>";
+    else if (speed.view === "report") body = speedReportHtml(list, saved.slice().reverse(), pickedCohort, outNow);
     else {
       var dates = {};
       doc.rows.forEach(function(r){ dates[r.d] = true; });
@@ -4884,9 +4935,12 @@
   }
 
   document.addEventListener("click", function(e){
-    var t = e.target.closest && e.target.closest("#speedPullBtn, #speedSaveBtn");
+    var t = e.target.closest && e.target.closest("#speedPullBtn, #speedSaveBtn, #speedRepCopy, [data-speed-view]");
     if (!t) return;
-    if (t.id === "speedSaveBtn") saveSpeedSettings(); else runSpeedPull();
+    if (t.id === "speedSaveBtn") saveSpeedSettings();
+    else if (t.id === "speedRepCopy") copySpeedReport();
+    else if (t.hasAttribute("data-speed-view")){ speed.view = t.getAttribute("data-speed-view") === "report" ? "report" : "daily"; renderSpeedPanel(true); }
+    else runSpeedPull();
   });
   document.addEventListener("keydown", function(e){
     if (e.key === "Enter" && e.target && e.target.id === "speedWeekIn") runSpeedPull();

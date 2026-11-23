@@ -286,26 +286,51 @@
   };
 
   // ---- Sign in for anyone who isn't the owner: work email and code open only their own locked scorecard ----
+  // Remembered in this browser until Sign out, so a refresh doesn't ask again.
+  const KEY = "td_agent_email";
+  const saved = { get() { try { return localStorage.getItem(KEY) || ""; } catch (e) { return ""; } }, set(v) { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY); } catch (e) {} } };
   function gate(el) {
-    const show = () => {
+    let off = null;
+    const show = (msg) => {
       el.innerHTML = `<form class="ag-gate" autocomplete="off"><h2>Your scorecard</h2><p>Enter your work email to see your scorecard.</p>
         <label>Work email<input type="email" id="gEmail" required autocomplete="username" inputmode="email"></label>
-        <button type="submit" class="btn btn-primary" id="gGo">View my scorecard</button><p class="ag-gerr" id="gErr" role="alert"></p></form>`;
+        <button type="submit" class="btn btn-primary" id="gGo">View my scorecard</button><p class="ag-gerr" id="gErr" role="alert">${esc(msg || "")}</p></form>`;
     };
-    show();
-    el.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const err = el.querySelector("#gErr");
-      const want = AgentLock.norm(el.querySelector("#gEmail").value);
+    // Returns an error message, or "" once the scorecard is open; null while the roster is still loading.
+    const open = (email) => {
+      const want = AgentLock.norm(email);
       const { trainees } = roster();
-      if (!trainees.length) { err.textContent = "Still loading. Try again in a moment."; return; }
+      if (!trainees.length) return null;
       const t = trainees.find((x) => AgentLock.norm(x.email || "") === want);
-      if (!t) { err.textContent = "We couldn't find that email. Use the work email your trainer has on file."; return; }
-      if (inactive(t)) { err.textContent = "This profile isn't available."; return; }
+      if (!t) return "We couldn't find that email. Use the work email your trainer has on file.";
+      if (inactive(t)) return "This profile isn't available.";
+      saved.set(want);
       el.innerHTML = `<div class="ag-previewbar"><span>${esc(t.name)}</span><button type="button" class="btn" data-ag-signout>Sign out</button></div><div class="ag-body"></div>`;
       mount(el.querySelector(".ag-body"), t.id);
+      return "";
+    };
+    const remembered = saved.get();
+    if (remembered) {
+      el.innerHTML = `<p class="ag-empty" style="text-align:center;margin-top:12vh">Opening your scorecard…</p>`;
+      const tryOpen = () => {
+        const r = open(remembered);
+        if (r === null) return false; // still loading
+        if (off) { off(); off = null; }
+        if (r) { saved.set(""); show(r); }
+        return true;
+      };
+      if (!tryOpen()) {
+        off = cc() ? cc().onChange(tryOpen) : null;
+        setTimeout(() => { if (off) { off(); off = null; } if (!el.querySelector(".ag-body") && !el.querySelector("#gEmail")) show(); }, 15000);
+      }
+    } else show();
+    el.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const r = open(el.querySelector("#gEmail").value);
+      if (r) el.querySelector("#gErr").textContent = r;
+      else if (r === null) el.querySelector("#gErr").textContent = "Still loading. Try again in a moment.";
     });
-    el.addEventListener("click", (e) => { if (e.target.closest("[data-ag-signout]")) show(); });
+    el.addEventListener("click", (e) => { if (e.target.closest("[data-ag-signout]")) { saved.set(""); show(); } });
   }
 
   // ---- App: My Scorecard (Agent view): the page an agent gets ----

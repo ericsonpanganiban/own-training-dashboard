@@ -33,14 +33,16 @@
     }
     return (trainees.find((x) => !inactive(x)) || {}).id || "";
   };
-  const canSwitch = () => !window.TrainerWS || !window.TrainerWS.isViewer;
+  // Trainer view is for the owner only. Everyone else (Viewers, other seat holders) gets the Agent view.
+  const isOwner = () => !!(window.TrainerWS && window.TrainerWS.isOwner);
+  const canSwitch = () => isOwner();
   window.TrainerView = {
     get mode() { return state.mode; },
     get agentId() { return state.agentId; },
     canSwitch,
     onChange(fn) { subs.add(fn); return () => subs.delete(fn); },
     set(mode, agentId) {
-      const m = mode === "agent" ? "agent" : "trainer";
+      const m = mode === "agent" || !isOwner() ? "agent" : "trainer";
       if (m === "agent") state.agentId = agentId || state.agentId || firstAgent();
       else if (agentId) state.agentId = agentId;
       const changed = m !== state.mode;
@@ -182,7 +184,7 @@
         return `
         <div class="ag-intro">
           <h3>Access and publishing</h3>
-          <p>Agents marked <b>Inactive</b> have no Agent view: they can't be previewed, get no code action, and are left out when you build. Rebuild and republish the agent page after someone becomes inactive to remove their access there.</p><p>Agents don't need a Claude seat. They open one page, enter their <b>work email and their code</b>, and see only their own scorecard. Each agent's data is <b>locked with their email and code</b> inside that page, so nobody can read another agent's scorecard without that agent's code. Codes are made here (10 characters, hard to guess); give each agent theirs privately.</p>
+          <p>Agents marked <b>Inactive</b> have no Agent view: they can't be previewed, get no code action, and are left out when you build. Rebuild and republish the agent page after someone becomes inactive to remove their access there.</p><p><b>Two ways in.</b> Anyone who can open this dashboard but isn't you (Viewers, other seat holders) sees only the Agent view: a sign-in for their work email and code, then their own scorecard. Agents <b>without</b> a Claude seat use the <b>Agent page link</b> below instead: a separate page Claude publishes for you.</p><p>Agents don't need a Claude seat. They open one page, enter their <b>work email and their code</b>, and see only their own scorecard. Each agent's data is <b>locked with their email and code</b> inside that page, so nobody can read another agent's scorecard without that agent's code. Codes are made here (10 characters, hard to guess); give each agent theirs privately.</p>
           <ol class="ag-steps"><li>Make a code for every agent (their work email must be on the roster).</li><li><b>Build agent data</b> below. It locks every scorecard and saves the result.</li><li>Ask Claude to <b>publish the agent page</b>. It puts the locked data on a page agents can open without a seat, and gives you the link. Do this again whenever you want agents to see fresh numbers.</li><li>Paste the link below, then <b>Copy invite</b> or <b>Send on Slack</b> for each agent.</li></ol>
           <div class="ag-bar"><label for="agCohort">Class</label><select id="agCohort"><option value="">All classes</option>${cohorts.map((c) => `<option value="${esc(c.id)}"${c.id === ui.cohort ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
             <label for="agUrl">Agent page link</label><input id="agUrl" type="url" placeholder="https://claude.ai/…" value="${esc(ui.url)}" style="min-width:300px"><button type="button" class="btn" data-ag-saveurl>Save link</button></div>
@@ -273,6 +275,7 @@
           const doc = { v: 1, generated_at: new Date().toISOString(), count: records.length, records };
           try {
             await ui.db.doc("agent_bundle/current").set(doc);
+            await ui.db.doc("agent_public/current").set(doc); // the locked copy anyone signing in inside the dashboard reads
             ui.busy = false;
             say(`Built for ${records.length} agent${records.length === 1 ? "" : "s"}${skipped.length ? `. Skipped (no email or code): ${skipped.slice(0, 6).join(", ")}${skipped.length > 6 ? "…" : ""}` : ""}. Now ask Claude to publish the agent page.`);
           } catch (err) { ui.busy = false; say("Couldn't save the agent data."); }
@@ -296,6 +299,44 @@
     },
   };
 
+  // ---- Sign in for anyone who isn't the owner: work email and code open only their own locked scorecard ----
+  function gate(el) {
+    const show = () => {
+      el.innerHTML = `<form class="ag-gate" autocomplete="off"><h2>Your scorecard</h2><p>Sign in with your work email and the code you were given.</p>
+        <label>Work email<input type="email" id="gEmail" required autocomplete="username" inputmode="email"></label>
+        <label>Code<input type="password" id="gCode" required autocomplete="current-password" spellcheck="false"></label>
+        <button type="submit" class="btn btn-primary" id="gGo">Sign in</button><p class="ag-gerr" id="gErr" role="alert"></p>
+        <p class="ag-gnote">Your scorecard is locked with your email and code. Nobody else can open it.</p></form>`;
+    };
+    show();
+    el.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = el.querySelector("#gErr"), go = el.querySelector("#gGo");
+      const email = el.querySelector("#gEmail").value, code = el.querySelector("#gCode").value;
+      err.textContent = ""; go.disabled = true; go.textContent = "Checking…";
+      let data = null, reachable = true;
+      try {
+        // The locked copy sits at the database root, outside any trainer's own space.
+        const db = await window.claude.use("db");
+        const snap = await db.doc("agent_public/current").get();
+        const bundle = (snap.exists && snap.data()) || null;
+        if (!bundle) reachable = false;
+        else {
+          const id = await AgentLock.recordId(email);
+          const rec = (bundle.records || []).find((x) => x.id === id);
+          if (rec) data = await AgentLock.unlock(rec, email, code);
+        }
+      } catch (x) { data = null; }
+      if (!data) {
+        go.disabled = false; go.textContent = "Sign in";
+        err.textContent = reachable ? "That email and code don't match. Check them and try again." : "Scorecards haven't been published yet. Ask your trainer.";
+        return;
+      }
+      el.innerHTML = `<div class="ag-previewbar"><span>Signed in</span><button type="button" class="btn" data-ag-signout>Sign out</button></div><div class="ag-body">${AgentCard.html(data)}</div>`;
+    });
+    el.addEventListener("click", (e) => { if (e.target.closest("[data-ag-signout]")) show(); });
+  }
+
   // ---- App: My Scorecard (Agent view): the page an agent gets ----
   APPS.agentcard = {
     title: "My Scorecard",
@@ -303,6 +344,7 @@
     color: "#0d9488",
     render(el) {
       el.classList.add("ag-app");
+      if (!isOwner()) return gate(el);
       const draw = (first) => {
         if (!first && !el.isConnected) return;
         const id = state.agentId;
@@ -363,6 +405,10 @@
     if (first && APPS[first]) openApp(first);
   });
 
+  {
+    const lock = () => { if (!isOwner() && state.mode !== "agent") window.TrainerView.set("agent"); };
+    if (window.TrainerWS && window.TrainerWS.ready) window.TrainerWS.ready.then(() => setTimeout(lock, 300), () => setTimeout(lock, 300));
+  }
   if (forced) {
     const go = () => window.TrainerView.set("agent");
     if (window.TrainerWS && window.TrainerWS.ready) window.TrainerWS.ready.then(() => setTimeout(go, 400), () => setTimeout(go, 400));

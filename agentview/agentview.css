@@ -32,3 +32,9 @@ body.agent-mode :is(#dataBtn, #aboutBtn, #bell, #avatar-btn) { display: none !im
 .ag-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 22px 4px; }
 .ag-msg { font-size: 13px; color: var(--muted); }
 .ag-note { padding: 0 22px 24px; margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
+
+.ag-gate{max-width:400px;margin:8vh auto 0;padding:28px 24px;background:var(--card,#fff);border:1px solid var(--line,#ddd);border-radius:16px}
+.ag-gate h2{margin:0 0 6px}.ag-gate p{margin:0 0 16px;color:var(--muted)}
+.ag-gate label{display:grid;gap:6px;margin-bottom:14px;font-size:13px;font-weight:600}
+.ag-gate input{padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:10px;background:var(--bg,#fff);color:inherit;font:inherit}
+.ag-gate .btn{width:100%}.ag-gerr{min-height:1.4em;color:#dc2626!important;font-size:13.5px;margin:10px 0 0!important}.ag-gnote{font-size:12.5px}

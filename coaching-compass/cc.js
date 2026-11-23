@@ -735,6 +735,7 @@
   // The text of a downloaded Drive file. The connector has handed it back in several shapes over time: a JSON payload with
   // base64 `content`, text blocks holding that JSON, or an embedded resource block with a base64 `blob` or plain `text`.
   var lastDownloadShape = "";
+  var lastAuditFail = "";
   function describeDownload(result){
     try {
       var bits = [];
@@ -793,17 +794,18 @@
   // positions. It counts only when that tab starts with the audit header (row 1), which is
   // what the "Nesting audits - Feedback" tab looks like; filter tabs start with instructions.
   function readFirstTabAudits(fileId){
+    lastAuditFail = "";
     return mcpFn.callTool("Google Drive", "download_file_content", { fileId: fileId, exportMimeType: "text/csv" })
       .then(function(result){
         var text = downloadedText(result);
-        if (!text) return null;
+        if (!text){ lastAuditFail = "Drive's export came back in a form this page couldn't read. What came back: " + lastDownloadShape; return null; }
         var rows = parseCSV(text.replace(/^\uFEFF/, ""));
         var h = rows.length ? auditHeader(rows[0]) : null;
-        if (!h || h.notAudit) return null;
+        if (!h || h.notAudit){ lastAuditFail = "The first row of the first tab isn't the audit header (it starts: " + (rows[0] || []).slice(0, 4).join(" | ").slice(0, 120) + ")."; return null; }
         h.rows = rows.slice(1);
         return [h];
       })
-      .catch(function(){ return null; });
+      .catch(function(e){ lastAuditFail = "Drive's export call failed: " + ((e && e.message) || e); return null; });
   }
 
   function renderFetchPreviewModal(rows, rawText){
@@ -1213,7 +1215,8 @@
 
   function partialSourceNote(){
     return "<div class=\"req-warn\" style=\"margin:0 0 14px;\"><b>This pull may be incomplete.</b> The audits tab isn't the QA sheet's first tab, so Google Drive only hands back the top rows of each tab &mdash; recent weeks come through, older ones get cut off. " +
-      "Fix it once: move <b>Nesting audits - Feedback</b> to be the first tab of the sheet, or point Settings → QA Sheets at a sheet whose first tab is the audits.</div>";
+      "Fix it once: make the audits the first tab of the sheet (a mirror sheet works), or point Settings → QA Sheets at a sheet whose first tab is the audits." +
+      (lastAuditFail ? "<br><span style=\"opacity:.8;\">Why the full read failed: " + esc(lastAuditFail) + "</span>" : "") + "</div>";
   }
 
   function renderRequestResult(){

@@ -1,0 +1,31 @@
+/* The scorecard an agent sees. Shared by the Agent View preview and the standalone agent page. */
+.ag-page { max-width: 1040px; margin: 0 auto; padding: 22px; }
+.ag-head h2 { margin: 0; font-size: 26px; letter-spacing: -0.01em; }
+.ag-head p { margin: 4px 0 18px; color: var(--muted); }
+.ag-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 22px; }
+.ag-stat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: grid; gap: 2px; align-content: start; }
+.ag-v { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+.ag-l { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.ag-h { font-size: 12px; color: var(--muted); min-height: 1.2em; }
+.ag-chip { display: inline-block; justify-self: start; margin-top: 6px; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+.ag-chip.ok { background: var(--success-bg); color: var(--success-ink); }
+.ag-chip.no { background: var(--warning-bg); color: var(--warning-ink); }
+.ag-chip.plain { background: color-mix(in srgb, var(--window-fg) 8%, transparent); color: var(--muted); }
+.ag-sec { margin-bottom: 24px; }
+.ag-sec h3 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.ag-table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 13.5px; }
+.ag-table th, .ag-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ag-table th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: color-mix(in srgb, var(--window-fg) 4%, var(--card)); }
+.ag-table tr:last-child td { border-bottom: 0; }
+.ag-table small { color: var(--muted); }
+.ag-ok { color: var(--success-ink); }
+.ag-no { color: var(--warning-ink); }
+.ag-tag { display: inline-block; margin-right: 4px; padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+.ag-tag.good { background: var(--success-bg); color: var(--success-ink); }
+.ag-tag.watch { background: var(--warning-bg); color: var(--warning-ink); }
+.ag-spot { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin-bottom: 10px; }
+.ag-spot p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; }
+.ag-spot-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ag-spot-top .ag-chip { margin: 0 0 0 auto; }
+.ag-empty { color: var(--muted); font-size: 13.5px; }
+.ag-foot { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 30px; }

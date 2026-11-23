@@ -50,76 +50,43 @@
     },
   };
 
-  // ---- The scorecard ----
+  // ---- The scorecard: collect one agent's numbers into a plain object, and draw it with AgentCard.html ----
+  const DAYLBL = { ontime: "On time", late25: "Late (.25)", late50: "Late (.50)", late75: "Late (.75)", late100: "Late (1.00)", absent: "Absent", ncns: "No call, no show" };
   function goalsOf(cohort) {
     const g = (cohort && cohort.team_goals) || {};
     const n = (k) => (g[k] !== "" && g[k] != null && !isNaN(Number(g[k])) ? Number(g[k]) : null);
     return { qa: n("qa"), speed: n("speed"), attendance: n("attendance"), quiz: n("quiz"), spot: n("spot") };
   }
-  const DAYLBL = { ontime: "On time", late25: "Late (.25)", late50: "Late (.50)", late75: "Late (.75)", late100: "Late (1.00)", absent: "Absent", ncns: "No call, no show" };
-  const chip = (met) => (met == null ? "" : `<span class="ag-chip ${met ? "ok" : "no"}">${met ? "Goal met" : "Below goal"}</span>`);
-  const stat = (label, value, hint, met) => `<div class="ag-stat"><div class="ag-v">${value}</div><div class="ag-l">${esc(label)}</div><div class="ag-h">${hint || ""}</div>${chip(met)}</div>`;
-
-  function quizPart(qr, goal) {
-    if (!qr) return `<p class="ag-empty">Quiz results aren't available right now.</p>`;
-    const items = (qr.items || []).filter((x) => x.pct != null);
-    if (!items.length) return `<p class="ag-empty">No quiz results yet.</p>`;
-    return `<table class="ag-table"><thead><tr><th>Quiz</th><th>Score</th><th>Passing</th></tr></thead><tbody>${items
-      .map((x) => `<tr><td>${esc(x.title)}${x.week ? ` <small>Week ${x.week}</small>` : ""}</td><td class="${x.pct >= x.passing ? "ag-ok" : "ag-no"}"><b>${x.pct}%</b></td><td>${x.passing}%</td></tr>`)
-      .join("")}</tbody></table>`;
-  }
-
-  function scorecardHtml(t, quiz) {
+  async function collect(t, withQuiz) {
     const c = cohortOf(t.id);
-    const g = goalsOf(c);
     const api = cc();
     const perf = api.traineePerformance(t.id);
     const sp = api.traineeSpeed(t.id);
     const spot = api.traineeSpot(t.id);
     const pts = window.TrainerAttendance && window.TrainerAttendance.points && c ? window.TrainerAttendance.points(c.id, t.id) : null;
-    const all = perf.weeks.reduce((a, w) => ({ pass: a.pass + w.pass, total: a.total + w.total }), { pass: 0, total: 0 });
-    const qaPct = all.total ? (all.pass / all.total) * 100 : null;
     const speeds = sp.weeks.map((w) => w.value).filter((v) => v != null);
-    const spAvg = speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : null;
-    const quizAvg = quiz && quiz.taken ? (quiz.weighted != null ? quiz.weighted : quiz.avg) : null;
-    const spotAvg = spot.avg;
-    const stats = [
-      stat("Attendance points", pts == null ? "—" : num(pts), g.attendance != null ? `0 is best · goal at most ${num(g.attendance)}` : "0 is best", pts == null || g.attendance == null ? null : pts <= g.attendance),
-      stat("QA score", qaPct == null ? "—" : `${Math.round(qaPct)}%`, all.total ? `${num(all.pass)} of ${all.total} audits passed${g.qa != null ? ` · goal ${num(g.qa)}%` : ""}` : "no audits yet", qaPct == null || g.qa == null ? null : qaPct >= g.qa),
-      stat("Speed", spAvg == null ? "—" : num(spAvg), spAvg == null ? "no Speed yet" : `min per ticket, lower is faster${g.speed != null ? ` · goal ${num(g.speed)}` : ""}`, spAvg == null || g.speed == null ? null : spAvg <= g.speed),
-      stat("Quiz average", quizAvg == null ? "—" : `${quizAvg}%`, quiz ? (quiz.taken ? `${quiz.taken} quiz${quiz.taken === 1 ? "" : "zes"} taken` : "no quizzes yet") : "loading…", quizAvg == null || g.quiz == null ? null : quizAvg >= g.quiz),
-      stat("Spot checks", spotAvg == null ? "—" : `${num(spotAvg)}%`, spot.count ? `${spot.count} spot check${spot.count === 1 ? "" : "s"}${g.spot != null ? ` · goal ${num(g.spot)}%` : ""}` : "none yet", spotAvg == null || g.spot == null ? null : spotAvg >= g.spot),
-    ].join("");
-
-    const qaRows = perf.weeks
-      .map((w) => {
-        const b = w.brief || {};
-        return `<tr><td><b>Week ${esc(w.week)}</b></td><td class="${g.qa != null && w.total && (w.pass / w.total) * 100 >= g.qa ? "ag-ok" : g.qa != null && w.total ? "ag-no" : ""}">${w.total ? `<b>${Math.round((w.pass / w.total) * 100)}%</b> <small>${num(w.pass)} of ${w.total}</small>` : "—"}</td><td>${(b.strengths || []).length ? `<div><span class="ag-tag good">Doing well</span> ${(b.strengths || []).map(esc).join(" · ")}</div>` : ""}${(b.recurring_issues || []).length ? `<div><span class="ag-tag watch">To work on</span> ${(b.recurring_issues || []).map(esc).join(" · ")}</div>` : ""}</td></tr>`;
-      })
-      .join("");
-    const spRows = sp.weeks
-      .map((w) => `<tr><td><b>Week ${esc(w.week)}</b></td><td class="${g.speed != null && w.value != null ? (w.value <= g.speed ? "ag-ok" : "ag-no") : ""}"><b>${w.value == null ? "—" : num(w.value)}</b></td><td>${num(w.hours)} h</td><td>${num(w.tickets)} tickets</td></tr>`)
-      .join("");
     const days = (c && c.attendance_days && c.attendance_days[t.id]) || {};
-    const late = Object.keys(days).filter((k) => days[k] && days[k] !== "ontime").sort((a, b) => +a - +b);
-    const graded = Object.keys(days).filter((k) => days[k]).length;
-    const spotRows = spot.nesting
-      .map((x) => `<div class="ag-spot"><div class="ag-spot-top"><b>${num(Number(x.score))}%</b> <small>${esc(dshort(x.created_at))}${/^https?:\/\//i.test(x.ticket || "") ? ` · <a href="${esc(x.ticket)}" target="_blank" rel="noopener">Open ticket</a>` : ""}</small><span class="ag-chip ${x.reply || x.ack_at ? "ok" : "plain"}">${x.reply || x.ack_at ? "Acknowledged" : x.slack_sent_at ? "Awaiting your reply" : "Not sent yet"}</span></div><p><b>Communication.</b> ${esc(x.comms)}</p><p><b>Resolution.</b> ${esc(x.resolution)}</p></div>`)
-      .join("");
-    const sends = (t.coaching_sends || []).slice().reverse();
-    const sendRows = sends.map((x) => `<tr><td>${esc(dshort(x.sent_at))}</td><td>${esc(x.label)}</td><td>${x.reply || x.ack_at ? `<span class="ag-chip ok">Acknowledged</span>` : `<span class="ag-chip plain">Awaiting your reply</span>`}</td></tr>`).join("");
-
-    return `<div class="ag-page">
-      <div class="ag-head"><div><h2>${esc(t.name || "Agent")}</h2><p>${c ? esc(c.name) : "No class"}${c && c.training_start_date ? ` · started ${esc(dshort(c.training_start_date + "T00:00:00"))}` : ""}${inactive(t) ? " · inactive" : ""}</p></div></div>
-      <div class="ag-stats">${stats}</div>
-      <section class="ag-sec"><h3>QA by week</h3>${qaRows ? `<table class="ag-table"><thead><tr><th>Week</th><th>Score</th><th>Feedback</th></tr></thead><tbody>${qaRows}</tbody></table>` : `<p class="ag-empty">No QA weeks yet.</p>`}</section>
-      <section class="ag-sec"><h3>Speed by week</h3>${spRows ? `<table class="ag-table"><thead><tr><th>Week</th><th>Min per ticket</th><th>Hours</th><th>Cleared</th></tr></thead><tbody>${spRows}</tbody></table>` : `<p class="ag-empty">No Speed yet.</p>`}</section>
-      <section class="ag-sec"><h3>Attendance</h3>${graded ? `<p>${graded} day${graded === 1 ? "" : "s"} graded, ${graded - late.length} on time.${late.length ? ` Not on time: ${late.map((k) => `Day ${k} (${esc(DAYLBL[days[k]] || days[k])})`).join(", ")}.` : " Nothing missed."}</p>` : `<p class="ag-empty">No attendance recorded yet.</p>`}</section>
-      <section class="ag-sec"><h3>Quizzes</h3><div data-ag-quiz>${quizPart(quiz, g.quiz)}</div></section>
-      <section class="ag-sec"><h3>Spot checks</h3>${spotRows || `<p class="ag-empty">No spot checks yet.</p>`}</section>
-      <section class="ag-sec"><h3>Coaching you received</h3>${sendRows ? `<table class="ag-table"><thead><tr><th>Sent</th><th>About</th><th>Status</th></tr></thead><tbody>${sendRows}</tbody></table>` : `<p class="ag-empty">No coaching sent yet.</p>`}</section>
-      <p class="ag-foot">This page is read-only. Reply to coaching and spot checks in Slack.</p>
-    </div>`;
+    const graded = Object.keys(days).filter((k) => days[k]);
+    let quiz = null;
+    if (withQuiz && window.TrainerQuiz && window.TrainerQuiz.traineeResults) {
+      const q = await window.TrainerQuiz.traineeResults(t.id).catch(() => null);
+      if (q) quiz = { avg: q.avg, weighted: q.weighted, taken: q.taken, items: (q.items || []).filter((x) => x.pct != null).map((x) => ({ title: x.title, week: x.week || 0, pct: x.pct, passing: x.passing })) };
+    }
+    return {
+      v: 1,
+      name: t.name || "Agent",
+      cohort: c ? c.name : "",
+      started: c ? c.training_start_date || "" : "",
+      inactive: inactive(t),
+      goals: goalsOf(c),
+      att: { points: pts, graded: graded.length, late: graded.filter((k) => days[k] !== "ontime").sort((a, b) => +a - +b).map((k) => ({ day: k, label: DAYLBL[days[k]] || days[k] })) },
+      qa: { pass: perf.weeks.reduce((a, w) => a + w.pass, 0), total: perf.weeks.reduce((a, w) => a + w.total, 0), weeks: perf.weeks.map((w) => ({ week: w.week, pass: w.pass, total: w.total, strengths: (w.brief && w.brief.strengths) || [], issues: (w.brief && w.brief.recurring_issues) || [] })) },
+      speed: { avg: speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : null, weeks: sp.weeks.map((w) => ({ week: w.week, value: w.value, hours: w.hours, tickets: w.tickets })) },
+      quiz,
+      spot: { avg: spot.avg, count: spot.count, items: spot.nesting.map((x) => ({ date: x.created_at, score: x.score, ticket: x.ticket, comms: x.comms, resolution: x.resolution, ack: x.reply || x.ack_at ? "ack" : x.slack_sent_at ? "wait" : "none" })) },
+      coaching: (t.coaching_sends || []).slice().reverse().map((x) => ({ date: x.sent_at, label: x.label, ack: !!(x.reply || x.ack_at) })),
+      generated_at: new Date().toISOString(),
+    };
   }
 
   // Draws the scorecard for one agent into `el`, then fills in quizzes when they have loaded.
@@ -129,12 +96,12 @@
       el.innerHTML = `<p class="ag-empty">Pick an agent to see their scorecard.</p>`;
       return;
     }
-    el.innerHTML = scorecardHtml(t, null);
-    const q = window.TrainerQuiz && window.TrainerQuiz.traineeResults ? await window.TrainerQuiz.traineeResults(traineeId).catch(() => null) : null;
+    el.innerHTML = AgentCard.html(await collect(t, false));
+    const full = await collect(t, true);
     if (!el.isConnected || el.dataset.agent !== traineeId) return;
-    el.innerHTML = scorecardHtml(t, q);
+    el.innerHTML = AgentCard.html(full);
   }
-  window.AgentScorecard = { mount };
+  window.AgentScorecard = { mount, collect };
 
   // ---- Picker shared by both apps ----
   function agentOptions(selected) {
@@ -150,50 +117,168 @@
       .join("");
   }
 
-  // ---- App: Agent View (Trainer view): preview what an agent sees ----
-  let previewEl = null, off = null;
+  // ---- App: Agent View (Trainer view): preview what an agent sees, and manage their access ----
+  let off = null;
+  const copy = (text, done) => {
+    const ok = () => done("Copied.");
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, () => done("Couldn't copy."));
+    else done("Couldn't copy.");
+  };
   APPS.agentview = {
     title: "Agent View",
     icon: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
     color: "#0d9488",
     render(el) {
-      previewEl = el;
       el.classList.add("ag-app");
       if (!state.agentId) state.agentId = firstAgent();
+      const ui = { tab: "preview", cohort: "", codes: {}, show: {}, msg: "", busy: false, url: "", unsubs: [], db: null, bundle: null };
+      const nameOf = (id) => (roster().trainees.find((t) => t.id === id) || {}).name || "the agent";
+
+      const tabs = () => `<div class="ag-tabs" role="tablist"><button type="button" role="tab" class="${ui.tab === "preview" ? "on" : ""}" data-ag-tab="preview" aria-selected="${ui.tab === "preview"}">Preview</button><button type="button" role="tab" class="${ui.tab === "access" ? "on" : ""}" data-ag-tab="access" aria-selected="${ui.tab === "access"}">Access and publishing</button></div>`;
+
+      const previewHtml = () => `
+        <div class="ag-intro">
+          <h3>Agent View</h3>
+          <p>This is what an agent sees: their own scorecard and nothing else. It is read-only. They don't see other agents, your notes, HR documents or any pass/fail projection, and they can't enter or change anything. You gather and enter everything in the Trainer view. Agents get in with their work email and a code you give them (see Access and publishing).</p>
+          <div class="ag-bar">
+            <label for="agPick">Preview as</label>
+            <select id="agPick">${agentOptions(state.agentId)}</select>
+            <button type="button" class="btn btn-primary" data-ag-open>Open the Agent view</button>
+          </div>
+        </div>
+        <div class="ag-frame"><div class="ag-frame-bar"><span class="ag-dot"></span> Previewing what ${esc(nameOf(state.agentId))} sees</div><div class="ag-body" data-agent="${esc(state.agentId)}"></div></div>`;
+
+      const accessRows = () => {
+        const { cohorts, trainees } = roster();
+        const byId = new Map(trainees.map((t) => [t.id, t]));
+        const pool = ui.cohort ? ((cohorts.find((c) => c.id === ui.cohort) || {}).trainee_ids || []).map((id) => byId.get(id)).filter(Boolean) : trainees.filter((t) => cohorts.some((c) => (c.trainee_ids || []).includes(t.id)));
+        return pool.slice().sort((a, b) => (inactive(a) - inactive(b)) || String(a.name).localeCompare(String(b.name))).map((t) => {
+          const code = (ui.codes[t.id] || {}).code || "";
+          const email = String(t.email || "").trim();
+          const shown = ui.show[t.id];
+          return `<tr class="${inactive(t) ? "is-inactive" : ""}"><td>${esc(t.name)}${inactive(t) ? " <small>(Inactive)</small>" : ""}</td>
+            <td>${email ? esc(email) : `<span class="ag-warn">No work email. Add it in Settings → Roster.</span>`}</td>
+            <td>${code ? `<code>${shown ? esc(code) : "••••-••••-••"}</code> <button type="button" class="linkish" data-ag-show="${esc(t.id)}">${shown ? "Hide" : "Show"}</button>` : `<span class="muted">No code yet</span>`}</td>
+            <td class="ag-acts"><button type="button" class="linkish" data-ag-gen="${esc(t.id)}">${code ? "New code" : "Make a code"}</button>${code && email ? ` · <button type="button" class="linkish" data-ag-copyinv="${esc(t.id)}">Copy invite</button> · <button type="button" class="linkish" data-ag-slackinv="${esc(t.id)}">Send on Slack</button>` : ""}</td></tr>`;
+        }).join("");
+      };
+      const accessHtml = () => {
+        const { cohorts } = roster();
+        const b = ui.bundle;
+        return `
+        <div class="ag-intro">
+          <h3>Access and publishing</h3>
+          <p>Agents don't need a Claude seat. They open one page, enter their <b>work email and their code</b>, and see only their own scorecard. Each agent's data is <b>locked with their email and code</b> inside that page, so nobody can read another agent's scorecard without that agent's code. Codes are made here (10 characters, hard to guess); give each agent theirs privately.</p>
+          <ol class="ag-steps"><li>Make a code for every agent (their work email must be on the roster).</li><li><b>Build agent data</b> below. It locks every scorecard and saves the result.</li><li>Ask Claude to <b>publish the agent page</b>. It puts the locked data on a page agents can open without a seat, and gives you the link. Do this again whenever you want agents to see fresh numbers.</li><li>Paste the link below, then <b>Copy invite</b> or <b>Send on Slack</b> for each agent.</li></ol>
+          <div class="ag-bar"><label for="agCohort">Class</label><select id="agCohort"><option value="">All classes</option>${cohorts.map((c) => `<option value="${esc(c.id)}"${c.id === ui.cohort ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+            <label for="agUrl">Agent page link</label><input id="agUrl" type="url" placeholder="https://claude.ai/…" value="${esc(ui.url)}" style="min-width:300px"><button type="button" class="btn" data-ag-saveurl>Save link</button></div>
+        </div>
+        <div class="ag-tablewrap"><table class="ag-table ag-access"><thead><tr><th>Agent</th><th>Work email</th><th>Code</th><th></th></tr></thead><tbody>${accessRows()}</tbody></table></div>
+        <div class="ag-actions">
+          <button type="button" class="btn" data-ag-genall${ui.busy ? " disabled" : ""}>Make missing codes</button>
+          <button type="button" class="btn btn-primary" data-ag-build${ui.busy ? " disabled" : ""}>${ui.busy ? "Building…" : "Build agent data"}</button>
+          ${b ? `<button type="button" class="btn" data-ag-download>Download the locked data</button>` : ""}
+          <span class="ag-msg" role="status">${esc(ui.msg)}</span>
+        </div>
+        ${b ? `<p class="ag-note">Last built ${esc(new Date(b.generated_at).toLocaleString())}: ${b.count} agent${b.count === 1 ? "" : "s"} can sign in.</p>` : ""}`;
+      };
+
       const draw = (first) => {
         if (!first && !el.isConnected) return;
-        const keep = el.querySelector("#agPick") ? el.querySelector("#agPick").value : state.agentId;
-        state.agentId = keep || state.agentId;
-        el.innerHTML = `
-          <div class="ag-intro">
-            <h3>Agent View</h3>
-            <p>This is exactly what an agent sees: their own scorecard and nothing else. It is read-only. They don't see other agents, your notes, HR documents or any pass/fail projection, and they can't enter or change anything. You gather and enter everything in the Trainer view.</p>
-            <div class="ag-bar">
-              <label for="agPick">Preview as</label>
-              <select id="agPick">${agentOptions(state.agentId)}</select>
-              <button type="button" class="btn btn-primary" data-ag-open>Open the Agent view</button>
-            </div>
-          </div>
-          <div class="ag-frame"><div class="ag-frame-bar"><span class="ag-dot"></span> Previewing what ${esc((roster().trainees.find((t) => t.id === state.agentId) || {}).name || "the agent")} sees</div><div class="ag-body" data-agent="${esc(state.agentId)}"></div></div>`;
-        const body = el.querySelector(".ag-body");
-        mount(body, state.agentId);
+        el.innerHTML = tabs() + (ui.tab === "preview" ? previewHtml() : accessHtml());
+        if (ui.tab === "preview") mount(el.querySelector(".ag-body"), state.agentId);
       };
+      const say = (m) => { ui.msg = m; if (ui.tab === "access") draw(); };
+
+      // The saved codes and bundle summary live in the database; only the Trainer can read or write them.
+      const connect = () => {
+        if (ui.db || !window.TrainerUse) return;
+        window.TrainerUse("db").then((db) => {
+          if (!db || ui.db || !el.isConnected) return;
+          ui.db = db;
+          ui.unsubs.push(db.collection("agent_access").onSnapshot((snap) => { ui.codes = {}; snap.docs.forEach((d) => (ui.codes[d.id] = d.data() || {})); if (ui.tab === "access" && !el.contains(document.activeElement)) draw(); }));
+          ui.unsubs.push(db.doc("agent_bundle/current").onSnapshot((snap) => { const d = snap.exists ? snap.data() : null; ui.bundle = d ? { generated_at: d.generated_at, count: d.count || (d.records || []).length } : null; if (ui.tab === "access" && !el.contains(document.activeElement)) draw(); }));
+          ui.unsubs.push(db.doc("settings/agent_page").onSnapshot((snap) => { ui.url = (snap.exists && (snap.data() || {}).url) || ""; if (ui.tab === "access" && !el.contains(document.activeElement)) draw(); }));
+        }).catch(() => {});
+      };
+      const inviteText = (t) => {
+        const code = (ui.codes[t.id] || {}).code;
+        const first = String(t.name || "").split(/\s+/)[0] || "there";
+        return `Hi ${first}, your training scorecard is ready: ${ui.url || "[link]"}\nSign in with your work email (${String(t.email || "").trim()}) and this code: ${code}\nIt shows your attendance, QA, Speed, quizzes, spot checks and coaching. Please keep your code private.`;
+      };
+      const traineeById = (id) => roster().trainees.find((t) => t.id === id);
+
       el.addEventListener("change", (e) => {
-        if (e.target.id === "agPick") {
-          state.agentId = e.target.value;
-          draw();
+        if (e.target.id === "agPick") { state.agentId = e.target.value; draw(); }
+        else if (e.target.id === "agCohort") { ui.cohort = e.target.value; draw(); }
+      });
+      el.addEventListener("click", async (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        const d = b.dataset;
+        if (d.agTab) { ui.tab = d.agTab; ui.msg = ""; draw(); if (ui.tab === "access") connect(); }
+        else if ("agOpen" in d) window.TrainerView.set("agent", state.agentId);
+        else if (d.agShow) { ui.show[d.agShow] = !ui.show[d.agShow]; draw(); }
+        else if (d.agGen) {
+          if (!ui.db) return say("Saving isn't available right now.");
+          await ui.db.doc("agent_access/" + d.agGen).set({ code: AgentLock.makeCode(), issued_at: new Date().toISOString() }).then(() => say(`New code made for ${nameOf(d.agGen)}. Build the agent data again so it works.`), () => say("Couldn't save the code."));
+        } else if ("agGenall" in d) {
+          if (!ui.db) return say("Saving isn't available right now.");
+          const rows = [...el.querySelectorAll("[data-ag-gen]")].map((x) => x.dataset.agGen).filter((id) => !(ui.codes[id] || {}).code);
+          for (const id of rows) await ui.db.doc("agent_access/" + id).set({ code: AgentLock.makeCode(), issued_at: new Date().toISOString() }).catch(() => {});
+          say(rows.length ? `Made ${rows.length} code${rows.length === 1 ? "" : "s"}.` : "Everyone listed already has a code.");
+        } else if ("agSaveurl" in d) {
+          const v = (el.querySelector("#agUrl").value || "").trim();
+          if (!ui.db) return say("Saving isn't available right now.");
+          await ui.db.doc("settings/agent_page").set({ url: v, updated_at: new Date().toISOString() }).then(() => say("Link saved."), () => say("Couldn't save the link."));
+        } else if (d.agCopyinv) {
+          const t = traineeById(d.agCopyinv);
+          if (t) copy(inviteText(t), say);
+        } else if (d.agSlackinv) {
+          const t = traineeById(d.agSlackinv);
+          if (!t || !window.TrainerSlack) return say("Slack isn't available right now.");
+          if (!ui.url) return say("Save the agent page link first.");
+          say(`Sending to ${t.name}…`);
+          try {
+            const uid = await window.TrainerSlack.userIdFor(t);
+            if (!uid) throw new Error("none");
+            await window.TrainerSlack.sendDirect(uid, inviteText(t));
+            say(`Invite sent to ${t.name} on Slack ✓`);
+          } catch (err) { say(`Couldn't reach ${t.name} on Slack.`); }
+        } else if ("agBuild" in d) {
+          if (!ui.db) return say("Saving isn't available right now.");
+          ui.busy = true; say("Building…");
+          const { trainees } = roster();
+          const records = [], skipped = [];
+          for (const t of trainees) {
+            if (!roster().cohorts.some((c) => (c.trainee_ids || []).includes(t.id))) continue;
+            const code = (ui.codes[t.id] || {}).code, email = String(t.email || "").trim();
+            if (!code || !email) { skipped.push(t.name); continue; }
+            try { records.push(await AgentLock.lock(email, code, await collect(t, true))); } catch (err) { skipped.push(t.name); }
+          }
+          const doc = { v: 1, generated_at: new Date().toISOString(), count: records.length, records };
+          try {
+            await ui.db.doc("agent_bundle/current").set(doc);
+            ui.busy = false;
+            say(`Built for ${records.length} agent${records.length === 1 ? "" : "s"}${skipped.length ? `. Skipped (no email or code): ${skipped.slice(0, 6).join(", ")}${skipped.length > 6 ? "…" : ""}` : ""}. Now ask Claude to publish the agent page.`);
+          } catch (err) { ui.busy = false; say("Couldn't save the agent data."); }
+        } else if ("agDownload" in d) {
+          const db = ui.db; if (!db) return;
+          const snap = await db.doc("agent_bundle/current").get();
+          const dl = await window.TrainerUse("downloads").catch(() => null);
+          if (!snap.exists || !dl || !dl.save) return say("Nothing to download yet.");
+          dl.save({ filename: "agent-scorecards-locked.json", data: JSON.stringify(snap.data()) }).then(() => say("Downloaded."), () => say("Couldn't download."));
         }
       });
-      el.addEventListener("click", (e) => {
-        if (e.target.closest("[data-ag-open]")) window.TrainerView.set("agent", state.agentId);
-      });
       draw(true);
-      off = cc() ? cc().onChange(() => { if (el.isConnected && !el.contains(document.activeElement)) draw(); }) : null;
+      off = cc() ? cc().onChange(() => { if (el.isConnected && ui.tab === "preview" && !el.contains(document.activeElement)) draw(); }) : null;
+      ui.cleanup = () => { ui.unsubs.forEach((u) => { try { u(); } catch (e) {} }); };
+      APPS.agentview._ui = ui;
     },
     onClose() {
       if (off) off();
       off = null;
-      previewEl = null;
+      if (APPS.agentview._ui && APPS.agentview._ui.cleanup) APPS.agentview._ui.cleanup();
     },
   };
 

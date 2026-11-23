@@ -16,35 +16,19 @@ body.agent-mode .menubar { background: rgba(13, 148, 136, 0.6); }
 .ag-dot { width: 8px; height: 8px; border-radius: 50%; background: #0d9488; }
 .ag-previewbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 22px; font-size: 13px; background: color-mix(in srgb, #0d9488 12%, var(--card)); border-bottom: 1px solid var(--line); }
 
-.ag-page { max-width: 1040px; margin: 0 auto; padding: 22px; }
-.ag-head h2 { margin: 0; font-size: 26px; letter-spacing: -0.01em; }
-.ag-head p { margin: 4px 0 18px; color: var(--muted); }
-.ag-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 22px; }
-.ag-stat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: grid; gap: 2px; align-content: start; }
-.ag-v { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
-.ag-l { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-.ag-h { font-size: 12px; color: var(--muted); min-height: 1.2em; }
-.ag-chip { display: inline-block; justify-self: start; margin-top: 6px; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
-.ag-chip.ok { background: var(--success-bg); color: var(--success-ink); }
-.ag-chip.no { background: var(--warning-bg); color: var(--warning-ink); }
-.ag-chip.plain { background: color-mix(in srgb, var(--window-fg) 8%, transparent); color: var(--muted); }
-.ag-sec { margin-bottom: 24px; }
-.ag-sec h3 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-.ag-table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 13.5px; }
-.ag-table th, .ag-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
-.ag-table th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); background: color-mix(in srgb, var(--window-fg) 4%, var(--card)); }
-.ag-table tr:last-child td { border-bottom: 0; }
-.ag-table small { color: var(--muted); }
-.ag-ok { color: var(--success-ink); }
-.ag-no { color: var(--warning-ink); }
-.ag-tag { display: inline-block; margin-right: 4px; padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; }
-.ag-tag.good { background: var(--success-bg); color: var(--success-ink); }
-.ag-tag.watch { background: var(--warning-bg); color: var(--warning-ink); }
-.ag-spot { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin-bottom: 10px; }
-.ag-spot p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; }
-.ag-spot-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ag-spot-top .ag-chip { margin: 0 0 0 auto; }
-.ag-empty { color: var(--muted); font-size: 13.5px; }
-.ag-foot { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 30px; }
 /* The Agent view carries no tools: no data export, no notifications, no profile menu, no About. */
 body.agent-mode :is(#dataBtn, #aboutBtn, #bell, #avatar-btn) { display: none !important; }
+
+.ag-tabs { display: flex; gap: 6px; padding: 12px 22px 0; border-bottom: 1px solid var(--line); }
+.ag-tabs button { border: 0; background: none; padding: 9px 14px; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.ag-tabs button.on { color: var(--window-fg); border-bottom-color: #0d9488; }
+.ag-steps { margin: 0 0 14px; padding-left: 20px; max-width: 760px; font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+.ag-steps b { color: var(--window-fg); }
+.ag-tablewrap { padding: 0 22px; }
+.ag-access tr.is-inactive td { opacity: 0.55; }
+.ag-access code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; letter-spacing: 0.04em; }
+.ag-warn { color: var(--warning-ink); font-size: 12.5px; }
+.ag-acts { white-space: nowrap; }
+.ag-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 22px 4px; }
+.ag-msg { font-size: 13px; color: var(--muted); }
+.ag-note { padding: 0 22px 24px; margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }

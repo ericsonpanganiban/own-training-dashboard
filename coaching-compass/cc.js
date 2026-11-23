@@ -4617,6 +4617,23 @@
   var weekKey = function(w){ var d = String(w == null ? "" : w).replace(/\D/g, ""); return d || String(w == null ? "" : w).trim().toLowerCase(); };
   var speedNum = function(x){ var t = String(x == null ? "" : x).replace(/[,%\s]/g, ""); var v = t === "" ? NaN : parseFloat(t); return isNaN(v) ? null : v; };
 
+  // Hours can be typed either way: "7:30" (hours:minutes) or "7.5" / "7" (decimal hours). A colon means
+  // hours:minutes; anything else is decimal, so "7.30" is 7.3 hours, not 7:30. Stored as decimal hours.
+  // Returns null for blank, undefined for something that isn't a time (e.g. "7:75").
+  function hoursNum(text){
+    var t = String(text == null ? "" : text).replace(/\s+/g, "");
+    if (t === "") return null;
+    var m = /^(\d{0,3}):(\d{1,2})$/.exec(t);
+    if (m){
+      var mins = parseInt(m[2], 10);
+      if (mins > 59) return undefined;
+      return parseInt(m[1] || "0", 10) + mins / 60;
+    }
+    if (/^\d*\.?\d+$/.test(t.replace(/,/g, "."))) return parseFloat(t.replace(/,/g, "."));
+    return undefined;
+  }
+  function hoursClock(v){ if (v == null) return ""; var tot = Math.round(v * 60); return Math.floor(tot / 60) + ":" + ("0" + (tot % 60)).slice(-2); }
+
   // Rows of the wanted week for roster CRM names only (an object of lowercase names).
   function speedRowsFromCells(table, wantWeek, wantCrms){
     for (var i = 0; i < Math.min(table.length, 12); i++){
@@ -4721,14 +4738,15 @@
   function setSpeedField(week, crm, date, field, text){
     var doc = speed.weeks[week];
     if (!doc) return;
-    var val = speedNum(text);
+    var val = field === "h" ? hoursNum(text) : speedNum(text);
+    if (val === undefined){ speed.msg = "“" + String(text).trim() + "” isn't a time. Type hours as 7:30 or 7.5."; speed.err = true; renderAll(); return; }
     var row = doc.rows.filter(function(r){ return r.d === date && String(r.c).toLowerCase() === crm.toLowerCase(); })[0];
     if (!row){
       if (val == null) return;
       row = { d: date, c: crm, h: null, t: null, v: null };
       doc.rows.push(row);
     }
-    if (row[field] === val) return;
+    if (row[field] === val){ renderAll(); return; } // redraw so a typed 7:30 shows as 7.5
     row[field] = val; row[field === "h" ? "mh" : "mt"] = 1;
     saveSpeedWeek(week).catch(function(){ speed.msg = "Couldn't save that change. Try again."; speed.err = true; }).then(function(){ renderAll(); });
   }
@@ -4957,7 +4975,7 @@
         var sp = r ? dayV(r) : null, need = r ? needFor(r.h) : null;
         var left = leftFor(need, r ? r.t : null);
         var inp = function(field, label, val, manual){
-          return "<input class=\"sp-in" + (manual ? " manual" : "") + "\" type=\"text\" inputmode=\"decimal\" aria-label=\"" + label + " on " + esc(speedDayLabel(d)) + " for " + esc(name) + "\" placeholder=\"" + (field === "h" ? "hrs" : "tkts") + "\" value=\"" + (val != null ? esc(speedFmt(val)) : "") + "\" data-sp-week=\"" + esc(speed.week) + "\" data-sp-crm=\"" + esc(crm) + "\" data-sp-date=\"" + esc(d) + "\" data-sp-field=\"" + field + "\" />";
+          return "<input class=\"sp-in" + (manual ? " manual" : "") + "\" type=\"text\" inputmode=\"" + (field === "h" ? "text" : "decimal") + "\" aria-label=\"" + label + " on " + esc(speedDayLabel(d)) + " for " + esc(name) + "\"" + (field === "h" && val != null ? " title=\"" + hoursClock(val) + " (h:mm)\"" : "") + " placeholder=\"" + (field === "h" ? "hrs" : "tkts") + "\" value=\"" + (val != null ? esc(speedFmt(val)) : "") + "\" data-sp-week=\"" + esc(speed.week) + "\" data-sp-crm=\"" + esc(crm) + "\" data-sp-date=\"" + esc(d) + "\" data-sp-field=\"" + field + "\" />";
         };
         return "<td><span class=\"sp-v\">" + speedFmt(sp) + "</span>" + inp("t", "Cleared tickets", r ? r.t : null, r && r.mt) + inp("h", "Hours", r ? r.h : null, r && r.mh) +
           (need != null ? "<span class=\"sp-need " + (left === 0 ? "ok" : "short") + "\" title=\"" + need + " tickets in these hours hit the goal\">" + (left === 0 ? "goal met" : "need " + left + " more") + "</span>" : "") + "</td>";
@@ -4972,7 +4990,7 @@
           return "<tr" + (outNow(t) ? " class=\"is-inactive\"" : "") + "><td class=\"sk sk1\">" + esc(t.name) + "</td><td class=\"sk sk2\"><b>" + speedFmt(tot.value) + "</b></td><td class=\"sk sk3\">" + (mine.length ? speedFmt(tot.hours) : "—") + "</td><td>" + (mine.length ? speedFmt(tot.tickets) : "—") + "</td>" +
             (speed.goal ? "<td" + (short ? " class=\"sp-short\"" : "") + ">" + (tot.left != null ? tot.left : "—") + "</td>" : "") +
             days.map(function(d){ return cell(mine.filter(function(x){ return x.d === d; })[0], d, crm, t.name); }).join("") + "</tr>";
-        }).join("") + "</tbody></table></div><p class=\"hint\">Speed is minutes per ticket (hours × 60 ÷ cleared tickets), so lower is faster; it recalculates when you change hours or tickets. " + (speed.goal ? "“need N more” is how many more tickets the trainee needed in those hours to hit the " + esc(speedFmt(speed.goal)) + " min goal (0 once met). " : "Set a team speed goal to see the tickets each trainee needs. ") + "Edited boxes are outlined and kept when you pull again.</p>";
+        }).join("") + "</tbody></table></div><p class=\"hint\">Speed is minutes per ticket (hours × 60 ÷ cleared tickets), so lower is faster; it recalculates when you change hours or tickets. Type hours either way: <b>7:30</b> (hours:minutes) or <b>7.5</b> (decimal); a colon means minutes, so 7.30 is 7.3 hours. " + (speed.goal ? "“need N more” is how many more tickets the trainee needed in those hours to hit the " + esc(speedFmt(speed.goal)) + " min goal (0 once met). " : "Set a team speed goal to see the tickets each trainee needs. ") + "Edited boxes are outlined and kept when you pull again.</p>";
     }
     var hidden = range ? allSaved.length - saved.length : 0;
     host.innerHTML = head + (hidden > 0 ? "<p class=\"hint\" style=\"margin-top:-4px\">" + hidden + " other pulled week" + (hidden === 1 ? "" : "s") + " outside " + esc(pickedCohort.name) + "'s training dates (" + esc(speedFmtDay(range.from)) + " – " + esc(speedFmtDay(range.to)) + ") " + (hidden === 1 ? "is" : "are") + " hidden. Choose All cohort trainees to see " + (hidden === 1 ? "it" : "them") + ".</p>" : "") + body;

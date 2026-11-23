@@ -11,8 +11,9 @@
   transform: none;
   height: calc(var(--taskbar-h) + env(safe-area-inset-bottom, 0px));
   padding: 0 8px env(safe-area-inset-bottom, 0px);
-  gap: 2px;
-  align-items: stretch;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
   border-radius: 0;
   border: 0;
   border-top: 1px solid var(--window-border);
@@ -20,22 +21,18 @@
   box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.1);
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
 }
-#dock::-webkit-scrollbar { display: none; }
 #dock::before { display: none; }
 .dock-item {
   --dock-max: 1;
   flex: 0 0 auto;
-  width: auto;
-  height: auto;
-  margin: 6px 0;
-  padding: 0 14px 0 10px;
-  flex-direction: row;
+  width: 46px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  justify-content: center;
   align-items: center;
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--window-fg);
   transition: background 0.12s;
 }
@@ -47,33 +44,61 @@
   position: static;
   flex-direction: row;
   align-items: center;
-  gap: 9px;
+  gap: 0;
   transform: none !important;
   will-change: auto;
 }
 .dock-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   background: var(--app, var(--accent));
 }
 .dock-icon svg { width: 70%; height: 70%; color: #fff; filter: none; }
-.dock-label { font-size: 13px; font-weight: 600; color: var(--window-fg); text-shadow: none; }
-.dock-label.long { font-size: 13px; letter-spacing: 0; }
+/* Icons only: the app's name shows in a tooltip above the icon on hover or keyboard focus. */
+.dock-label, .dock-label.long {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%) translateY(4px);
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: rgba(20, 22, 26, 0.94);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-shadow: none;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s, transform 0.12s;
+  z-index: 10;
+}
+.dock-label::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: rgba(20, 22, 26, 0.94);
+}
+.dock-item:hover .dock-label, .dock-item:focus-visible .dock-label { opacity: 1; transform: translateX(-50%) translateY(0); transition-delay: 0.2s; }
 .dock-item.group-start { margin-left: 10px; }
-.dock-item.group-start::before { left: -7px; top: 8px; bottom: 8px; width: 1px; height: auto; background: var(--line); }
+.dock-item.group-start::before { left: -8px; top: 8px; bottom: 8px; width: 1px; height: auto; background: var(--line); }
 /* Open apps get a line along the bottom of their button; the page in front gets the full accent. */
 .dock-item .dock-icon::after, .dock-item.running .dock-icon::after { display: none; }
 .dock-item.running::after {
   content: "";
   position: absolute;
-  left: 12px; right: 12px; bottom: -1px;
+  left: 12px; right: 12px; bottom: -5px;
   height: 3px;
   border-radius: 3px 3px 0 0;
   background: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .dock-item.current::after { background: var(--accent); }
-.dock-badge { top: -5px; right: -7px; min-width: 16px; height: 16px; font-size: 10px; line-height: 16px; box-shadow: 0 0 0 2px var(--window-bg); }
+.dock-badge { top: -6px; right: -6px; min-width: 16px; height: 16px; font-size: 10px; line-height: 16px; box-shadow: 0 0 0 2px var(--window-bg); }
 .dock-item.bounce { animation: none; }
 body[data-appearance="playful"] .dock-item.running::after { background: var(--highlight); }
 
@@ -127,7 +152,9 @@ body[data-appearance="playful"] .dock-item.running::after { background: var(--hi
 .home-page[hidden] { display: none; }
 
 @media (max-width: 640px) {
-  .dock-label { font-size: 12px; }
-  .dock-item { padding: 0 10px 0 8px; }
+  #dock { gap: 0; padding: 0 2px env(safe-area-inset-bottom, 0px); }
+  .dock-item { width: 34px; }
+  .dock-icon { width: 26px; height: 26px; }
+  .dock-item.group-start { margin-left: 4px; }
 }
 @media (prefers-reduced-motion: reduce) { .window { animation: none; } }

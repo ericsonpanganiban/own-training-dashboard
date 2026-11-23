@@ -237,7 +237,7 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 
 ## Redesign (branch `claude/redesign-taskbar`)
 
-**Taskbar and full pages.** The floating dock is now a **taskbar** along the bottom edge, side to side, with each app as an icon and a name. An open app has a line under its button and the page in front is highlighted. Apps no longer open as floating windows: each opens as a **full page** between the menu bar and the taskbar (no dragging, resizing or minimizing). Opening another app switches page; the others stay open behind it. The × at the top right closes the app, and *Trainer Desk* in the breadcrumb goes **Home** (a greeting page shown only when no app is open). The dashboard starts on **Today** for a Trainer.
+**Taskbar and full pages.** The floating dock is now a **taskbar** along the bottom edge, side to side, with each app as an icon only, centered; the app's name appears when you hover (or keyboard-focus) its icon. An open app has a line under its button and the page in front is highlighted. Apps no longer open as floating windows: each opens as a **full page** between the menu bar and the taskbar (no dragging, resizing or minimizing). Opening another app switches page; the others stay open behind it. The × at the top right closes the app, and *Trainer Desk* in the breadcrumb goes **Home** (a greeting page shown only when no app is open). The dashboard starts on **Today** for a Trainer.
 
 **Trainer view and Agent view.** The menu bar has a **Trainer view | Agent view** switch.
 - *Trainer view* is the full dashboard, where the Trainer gathers and enters everything.

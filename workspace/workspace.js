@@ -183,16 +183,11 @@
       });
     }
     // A Viewer sees the owner's dashboard (the database root) and can't change anything.
-    if (db && ws.id && !ws.isOwner && !ws.isManagerId) {
-      try {
-        const snap = await db.doc("config/viewers").get();
-        const ids = snap.exists && Array.isArray(snap.data()?.ids) ? snap.data().ids.map(String) : [];
-        if (ids.includes(ws.id)) {
-          ws.isViewer = true;
-          ws.viewing = { id: "", base: "", kind: "root", viewer: true };
-          ws.readOnly = true;
-        }
-      } catch {}
+    // Trainer view is the owner's only: everyone else reads the owner's data, read-only, and gets the Agent view.
+    if (db && !ws.isOwner) {
+      ws.isViewer = true;
+      ws.viewing = { id: "", base: "", kind: "root", viewer: true };
+      ws.readOnly = true;
     }
     setRole();
     // A Trainer's own entry in the directory (the Training Manager lists Trainers from these).

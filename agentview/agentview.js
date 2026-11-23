@@ -147,7 +147,7 @@
     render(el) {
       el.classList.add("ag-app");
       if (!state.agentId) state.agentId = firstAgent();
-      const ui = { tab: "preview", cohort: "", codes: {}, show: {}, msg: "", busy: false, url: "", unsubs: [], db: null, bundle: null };
+      const ui = { tab: "preview", cohort: "", msg: "", busy: false, url: "", unsubs: [], db: null, bundle: null };
       const nameOf = (id) => (roster().trainees.find((t) => t.id === id) || {}).name || "the agent";
 
       const tabs = () => `<div class="ag-tabs" role="tablist"><button type="button" role="tab" class="${ui.tab === "preview" ? "on" : ""}" data-ag-tab="preview" aria-selected="${ui.tab === "preview"}">Preview</button><button type="button" role="tab" class="${ui.tab === "access" ? "on" : ""}" data-ag-tab="access" aria-selected="${ui.tab === "access"}">Access and publishing</button></div>`;
@@ -155,7 +155,7 @@
       const previewHtml = () => `
         <div class="ag-intro">
           <h3>Agent View</h3>
-          <p>This is what an agent sees: their own scorecard and nothing else. It is read-only. They don't see other agents, your notes, HR documents or any pass/fail projection, and they can't enter or change anything. You gather and enter everything in the Trainer view. Agents get in with their work email and a code you give them (see Access and publishing).</p>
+          <p>This is what an agent sees: their own scorecard and nothing else. It is read-only. They don't see other agents, your notes, HR documents or any pass/fail projection, and they can't enter or change anything. You gather and enter everything in the Trainer view. Agents get in with their work email (see Access and publishing).</p>
           <div class="ag-bar">
             <label for="agPick">Preview as</label>
             <select id="agPick">${agentOptions(state.agentId)}</select>
@@ -169,13 +169,10 @@
         const byId = new Map(trainees.map((t) => [t.id, t]));
         const pool = ui.cohort ? ((cohorts.find((c) => c.id === ui.cohort) || {}).trainee_ids || []).map((id) => byId.get(id)).filter(Boolean) : trainees;
         return pool.slice().sort((a, b) => (inactive(a) - inactive(b)) || String(a.name).localeCompare(String(b.name))).map((t) => {
-          const code = (ui.codes[t.id] || {}).code || "";
           const email = String(t.email || "").trim();
-          const shown = ui.show[t.id];
           return `<tr class="${inactive(t) ? "is-inactive" : ""}"><td>${esc(t.name)}${inactive(t) ? " <small>(Inactive)</small>" : ""}</td>
             <td>${email ? esc(email) : `<span class="ag-warn">No work email. Add it in Settings → Roster.</span>`}</td>
-            <td>${code ? `<code>${shown ? esc(code) : "••••-••••-••"}</code> <button type="button" class="linkish" data-ag-show="${esc(t.id)}">${shown ? "Hide" : "Show"}</button>` : `<span class="muted">No code yet</span>`}</td>
-            <td class="ag-acts">${inactive(t) ? `<span class="muted">Agent view off (Inactive)</span>` : `<button type="button" class="linkish" data-ag-gen="${esc(t.id)}">${code ? "New code" : "Make a code"}</button>${code && email ? ` · <button type="button" class="linkish" data-ag-copyinv="${esc(t.id)}">Copy invite</button> · <button type="button" class="linkish" data-ag-slackinv="${esc(t.id)}">Send on Slack</button>` : ""}`}</td></tr>`;
+            <td class="ag-acts">${inactive(t) ? `<span class="muted">Agent view off (Inactive)</span>` : email ? `<button type="button" class="linkish" data-ag-copyinv="${esc(t.id)}">Copy invite</button> · <button type="button" class="linkish" data-ag-slackinv="${esc(t.id)}">Send on Slack</button>` : ""}</td></tr>`;
         }).join("");
       };
       const accessHtml = () => {
@@ -184,14 +181,14 @@
         return `
         <div class="ag-intro">
           <h3>Access and publishing</h3>
-          <p>Agents marked <b>Inactive</b> have no Agent view: they can't be previewed, get no code action, and are left out when you build. Rebuild and republish the agent page after someone becomes inactive to remove their access there.</p><p><b>Two ways in.</b> Anyone who can open this dashboard but isn't you (Viewers, other seat holders) sees only the Agent view: a sign-in for their work email and code, then their own scorecard. Agents <b>without</b> a Claude seat use the <b>Agent page link</b> below instead: a separate page Claude publishes for you.</p><p>Agents don't need a Claude seat. They open one page, enter their <b>work email and their code</b>, and see only their own scorecard. Each agent's data is <b>locked with their email and code</b> inside that page, so nobody can read another agent's scorecard without that agent's code. Codes are made here (10 characters, hard to guess); give each agent theirs privately.</p>
-          <ol class="ag-steps"><li>Make a code for every agent (their work email must be on the roster).</li><li><b>Build agent data</b> below. It locks every scorecard and saves the result.</li><li>Ask Claude to <b>publish the agent page</b>. It puts the locked data on a page agents can open without a seat, and gives you the link. Do this again whenever you want agents to see fresh numbers.</li><li>Paste the link below, then <b>Copy invite</b> or <b>Send on Slack</b> for each agent.</li></ol>
+          <p>Agents sign in with just their <b>work email</b> (the one on the roster) and see their own scorecard. Anyone who opens this dashboard who isn't you gets only this sign-in. Agents marked <b>Inactive</b> can't sign in.</p>
+          <p>Note: with email only, anyone who knows a colleague's work email can open that colleague's scorecard.</p>
+          <ol class="ag-steps"><li>Make sure every agent has their work email on the roster (Settings → Roster).</li><li>Send each agent the link: <b>Copy invite</b> or <b>Send on Slack</b>. Inside this dashboard their numbers are always current.</li><li>For agents who shouldn't open this dashboard (or have no Claude seat): <b>Build agent data</b>, then ask Claude to <b>publish the agent page</b> and paste its link below. That page is a snapshot, so build and republish to refresh it.</li></ol>
           <div class="ag-bar"><label for="agCohort">Class</label><select id="agCohort"><option value="">All classes</option>${cohorts.map((c) => `<option value="${esc(c.id)}"${c.id === ui.cohort ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
-            <label for="agUrl">Agent page link</label><input id="agUrl" type="url" placeholder="https://claude.ai/…" value="${esc(ui.url)}" style="min-width:300px"><button type="button" class="btn" data-ag-saveurl>Save link</button></div>
+            <label for="agUrl">Agent page link</label><input id="agUrl" type="url" placeholder="Leave empty to invite agents to this dashboard" value="${esc(ui.url)}" style="min-width:300px"><button type="button" class="btn" data-ag-saveurl>Save link</button></div>
         </div>
-        <div class="ag-tablewrap"><table class="ag-table ag-access"><thead><tr><th>Agent</th><th>Work email</th><th>Code</th><th></th></tr></thead><tbody>${accessRows()}</tbody></table></div>
+        <div class="ag-tablewrap"><table class="ag-table ag-access"><thead><tr><th>Agent</th><th>Work email</th><th></th></tr></thead><tbody>${accessRows()}</tbody></table></div>
         <div class="ag-actions">
-          <button type="button" class="btn" data-ag-genall${ui.busy ? " disabled" : ""}>Make missing codes</button>
           <button type="button" class="btn btn-primary" data-ag-build${ui.busy ? " disabled" : ""}>${ui.busy ? "Building…" : "Build agent data"}</button>
           ${b ? `<button type="button" class="btn" data-ag-download>Download the locked data</button>` : ""}
           <span class="ag-msg" role="status">${esc(ui.msg)}</span>
@@ -206,21 +203,20 @@
       };
       const say = (m) => { ui.msg = m; if (ui.tab === "access") draw(); };
 
-      // The saved codes and bundle summary live in the database; only the Trainer can read or write them.
+      // The bundle summary and agent page link live in the database; only the Trainer writes them.
       const connect = () => {
         if (ui.db || !window.TrainerUse) return;
         window.TrainerUse("db").then((db) => {
           if (!db || ui.db || !el.isConnected) return;
           ui.db = db;
-          ui.unsubs.push(db.collection("agent_access").onSnapshot((snap) => { ui.codes = {}; snap.docs.forEach((d) => (ui.codes[d.id] = d.data() || {})); if (ui.tab === "access" && !el.contains(document.activeElement)) draw(); }));
           ui.unsubs.push(db.doc("agent_bundle/current").onSnapshot((snap) => { const d = snap.exists ? snap.data() : null; ui.bundle = d ? { generated_at: d.generated_at, count: d.count || (d.records || []).length } : null; if (ui.tab === "access" && !el.contains(document.activeElement)) draw(); }));
           ui.unsubs.push(db.doc("settings/agent_page").onSnapshot((snap) => { ui.url = (snap.exists && (snap.data() || {}).url) || ""; if (ui.tab === "access" && !el.contains(document.activeElement)) draw(); }));
         }).catch(() => {});
       };
       const inviteText = (t) => {
-        const code = (ui.codes[t.id] || {}).code;
         const first = String(t.name || "").split(/\s+/)[0] || "there";
-        return `Hi ${first}, your training scorecard is ready: ${ui.url || "[link]"}\nSign in with your work email (${String(t.email || "").trim()}) and this code: ${code}\nIt shows your attendance, QA, Speed, quizzes, spot checks and coaching. Please keep your code private.`;
+        const link = ui.url || location.href.split("#")[0];
+        return `Hi ${first}, your training scorecard is ready: ${link}\nSign in with your work email (${String(t.email || "").trim()}).\nIt shows your goals, attendance, QA, Speed, quizzes, spot checks and coaching.`;
       };
       const traineeById = (id) => roster().trainees.find((t) => t.id === id);
 
@@ -234,16 +230,7 @@
         const d = b.dataset;
         if (d.agTab) { ui.tab = d.agTab; ui.msg = ""; draw(); if (ui.tab === "access") connect(); }
         else if ("agOpen" in d) window.TrainerView.set("agent", state.agentId);
-        else if (d.agShow) { ui.show[d.agShow] = !ui.show[d.agShow]; draw(); }
-        else if (d.agGen) {
-          if (!ui.db) return say("Saving isn't available right now.");
-          await ui.db.doc("agent_access/" + d.agGen).set({ code: AgentLock.makeCode(), issued_at: new Date().toISOString() }).then(() => say(`New code made for ${nameOf(d.agGen)}. Build the agent data again so it works.`), () => say("Couldn't save the code."));
-        } else if ("agGenall" in d) {
-          if (!ui.db) return say("Saving isn't available right now.");
-          const rows = [...el.querySelectorAll("[data-ag-gen]")].map((x) => x.dataset.agGen).filter((id) => !(ui.codes[id] || {}).code);
-          for (const id of rows) await ui.db.doc("agent_access/" + id).set({ code: AgentLock.makeCode(), issued_at: new Date().toISOString() }).catch(() => {});
-          say(rows.length ? `Made ${rows.length} code${rows.length === 1 ? "" : "s"}.` : "Everyone listed already has a code.");
-        } else if ("agSaveurl" in d) {
+        else if ("agSaveurl" in d) {
           const v = (el.querySelector("#agUrl").value || "").trim();
           if (!ui.db) return say("Saving isn't available right now.");
           await ui.db.doc("settings/agent_page").set({ url: v, updated_at: new Date().toISOString() }).then(() => say("Link saved."), () => say("Couldn't save the link."));
@@ -268,16 +255,15 @@
           const records = [], skipped = [];
           for (const t of trainees) {
             if (inactive(t)) continue; // Inactive agents get no Agent view
-            const code = (ui.codes[t.id] || {}).code, email = String(t.email || "").trim();
-            if (!code || !email) { skipped.push(t.name); continue; }
-            try { records.push(await AgentLock.lock(email, code, await collect(t, true))); } catch (err) { skipped.push(t.name); }
+            const email = String(t.email || "").trim();
+            if (!email) { skipped.push(t.name); continue; }
+            try { records.push(await AgentLock.lock(email, "", await collect(t, true))); } catch (err) { skipped.push(t.name); }
           }
           const doc = { v: 1, generated_at: new Date().toISOString(), count: records.length, records };
           try {
             await ui.db.doc("agent_bundle/current").set(doc);
-            await ui.db.doc("agent_public/current").set(doc); // the locked copy anyone signing in inside the dashboard reads
             ui.busy = false;
-            say(`Built for ${records.length} agent${records.length === 1 ? "" : "s"}${skipped.length ? `. Skipped (no email or code): ${skipped.slice(0, 6).join(", ")}${skipped.length > 6 ? "…" : ""}` : ""}. Now ask Claude to publish the agent page.`);
+            say(`Built for ${records.length} agent${records.length === 1 ? "" : "s"}${skipped.length ? `. Skipped (no work email): ${skipped.slice(0, 6).join(", ")}${skipped.length > 6 ? "…" : ""}` : ""}. Now ask Claude to publish the agent page.`);
           } catch (err) { ui.busy = false; say("Couldn't save the agent data."); }
         } else if ("agDownload" in d) {
           const db = ui.db; if (!db) return;
@@ -302,37 +288,22 @@
   // ---- Sign in for anyone who isn't the owner: work email and code open only their own locked scorecard ----
   function gate(el) {
     const show = () => {
-      el.innerHTML = `<form class="ag-gate" autocomplete="off"><h2>Your scorecard</h2><p>Sign in with your work email and the code you were given.</p>
+      el.innerHTML = `<form class="ag-gate" autocomplete="off"><h2>Your scorecard</h2><p>Enter your work email to see your scorecard.</p>
         <label>Work email<input type="email" id="gEmail" required autocomplete="username" inputmode="email"></label>
-        <label>Code<input type="password" id="gCode" required autocomplete="current-password" spellcheck="false"></label>
-        <button type="submit" class="btn btn-primary" id="gGo">Sign in</button><p class="ag-gerr" id="gErr" role="alert"></p>
-        <p class="ag-gnote">Your scorecard is locked with your email and code. Nobody else can open it.</p></form>`;
+        <button type="submit" class="btn btn-primary" id="gGo">View my scorecard</button><p class="ag-gerr" id="gErr" role="alert"></p></form>`;
     };
     show();
-    el.addEventListener("submit", async (e) => {
+    el.addEventListener("submit", (e) => {
       e.preventDefault();
-      const err = el.querySelector("#gErr"), go = el.querySelector("#gGo");
-      const email = el.querySelector("#gEmail").value, code = el.querySelector("#gCode").value;
-      err.textContent = ""; go.disabled = true; go.textContent = "Checking…";
-      let data = null, reachable = true;
-      try {
-        // The locked copy sits at the database root, outside any trainer's own space.
-        const db = await window.claude.use("db");
-        const snap = await db.doc("agent_public/current").get();
-        const bundle = (snap.exists && snap.data()) || null;
-        if (!bundle) reachable = false;
-        else {
-          const id = await AgentLock.recordId(email);
-          const rec = (bundle.records || []).find((x) => x.id === id);
-          if (rec) data = await AgentLock.unlock(rec, email, code);
-        }
-      } catch (x) { data = null; }
-      if (!data) {
-        go.disabled = false; go.textContent = "Sign in";
-        err.textContent = reachable ? "That email and code don't match. Check them and try again." : "Scorecards haven't been published yet. Ask your trainer.";
-        return;
-      }
-      el.innerHTML = `<div class="ag-previewbar"><span>Signed in</span><button type="button" class="btn" data-ag-signout>Sign out</button></div><div class="ag-body">${AgentCard.html(data)}</div>`;
+      const err = el.querySelector("#gErr");
+      const want = AgentLock.norm(el.querySelector("#gEmail").value);
+      const { trainees } = roster();
+      if (!trainees.length) { err.textContent = "Still loading. Try again in a moment."; return; }
+      const t = trainees.find((x) => AgentLock.norm(x.email || "") === want);
+      if (!t) { err.textContent = "We couldn't find that email. Use the work email your trainer has on file."; return; }
+      if (inactive(t)) { err.textContent = "This profile isn't available."; return; }
+      el.innerHTML = `<div class="ag-previewbar"><span>${esc(t.name)}</span><button type="button" class="btn" data-ag-signout>Sign out</button></div><div class="ag-body"></div>`;
+      mount(el.querySelector(".ag-body"), t.id);
     });
     el.addEventListener("click", (e) => { if (e.target.closest("[data-ag-signout]")) show(); });
   }

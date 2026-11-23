@@ -253,3 +253,6 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 
 ### Metrics and Coaching is four apps (redesign branch)
 The old Metrics and Coaching app is split into four apps on the taskbar: **Weekly QA Audit** (QA Data Request and QA Data), **Speed**, **Spot Checks** and **Coachings** (Team coaching and Individual coaching). They share one Coaching page (`coaching-compass/`), so saved work and the open week carry across; each app shows only its own sections, with a tab row where it holds two. Opening something that belongs to another app (a saved audit's trainee, say) brings that app forward. Settings stays in the Settings app.
+
+### Agent sign-in is email only (redesign branch)
+Codes are gone. Trainer view is the owner's only; anyone else who opens the dashboard reads the owner's data read-only and sees only the Agent view, where they enter their work email (as on the roster) and see their own live scorecard. Inactive agents can't sign in. With email only, anyone who knows a colleague's work email can open that colleague's scorecard. The standalone agent page (Build agent data, then Claude publishes it) is also email only and stays a snapshot.

@@ -30,12 +30,10 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: -apple-s
 <main id="app">
   <form class="login" id="login" autocomplete="off">
     <h1>Your scorecard</h1>
-    <p>Sign in with your work email and the code you were given.</p>
+    <p>Enter your work email to see your scorecard.</p>
     <label>Work email<input type="email" id="email" required autocomplete="username" inputmode="email"></label>
-    <label>Code<input type="password" id="code" required autocomplete="current-password" spellcheck="false"></label>
-    <button type="submit" id="go">Sign in</button>
+    <button type="submit" id="go">View my scorecard</button>
     <p class="err" id="err" role="alert"></p>
-    <p class="small">Your scorecard is locked with your email and code. Nobody else can open it.</p>
   </form>
 </main>
 <script type="application/json" id="bundle">/*__BUNDLE__*/</script>
@@ -50,7 +48,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: -apple-s
   form.addEventListener("submit", async function (e) {
     e.preventDefault();
     err.textContent = "";
-    var email = document.getElementById("email").value, code = document.getElementById("code").value;
+    var email = document.getElementById("email").value, code = "";
     go.disabled = true; go.textContent = "Checking…";
     var data = null;
     try {
@@ -59,7 +57,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: -apple-s
       if (rec) data = await AgentLock.unlock(rec, email, code);
     } catch (x) { data = null; }
     go.disabled = false; go.textContent = "Sign in";
-    if (!data) { err.textContent = "That email and code don't match. Check both and try again."; document.getElementById("code").value = ""; return; }
+    if (!data) { err.textContent = "We couldn't find that email. Use the work email your trainer has on file."; return; }
     app.innerHTML = AgentCard.html(data);
     out.hidden = false;
     window.scrollTo(0, 0);

@@ -1,4 +1,4 @@
-"""Build the standalone agent page: login by work email and code, then the agent's own scorecard.
+"""Build the standalone agent page: login by work email, then the agent's own scorecard.
 
 The page holds only locked records (see agentview/crypto.js), so it can be published without a Claude seat.
 

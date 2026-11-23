@@ -28,6 +28,7 @@
     ["quiz_trash", []],
     ["quiz_analyses", []],
     ["quiz_settings", []],
+    ["quiz_notion", []],
     ["csq", []],
     ["todos", []],
     ["hr_docs", []],

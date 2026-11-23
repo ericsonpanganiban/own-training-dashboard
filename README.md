@@ -256,3 +256,6 @@ The old Metrics and Coaching app is split into four apps on the taskbar: **Weekl
 
 ### Agent sign-in is email only (redesign branch)
 Codes are gone. Trainer view is the owner's only; anyone else who opens the dashboard reads the owner's data read-only and sees only the Agent view, where they enter their work email (as on the roster) and see their own live scorecard. Inactive agents can't sign in. With email only, anyone who knows a colleague's work email can open that colleague's scorecard. The standalone agent page (Build agent data, then Claude publishes it) is also email only and stays a snapshot.
+
+### Quiz › Resources › Notion (redesign branch)
+A **Notion** group sits at the top of Quiz › Resources (`quiz_notion`): the Notion articles quizzes are built from, Notion links only. The page can't open Notion itself, so ask Claude to **sync the Notion resources**: Claude reads each article and saves its text on the record (`text`, `synced_at`). Synced articles are read in full by "Ask Claude for quiz questions"; unsynced ones give only their title. Changing an article's link clears its synced text.

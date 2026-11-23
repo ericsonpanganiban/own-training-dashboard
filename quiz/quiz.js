@@ -1289,10 +1289,13 @@
   // ---- Quiz Links and Resources: saved links (title, URL, note) ----
   const LINK_KIND = {
     links: { coll: "quiz_links", noun: "link", empty: "No quiz links yet. Save links to quizzes kept elsewhere, like a Google Form, so they're in one place.", placeholder: "e.g. Week 2 Google Form" },
+    // The main study material: Notion articles. The page can't open Notion itself, so Claude (in chat) copies each
+    // article's text into its record (text, synced_at) when asked to "sync the Notion resources".
+    notion: { coll: "quiz_notion", noun: "Notion article", only: /(^|\.)notion\.(so|site|com)$/i, onlyMsg: "That isn't a Notion link. Use a notion.so or notion.com page link.", empty: "No Notion articles yet. Add the Notion links your quizzes are based on.", placeholder: "e.g. CP Profile Photo Examples" },
     resources: { coll: "quiz_resources", noun: "resource", empty: "No resources yet. Save study material and references trainees need for quizzes.", placeholder: "e.g. Refund policy SOP" },
   };
-  const linkStore = { links: [], resources: [] };
-  const linkLoaded = { links: false, resources: false };
+  const linkStore = { links: [], resources: [], notion: [] };
+  const linkLoaded = { links: false, resources: false, notion: false };
   dbReady.then((d) => {
     Object.entries(LINK_KIND).forEach(([kind, k]) => {
       if (!d) return (linkLoaded[kind] = true);
@@ -1348,7 +1351,7 @@
                 .map(
                   (x) => `<li>
                     <div class="link-main"><a href="${escapeHtml(x.url)}" target="_blank" rel="noopener noreferrer"><b>${escapeHtml(x.title)}</b></a>
-                      <small class="muted">${escapeHtml(x.url)}</small>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}</div>
+                      <small class="muted">${escapeHtml(x.url)}</small>${x.note ? `<p>${escapeHtml(x.note)}</p>` : ""}${kind === "notion" ? `<small class="${x.text ? "muted" : "warn-text"}">${x.text ? `Synced ${escapeHtml(new Date(x.synced_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }))}: Claude can read it` : "Not synced yet: ask Claude to sync the Notion resources"}</small>` : ""}</div>
                     <button type="button" class="btn btn-small" data-link-copy="${escapeHtml(x.url)}">Copy link</button>
                     <button type="button" class="square-btn kebab" data-link-menu="${kind}|${escapeHtml(x.id)}" aria-label="Options for ${escapeHtml(x.title)}">⋮</button>
                   </li>`
@@ -1419,7 +1422,7 @@
   const isDriveLink = (u) => /(docs|drive)\.google\.com\//.test(u || "");
 
   function aiBoxHtml() {
-    const res = linkStore.resources;
+    const res = [...linkStore.notion.map((x) => ({ ...x, notion: true })), ...linkStore.resources];
     const picked = ai.suggestions.filter((q) => q.pick).length;
     const quizzesList = allQuizzes();
     return `
@@ -1438,7 +1441,7 @@
                 ${res
                   .map(
                     (x) => `<label><input type="checkbox" data-ai-use="${escapeHtml(x.id)}"${ai.use.has(x.id) ? " checked" : ""} /> ${escapeHtml(x.title)}
-                      <small class="muted">${isDriveLink(x.url) ? "Claude reads this Google Doc" : "Claude sees the title and note only"}</small></label>`
+                      <small class="muted">${x.notion ? (x.text ? "Notion · Claude reads this article" : "Notion · not synced yet, title only") : isDriveLink(x.url) ? "Claude reads this Google Doc" : "Claude sees the title and note only"}</small></label>`
                   )
                   .join("")}</fieldset>`
             : ""
@@ -1517,7 +1520,11 @@
     // Material: picked resources (Drive links read in full) and anything pasted.
     const parts = [];
     const skipped = [];
-    for (const x of linkStore.resources.filter((r) => ai.use.has(r.id))) {
+    for (const x of [...linkStore.notion, ...linkStore.resources].filter((r) => ai.use.has(r.id))) {
+      if (x.text) {
+        parts.push({ title: x.title, text: x.text, full: `### ${x.title}${x.note ? ` (${x.note})` : ""}\n${x.text}` });
+        continue;
+      }
       if (isDriveLink(x.url) && cc()?.readDriveText) {
         try {
           const text = await cc().readDriveText(x.url);
@@ -1621,6 +1628,7 @@
     const note = form.querySelector("[data-link-note]").value.trim();
     if (!title) return void ((status.textContent = "Give it a title."), form.querySelector("[data-link-title]").focus());
     if (!url) return void ((status.textContent = "Add a valid link (starting with https://)."), form.querySelector("[data-link-url]").focus());
+    if (LINK_KIND[kind].only && !LINK_KIND[kind].only.test(new URL(url).hostname)) return void ((status.textContent = LINK_KIND[kind].onlyMsg), form.querySelector("[data-link-url]").focus());
     status.textContent = "Saving…";
     saveLink(kind, { id: `l${Date.now()}`, title, url, note, created_at: new Date().toISOString() }).then(
       () => ((status.textContent = ""), draw(), ui.el.querySelector(`[data-link-form="${kind}"] [data-link-title]`)?.focus()),
@@ -1641,7 +1649,8 @@
     $("[data-yes]").addEventListener("click", () => {
       const title = $("[data-e-title]").value.trim(), url = cleanUrl($("[data-e-url]").value);
       if (!title || !url) return void ($("[data-e-status]").textContent = !title ? "Give it a title." : "Add a valid link.");
-      saveLink(kind, { ...x, title, url, note: $("[data-e-note]").value.trim() }).then(sh.close, () => ($("[data-e-status]").textContent = "Couldn't save. Try again."));
+      if (LINK_KIND[kind].only && !LINK_KIND[kind].only.test(new URL(url).hostname)) return void ($("[data-e-status]").textContent = LINK_KIND[kind].onlyMsg);
+      saveLink(kind, { ...x, title, url, note: $("[data-e-note]").value.trim(), ...(url !== x.url ? { text: "", synced_at: "" } : {}) }).then(sh.close, () => ($("[data-e-status]").textContent = "Couldn't save. Try again."));
     });
     $("[data-e-title]").focus();
   }
@@ -1668,7 +1677,7 @@
   // A trashed quiz keeps its sends and results where they are, so restoring it brings everything back.
   const TRASH_DAYS = 30;
   const DAY = 86400000;
-  const TRASH_KIND = { quiz: "Quiz", question: "Question", links: "Quiz link", resources: "Resource" };
+  const TRASH_KIND = { quiz: "Quiz", question: "Question", links: "Quiz link", resources: "Resource", notion: "Notion article" };
   let trash = [];
   let trashLoaded = false;
   dbReady.then((d) => {
@@ -1725,7 +1734,7 @@
     const t = trash.find((x) => x.id === id);
     if (!t) return;
     if (t.kind === "quiz") await saveQuiz(t.data);
-    else if (t.kind === "links" || t.kind === "resources") await saveLink(t.kind, t.data);
+    else if (t.kind === "links" || t.kind === "resources" || t.kind === "notion") await saveLink(t.kind, t.data);
     else if (t.kind === "question") {
       const quiz = t.quiz_id === ui.draft?.id ? ui.draft : allQuizzes().find((q) => q.id === t.quiz_id);
       if (!quiz) {
@@ -1818,7 +1827,7 @@
       case "trash":
         return head("Trash", `<span class="muted quiz-sub">Deleted items, kept ${TRASH_DAYS} days</span>`) + trashHtml();
       case "resources":
-        return head("Resources", `<span class="muted quiz-sub">Study material and references for quizzes</span>`) + aiBoxHtml() + `<h4 class="quiz-h">Saved resources</h4>` + linkListHtml("resources");
+        return head("Resources", `<span class="muted quiz-sub">Study material and references for quizzes</span>`) + `<h4 class="quiz-h">Notion</h4><p class="muted" style="margin:-4px 0 10px">The main resources quizzes are built from. Add each Notion article link here.</p>` + linkListHtml("notion") + aiBoxHtml() + `<h4 class="quiz-h">Other resources</h4>` + linkListHtml("resources");
     }
     return "";
   }

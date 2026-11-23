@@ -29,3 +29,6 @@
 .ag-spot-top .ag-chip { margin: 0 0 0 auto; }
 .ag-empty { color: var(--muted); font-size: 13.5px; }
 .ag-foot { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 30px; }
+
+.ag-who { margin: -10px 0 18px; color: var(--muted); }
+.ag-who b { color: inherit; }

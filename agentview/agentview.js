@@ -78,6 +78,8 @@
       cohort: c ? c.name : "",
       started: c ? c.training_start_date || "" : "",
       inactive: inactive(t),
+      lead: String(t.team_lead || (c && c.team_lead) || "").trim(),
+      dept: String(t.department || (c && c.department) || "").trim(),
       goals: goalsOf(c),
       att: { points: pts, graded: graded.length, late: graded.filter((k) => days[k] !== "ontime").sort((a, b) => +a - +b).map((k) => ({ day: k, label: DAYLBL[days[k]] || days[k] })) },
       qa: { pass: perf.weeks.reduce((a, w) => a + w.pass, 0), total: perf.weeks.reduce((a, w) => a + w.total, 0), weeks: perf.weeks.map((w) => ({ week: w.week, pass: w.pass, total: w.total, strengths: (w.brief && w.brief.strengths) || [], issues: (w.brief && w.brief.recurring_issues) || [] })) },

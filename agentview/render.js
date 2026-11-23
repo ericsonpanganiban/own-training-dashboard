@@ -25,6 +25,17 @@
       stat("Spot checks", spot.avg == null ? "—" : `${num(spot.avg)}%`, spot.count ? `${spot.count} spot check${spot.count === 1 ? "" : "s"}${g.spot != null ? ` · goal ${num(g.spot)}%` : ""}` : "none yet", spot.avg == null || g.spot == null ? null : spot.avg >= g.spot),
     ].join("");
 
+    const goalRow = (label, goal, shown, met, unit, dir) => `<tr><td><b>${esc(label)}</b></td><td>${goal == null ? `<span class="ag-empty">Not set</span>` : `${dir} ${num(goal)}${unit}`}</td><td>${shown}</td><td>${met == null ? "—" : `<span class="ag-chip ${met ? "ok" : "no"}">${met ? "Goal met" : "Below goal"}</span>`}</td></tr>`;
+    const goalRows = [
+      goalRow("QA score", g.qa, qaPct == null ? "—" : `${Math.round(qaPct)}%`, qaPct == null || g.qa == null ? null : qaPct >= g.qa, "%", "at least"),
+      goalRow("Speed (min per ticket)", g.speed, sp.avg == null ? "—" : num(sp.avg), sp.avg == null || g.speed == null ? null : sp.avg <= g.speed, "", "at most"),
+      goalRow("Attendance points", g.attendance, att.points == null ? "—" : num(att.points), att.points == null || g.attendance == null ? null : att.points <= g.attendance, "", "at most"),
+      goalRow("Quiz average", g.quiz, quizAvg == null ? "—" : `${quizAvg}%`, quizAvg == null || g.quiz == null ? null : quizAvg >= g.quiz, "%", "at least"),
+      goalRow("Spot checks", g.spot, spot.avg == null ? "—" : `${num(spot.avg)}%`, spot.avg == null || g.spot == null ? null : spot.avg >= g.spot, "%", "at least"),
+    ].join("");
+    const anyGoal = ["qa", "speed", "attendance", "quiz", "spot"].some((k) => g[k] != null);
+    const who = [d.lead ? `Team lead: <b>${esc(d.lead)}</b>` : "", d.dept ? `Department: <b>${esc(d.dept)}</b>` : ""].filter(Boolean).join(" · ");
+
     const qaRows = qa.weeks.map((w) => {
       const pct = w.total ? (w.pass / w.total) * 100 : null;
       return `<tr><td><b>Week ${esc(w.week)}</b></td><td class="${g.qa != null && pct != null ? (pct >= g.qa ? "ag-ok" : "ag-no") : ""}">${pct == null ? "—" : `<b>${Math.round(pct)}%</b> <small>${num(w.pass)} of ${w.total}</small>`}</td><td>${(w.strengths || []).length ? `<div><span class="ag-tag good">Doing well</span> ${w.strengths.map(esc).join(" · ")}</div>` : ""}${(w.issues || []).length ? `<div><span class="ag-tag watch">To work on</span> ${w.issues.map(esc).join(" · ")}</div>` : ""}</td></tr>`;
@@ -39,7 +50,9 @@
 
     return `<div class="ag-page">
       <div class="ag-head"><div><h2>${esc(d.name || "Agent")}</h2><p>${d.cohort ? esc(d.cohort) : "No class"}${d.started ? ` · started ${esc(dshort(d.started + "T00:00:00"))}` : ""}${d.inactive ? " · inactive" : ""}</p></div></div>
+      ${who ? `<p class="ag-who">${who}</p>` : ""}
       <div class="ag-stats">${stats}</div>
+      <section class="ag-sec"><h3>Your goals</h3>${anyGoal ? `<table class="ag-table"><thead><tr><th>Measure</th><th>Goal</th><th>You now</th><th>Status</th></tr></thead><tbody>${goalRows}</tbody></table>` : `<p class="ag-empty">No goals have been set for your class yet.</p>`}</section>
       <section class="ag-sec"><h3>QA by week</h3>${qaRows ? `<table class="ag-table"><thead><tr><th>Week</th><th>Score</th><th>Feedback</th></tr></thead><tbody>${qaRows}</tbody></table>` : `<p class="ag-empty">No QA weeks yet.</p>`}</section>
       <section class="ag-sec"><h3>Speed by week</h3>${spRows ? `<table class="ag-table"><thead><tr><th>Week</th><th>Min per ticket</th><th>Hours</th><th>Cleared</th></tr></thead><tbody>${spRows}</tbody></table>` : `<p class="ag-empty">No Speed yet.</p>`}</section>
       <section class="ag-sec"><h3>Attendance</h3>${att.graded ? `<p>${att.graded} day${att.graded === 1 ? "" : "s"} graded, ${att.graded - late.length} on time.${late.length ? ` Not on time: ${late.map((x) => `Day ${esc(x.day)} (${esc(x.label)})`).join(", ")}.` : " Nothing missed."}</p>` : `<p class="ag-empty">No attendance recorded yet.</p>`}</section>

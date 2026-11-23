@@ -31,7 +31,7 @@
       const t = (c.trainee_ids || []).map((id) => byId.get(id)).find((x) => x && !inactive(x));
       if (t) return t.id;
     }
-    return (trainees[0] || {}).id || "";
+    return (trainees.find((x) => !inactive(x)) || {}).id || "";
   };
   const canSwitch = () => !window.TrainerWS || !window.TrainerWS.isViewer;
   window.TrainerView = {
@@ -96,6 +96,10 @@
       el.innerHTML = `<p class="ag-empty">Pick an agent to see their scorecard.</p>`;
       return;
     }
+    if (inactive(t)) {
+      el.innerHTML = `<p class="ag-empty">This profile isn't available. ${esc(t.name || "This agent")} is marked Inactive, so their Agent view is turned off.</p>`;
+      return;
+    }
     el.innerHTML = AgentCard.html(await collect(t, false));
     const full = await collect(t, true);
     if (!el.isConnected || el.dataset.agent !== traineeId) return;
@@ -105,7 +109,8 @@
 
   // ---- Picker shared by both apps ----
   function agentOptions(selected) {
-    const { cohorts, trainees } = roster();
+    const { cohorts } = roster();
+    const trainees = roster().trainees.filter((t) => !inactive(t)); // Inactive agents have no Agent view
     const byId = new Map(trainees.map((t) => [t.id, t]));
     const opt = (t) => `<option value="${esc(t.id)}"${t.id === selected ? " selected" : ""}>${esc(t.name || "Unnamed")}${inactive(t) ? " (Inactive)" : ""}</option>`;
     const sorted = (list) => list.slice().sort((a, b) => (inactive(a) - inactive(b)) || String(a.name).localeCompare(String(b.name)));
@@ -166,7 +171,7 @@
           return `<tr class="${inactive(t) ? "is-inactive" : ""}"><td>${esc(t.name)}${inactive(t) ? " <small>(Inactive)</small>" : ""}</td>
             <td>${email ? esc(email) : `<span class="ag-warn">No work email. Add it in Settings → Roster.</span>`}</td>
             <td>${code ? `<code>${shown ? esc(code) : "••••-••••-••"}</code> <button type="button" class="linkish" data-ag-show="${esc(t.id)}">${shown ? "Hide" : "Show"}</button>` : `<span class="muted">No code yet</span>`}</td>
-            <td class="ag-acts"><button type="button" class="linkish" data-ag-gen="${esc(t.id)}">${code ? "New code" : "Make a code"}</button>${code && email ? ` · <button type="button" class="linkish" data-ag-copyinv="${esc(t.id)}">Copy invite</button> · <button type="button" class="linkish" data-ag-slackinv="${esc(t.id)}">Send on Slack</button>` : ""}</td></tr>`;
+            <td class="ag-acts">${inactive(t) ? `<span class="muted">Agent view off (Inactive)</span>` : `<button type="button" class="linkish" data-ag-gen="${esc(t.id)}">${code ? "New code" : "Make a code"}</button>${code && email ? ` · <button type="button" class="linkish" data-ag-copyinv="${esc(t.id)}">Copy invite</button> · <button type="button" class="linkish" data-ag-slackinv="${esc(t.id)}">Send on Slack</button>` : ""}`}</td></tr>`;
         }).join("");
       };
       const accessHtml = () => {
@@ -175,7 +180,7 @@
         return `
         <div class="ag-intro">
           <h3>Access and publishing</h3>
-          <p>Agents don't need a Claude seat. They open one page, enter their <b>work email and their code</b>, and see only their own scorecard. Each agent's data is <b>locked with their email and code</b> inside that page, so nobody can read another agent's scorecard without that agent's code. Codes are made here (10 characters, hard to guess); give each agent theirs privately.</p>
+          <p>Agents marked <b>Inactive</b> have no Agent view: they can't be previewed, get no code action, and are left out when you build. Rebuild and republish the agent page after someone becomes inactive to remove their access there.</p><p>Agents don't need a Claude seat. They open one page, enter their <b>work email and their code</b>, and see only their own scorecard. Each agent's data is <b>locked with their email and code</b> inside that page, so nobody can read another agent's scorecard without that agent's code. Codes are made here (10 characters, hard to guess); give each agent theirs privately.</p>
           <ol class="ag-steps"><li>Make a code for every agent (their work email must be on the roster).</li><li><b>Build agent data</b> below. It locks every scorecard and saves the result.</li><li>Ask Claude to <b>publish the agent page</b>. It puts the locked data on a page agents can open without a seat, and gives you the link. Do this again whenever you want agents to see fresh numbers.</li><li>Paste the link below, then <b>Copy invite</b> or <b>Send on Slack</b> for each agent.</li></ol>
           <div class="ag-bar"><label for="agCohort">Class</label><select id="agCohort"><option value="">All classes</option>${cohorts.map((c) => `<option value="${esc(c.id)}"${c.id === ui.cohort ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
             <label for="agUrl">Agent page link</label><input id="agUrl" type="url" placeholder="https://claude.ai/…" value="${esc(ui.url)}" style="min-width:300px"><button type="button" class="btn" data-ag-saveurl>Save link</button></div>
@@ -258,6 +263,7 @@
           const { trainees } = roster();
           const records = [], skipped = [];
           for (const t of trainees) {
+            if (inactive(t)) continue; // Inactive agents get no Agent view
             const code = (ui.codes[t.id] || {}).code, email = String(t.email || "").trim();
             if (!code || !email) { skipped.push(t.name); continue; }
             try { records.push(await AgentLock.lock(email, code, await collect(t, true))); } catch (err) { skipped.push(t.name); }

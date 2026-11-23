@@ -1827,7 +1827,7 @@
       case "trash":
         return head("Trash", `<span class="muted quiz-sub">Deleted items, kept ${TRASH_DAYS} days</span>`) + trashHtml();
       case "resources":
-        return head("Resources", `<span class="muted quiz-sub">Study material and references for quizzes</span>`) + `<h4 class="quiz-h">Notion</h4><p class="muted" style="margin:-4px 0 10px">The main resources quizzes are built from. Add each Notion article link here.</p>` + linkListHtml("notion") + aiBoxHtml() + `<h4 class="quiz-h">Other resources</h4>` + linkListHtml("resources");
+        return head("Resources", `<span class="muted quiz-sub">Study material and references for quizzes</span>`) + aiBoxHtml() + `<h4 class="quiz-h">Notion</h4><p class="muted" style="margin:-4px 0 10px">The main resources quizzes are built from. Add each Notion article link here.</p>` + linkListHtml("notion") + `<h4 class="quiz-h">Other resources</h4>` + linkListHtml("resources");
     }
     return "";
   }

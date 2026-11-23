@@ -115,6 +115,27 @@ const THEME_CHOICES = [
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
+function ccApp(groupKey, appId, title, icon, color) {
+  const root = () => document.getElementById("ccRoot");
+  const attach = (el) => {
+    el.classList.add("embed");
+    window.CoachingCompass?.enter(groupKey);
+    el.appendChild(root());
+  };
+  return {
+    title, icon, color, custom: true,
+    render: attach,
+    // Another of the four apps may have borrowed the page since; take it back when this one comes forward.
+    onFocus() {
+      const el = openWindows.get(appId)?.querySelector(".content");
+      if (el && root().parentElement !== el) attach(el);
+    },
+    onClose() {
+      if (root().closest(`[data-app="${appId}"]`)) document.getElementById("ccHolder").appendChild(root());
+    },
+  };
+}
+
 const APPS = {
   settings: {
     title: "Settings",
@@ -212,22 +233,12 @@ const APPS = {
     },
   },
 
-  coaching: {
-    title: "Metrics and Coaching",
-    dockLabel: "Metrics & Coaching",
-    icon: '<path d="M3 20h18"/><rect x="5" y="12" width="3.5" height="8" rx="0.8"/><rect x="10.25" y="7" width="3.5" height="13" rx="0.8"/><rect x="15.5" y="3" width="3.5" height="17" rx="0.8"/>',
-    color: "#10b981",
-    custom: true,
-    // Coaching boots once with the page (coaching-compass/), so its state
-    // survives closing the window; the window only borrows its root element.
-    render(el) {
-      el.classList.add("embed");
-      el.appendChild(document.getElementById("ccRoot"));
-    },
-    onClose() {
-      document.getElementById("ccHolder").appendChild(document.getElementById("ccRoot"));
-    },
-  },
+  // Metrics and Coaching is four apps. They share one Coaching page (coaching-compass/), which boots with
+  // the page so its state survives closing a window; each app borrows it and shows only its own sections.
+  qaAudit: ccApp("qa", "qaAudit", "Weekly QA Audit", '<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>', "#10b981"),
+  speedApp: ccApp("speed", "speedApp", "Speed", '<path d="M13 3 5 13.5h6L10 21l8-10.5h-6L13 3z"/>', "#f59e0b"),
+  spotApp: ccApp("spot", "spotApp", "Spot Checks", '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5.5 5.5"/><path d="m8 10.5 2 2 3.5-3.5"/>', "#3b82f6"),
+  coachingApp: ccApp("coaching", "coachingApp", "Coachings", '<path d="M4 5h16v11H9l-5 4V5z"/><path d="M8 9.5h8M8 12.5h5"/>', "#8b5cf6"),
 
   cohorts: {
     title: "Cohorts",
@@ -487,7 +498,7 @@ APPS.mgPerformance = mgApp("performance", "Performance", '<path d="M3 20h18"/><r
 APPS.mgReports = mgApp("reports", "Reports", '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/>', "#ef4444");
 const MANAGER_ORDER = ["mgOverview", "mgTrainers", "mgCohorts", "mgPerformance", "mgReports", "notion", "courseware", "settings"];
 const appRole = () => window.TrainerWS?.role || "trainer";
-const VIEWER_APPS = ["myClass", "cohorts", "attendance", "coaching", "courseware"];
+const VIEWER_APPS = ["myClass", "cohorts", "attendance", "qaAudit", "speedApp", "spotApp", "coachingApp", "courseware"];
 const visibleAppIds = () =>
   window.TrainerView?.mode === "agent"
     ? ["agentcard"].filter((id) => APPS[id])
@@ -3780,6 +3791,7 @@ function focusWindow(win) {
     if (w !== win) w.classList.add("minimized");
   });
   win.classList.remove("minimized");
+  APPS[win.dataset.app].onFocus?.();
   activeAppLabel.textContent = APPS[win.dataset.app].title;
   markCurrentApp(win.dataset.app);
   showHome(false);
@@ -3890,7 +3902,7 @@ function watchCrumbs(win, appId) {
   }).observe(win, { childList: true, subtree: true });
   drawCrumbs(appId);
 }
-window.TrainerDesk = { setCrumbs };
+window.TrainerDesk = { setCrumbs, openApp };
 
 function closeApp(appId) {
   const win = openWindows.get(appId);

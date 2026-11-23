@@ -158,3 +158,10 @@ body[data-appearance="playful"] .dock-item.running::after { background: var(--hi
   .dock-item.group-start { margin-left: 4px; }
 }
 @media (prefers-reduced-motion: reduce) { .window { animation: none; } }
+
+/* Metrics and Coaching, split into four apps: a small tab row for the apps that hold two sections. */
+.grp-tabs{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.grp-tabs[hidden]{display:none}
+.grp-tab{border:1px solid var(--line,rgba(128,128,128,.3));background:transparent;color:inherit;border-radius:999px;padding:6px 14px;font:inherit;font-size:13px;cursor:pointer}
+.grp-tab:hover{background:rgba(128,128,128,.12)}
+.grp-tab.on{background:var(--accent,#3c6e57);border-color:var(--accent,#3c6e57);color:#fff}

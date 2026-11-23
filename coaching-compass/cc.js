@@ -82,6 +82,7 @@
   var MAX_ROWS = 400;
 
   var state = {
+    group: null,
     section: "home",
     resourceTab: "knowledge_base",
     dataTab: "pull",
@@ -309,10 +310,56 @@
     setSection(key);
   }
 
-  function goHome(){ setSection("home"); }
+  // Metrics and Coaching is four apps on the desk. Each one borrows this page and shows only its own sections.
+  var GROUPS = [
+    { key: "qa", app: "qaAudit", sections: ["data", "cohorts"] },
+    { key: "speed", app: "speedApp", sections: ["speed"] },
+    { key: "spot", app: "spotApp", sections: ["spot"] },
+    { key: "coaching", app: "coachingApp", sections: ["team", "individual"] }
+  ];
+  function groupOf(section){ return GROUPS.filter(function(g){ return g.sections.indexOf(section) !== -1; })[0] || null; }
+  function groupByKey(key){ return GROUPS.filter(function(g){ return g.key === key; })[0] || null; }
+  function enterGroup(key){
+    var g = groupByKey(key);
+    if (!g) return;
+    state.group = g;
+    ccRoot.setAttribute("data-group", g.key);
+    if (g.sections.indexOf(state.section) === -1 && state.section !== "ask") openApp(g.sections[0]);
+    else { renderBreadcrumb(); }
+  }
+  function goHome(){ if (state.group) openApp(state.group.sections[0]); else setSection("home"); }
+
+  function renderGroupTabs(){
+    var host = document.getElementById("grpTabs");
+    if (!host){
+      host = document.createElement("div");
+      host.id = "grpTabs";
+      host.className = "grp-tabs";
+      el.pageHead.insertBefore(host, el.pageHead.firstChild);
+      host.addEventListener("click", function(e){
+        var b = e.target.closest("[data-grp-sec]");
+        if (b) openApp(b.getAttribute("data-grp-sec"));
+      });
+    }
+    var g = state.group;
+    var show = g && g.sections.length > 1 && g.sections.indexOf(state.section) !== -1;
+    host.hidden = !show;
+    if (!show){ host.innerHTML = ""; return; }
+    host.innerHTML = g.sections.map(function(k){
+      var meta = SECTIONS.filter(function(x){ return x.key === k; })[0];
+      return "<button type=\"button\" class=\"grp-tab" + (k === state.section ? " on" : "") + "\" data-grp-sec=\"" + k + "\">" + esc(meta ? meta.label : k) + "</button>";
+    }).join("");
+  }
 
   function setSection(key){
     state.section = key;
+    // A jump into a section that belongs to another app (a saved audit opening its trainee, say) brings that app forward.
+    var owner = groupOf(key);
+    if (owner && owner !== state.group){
+      state.group = owner;
+      ccRoot.setAttribute("data-group", owner.key);
+      if (window.TrainerDesk && window.TrainerDesk.openApp) window.TrainerDesk.openApp(owner.app);
+    }
     document.querySelectorAll(".panel").forEach(function(p){ p.classList.toggle("visible", p.getAttribute("data-panel") === key); });
     var meta = SECTION_META[key];
     el.sectionEyebrow.textContent = meta.eyebrow;
@@ -465,7 +512,8 @@
       crumbs.push({ label: rootLabel });
     }
 
-    var onHome = state.section === "home";
+    var onHome = state.section === "home" && !state.group;
+    renderGroupTabs();
     el.breadcrumb.hidden = onHome;
     el.topbar.hidden = onHome;
     el.pageHead.hidden = onHome;
@@ -473,9 +521,9 @@
     ccRoot.classList.toggle("on-home", onHome);
     ccRoot.classList.toggle("sec-speed", state.section === "speed");
     // Trainer Desk shows these in the window's crumb bar: Trainer Desk › Coaching › …
-    if (window.TrainerDesk) window.TrainerDesk.setCrumbs("coaching", onHome ? [] : crumbs.map(function(c){ return { label: c.label, go: c.action || null }; }), goHome);
+    if (window.TrainerDesk) window.TrainerDesk.setCrumbs(state.group ? state.group.app : "coaching", (onHome || (state.group && state.group.sections.length === 1 && crumbs.length === 1)) ? [] : crumbs.map(function(c){ return { label: c.label, go: c.action || null }; }), goHome);
     if (onHome){ el.breadcrumb.innerHTML = ""; return; }
-    crumbs.unshift({ label: "Home", action: goHome });
+    if (!state.group) crumbs.unshift({ label: "Home", action: goHome });
 
     var backHtml = "<button class=\"crumb-back\" id=\"crumbBackBtn\" type=\"button\" title=\"Back\"" + (navHistory.length ? "" : " disabled") + ">" + ICONS.arrowLeft + "</button>";
 
@@ -4374,7 +4422,7 @@
       setSection(restored.section && SECTION_META[restored.section] ? restored.section : "home");
     } else {
       renderAll();
-      setSection("home");
+      setSection(state.group ? state.section : "home");
     }
     if (hot && hot.snapshot){
       hot.snapshot(function(){
@@ -5390,6 +5438,7 @@
   function copy(list){ return list.map(function(x){ return Object.assign({}, x); }); }
 
   window.CoachingCompass = {
+    enter: enterGroup,
     // Ask every subscriber (Cohorts, My Class, …) to redraw.
     notify: function(){ changeListeners.forEach(function(fn){ try { fn(); } catch (e){ /* one app's error shouldn't stop the rest */ } }); },
     data: function(){

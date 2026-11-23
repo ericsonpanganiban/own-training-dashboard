@@ -489,11 +489,13 @@ const MANAGER_ORDER = ["mgOverview", "mgTrainers", "mgCohorts", "mgPerformance",
 const appRole = () => window.TrainerWS?.role || "trainer";
 const VIEWER_APPS = ["myClass", "cohorts", "attendance", "coaching", "courseware"];
 const visibleAppIds = () =>
-  appRole() === "manager"
+  window.TrainerView?.mode === "agent"
+    ? ["agentcard"].filter((id) => APPS[id])
+    : appRole() === "manager"
     ? MANAGER_ORDER.filter((id) => APPS[id])
     : window.TrainerWS?.isViewer
     ? VIEWER_APPS.filter((id) => APPS[id])
-    : Object.keys(APPS).filter((id) => !id.startsWith("mg") && !id.startsWith("td_"));
+    : Object.keys(APPS).filter((id) => !id.startsWith("mg") && !id.startsWith("td_") && id !== "agentcard");
 
 // Your avatar, your role, and a way to look at another Trainer's dashboard (read-only).
 function drawProfile(card) {
@@ -3762,18 +3764,33 @@ const template = document.getElementById("windowTemplate");
 const activeAppLabel = document.getElementById("activeApp");
 const openWindows = new Map(); // appId -> window element
 let zCounter = 10;
-let cascade = 0;
 
+// Apps open as full pages: the one in front fills the page, the others stay open behind it and are listed in the taskbar.
+function markCurrentApp(appId) {
+  dock.querySelectorAll(".dock-item").forEach((i) => i.classList.toggle("current", i.dataset.app === appId));
+}
+function showHome(show) {
+  const home = document.getElementById("homePage");
+  if (home) home.hidden = !show;
+}
 function focusWindow(win) {
   win.style.zIndex = ++zCounter;
-  openWindows.forEach((w) => w.classList.toggle("inactive", w !== win));
+  openWindows.forEach((w) => {
+    w.classList.toggle("inactive", w !== win);
+    if (w !== win) w.classList.add("minimized");
+  });
+  win.classList.remove("minimized");
   activeAppLabel.textContent = APPS[win.dataset.app].title;
+  markCurrentApp(win.dataset.app);
+  showHome(false);
 }
 
 function refreshActiveLabel() {
-  const visible = [...openWindows.values()].filter((w) => !w.classList.contains("minimized"));
+  const visible = [...openWindows.values()];
   if (!visible.length) {
     activeAppLabel.textContent = "Dashboard";
+    markCurrentApp(null);
+    showHome(true);
     return;
   }
   focusWindow(visible.reduce((top, w) => (Number(w.style.zIndex) > Number(top.style.zIndex) ? w : top)));
@@ -3792,17 +3809,6 @@ function openApp(appId) {
   win.dataset.app = appId;
   win.setAttribute("aria-label", app.title);
   win.querySelector(".title").textContent = app.title;
-
-  const bounds = desktop.getBoundingClientRect();
-  // Windows open at 90% of the free desktop (the area above the dock), centred.
-  const dockTop = dock.getBoundingClientRect().top - bounds.top;
-  const w = Math.max(320, Math.round(bounds.width * 0.9));
-  const h = Math.max(220, Math.round(dockTop * 0.9));
-  const offset = (cascade++ % 4) * 24;
-  win.style.width = `${Math.min(w, bounds.width - 16)}px`;
-  win.style.height = `${Math.min(h, dockTop - 16)}px`;
-  win.style.left = `${Math.max(8, (bounds.width - w) / 2 + offset)}px`;
-  win.style.top = `${Math.max(8, (dockTop - h) / 2 + offset)}px`;
 
   const content = win.querySelector(".content");
   if (!app.custom) content.classList.add("app-body");
@@ -3826,7 +3832,9 @@ function setCrumbs(appId, items, home) {
 }
 function showDesktop() {
   openWindows.forEach((w) => w.classList.add("minimized"));
-  refreshActiveLabel();
+  activeAppLabel.textContent = "Dashboard";
+  markCurrentApp(null);
+  showHome(true);
 }
 function closeSheet(sheet) {
   const cancel = sheet.querySelector("[data-cancel]");
@@ -3840,7 +3848,7 @@ function drawCrumbs(appId) {
   const st = crumbState[appId] || { items: [] };
   const sheet = [...win.children].find((c) => c.classList.contains("sheet"));
   const list = [
-    { label: "Trainer Desk", go: showDesktop, title: "Show the desktop" },
+    { label: "Trainer Desk", go: showDesktop, title: "Home" },
     { label: APPS[appId].title, go: st.home },
     ...st.items,
   ];
@@ -3907,25 +3915,6 @@ function wireWindow(win, appId) {
     }
     if (action === "maximize") win.classList.toggle("maximized");
   });
-
-  const titlebar = win.querySelector(".titlebar");
-  titlebar.addEventListener("dblclick", (e) => {
-    if (!e.target.closest(".traffic")) win.classList.toggle("maximized");
-  });
-  makeDraggable(titlebar, (dx, dy, start) => {
-    if (win.classList.contains("maximized")) return;
-    const bounds = desktop.getBoundingClientRect();
-    const left = Math.min(Math.max(start.left + dx, -win.offsetWidth + 80), bounds.width - 80);
-    const top = Math.min(Math.max(start.top + dy, 0), bounds.height - 40);
-    win.style.left = `${left}px`;
-    win.style.top = `${top}px`;
-  }, () => ({ left: win.offsetLeft, top: win.offsetTop }), ".traffic");
-
-  makeDraggable(win.querySelector(".resize-handle"), (dx, dy, start) => {
-    if (win.classList.contains("maximized")) return;
-    win.style.width = `${Math.max(320, start.w + dx)}px`;
-    win.style.height = `${Math.max(220, start.h + dy)}px`;
-  }, () => ({ w: win.offsetWidth, h: win.offsetHeight }));
 }
 
 function makeDraggable(handle, onMove, getStart, ignoreSelector) {
@@ -4123,6 +4112,7 @@ function populateDock() {
     const btn = document.createElement("button");
     btn.className = "dock-item";
     btn.dataset.app = id;
+    btn.style.setProperty("--app", app.color || "#64748b");
     btn.setAttribute("aria-label", app.title);
     btn.innerHTML = `
       <span class="dock-face">
@@ -4256,6 +4246,14 @@ function enableDockDrag(item) {
 }
 
 // ---------- Clock ----------
+// The home page (shown only when no app is open): a greeting.
+function drawHome() {
+  const g = document.getElementById("homeGreeting");
+  if (!g) return;
+  const h = new Date().getHours();
+  const name = String(window.TrainerWS?.ws?.name || "").trim().split(/\s+/)[0];
+  g.textContent = `${h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"}${name ? `, ${name}` : ""}`;
+}
 function tick() {
   document.getElementById("clock").textContent = new Date().toLocaleString(undefined, {
     weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
@@ -4284,8 +4282,18 @@ function applyRole() {
     window.TrainerWS?.onChange(applyRole);
     buildDock();
     // The Manager's script loads after this one, so wait for the whole page.
-    if (document.readyState === "complete") buildAvatarMenu();
-    else window.addEventListener("load", buildAvatarMenu, { once: true });
+    const afterLoad = () => {
+      buildAvatarMenu();
+      drawHome();
+      // A page is always showing: start on the day's page for a Trainer, the first app for everyone else.
+      if (!openWindows.size) {
+        const ids = visibleAppIds();
+        const first = appRole() === "trainer" && !window.TrainerWS?.isViewer && ids.includes("today") ? "today" : dockOrder()[0];
+        if (first && APPS[first]) openApp(first);
+      }
+    };
+    if (document.readyState === "complete") afterLoad();
+    else window.addEventListener("load", afterLoad, { once: true });
   };
   (window.TrainerWS ? window.TrainerWS.ready : Promise.resolve()).then(start, start);
 }

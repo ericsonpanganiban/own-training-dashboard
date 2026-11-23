@@ -234,3 +234,15 @@ how many passed, a by-question correct rate, and each trainee's score. Stored in
 **Speed report view.** In Metrics and Coaching → Speed, the bar has **Daily entry** (the day-by-day table where hours and tickets can be edited) and **Report**. Report is a read-only table: a row per trainee, a column per pulled week (the cohort's weeks when a cohort is picked) with that week's Speed, then Average, Hours, Tickets, vs goal (Met or Over by N) and Rank, plus a Team average row, colored against the team goal. Inactive trainees are listed last and not ranked. **Copy** puts the table on the clipboard for a sheet.
 
 **Speed report by day.** In the Speed Report, **By week | By day** switches the table. **By day** shows the selected saved week with a column per day (that day's Speed with its cleared tickets and hours underneath), then Week speed, Hours, Tickets, vs goal and Rank, plus a Team average row; pick another saved week in the bar to report on it. Copy puts it on the clipboard with each day as "speed (tickets · hours)".
+
+## Redesign (branch `claude/redesign-taskbar`)
+
+**Taskbar and full pages.** The floating dock is now a **taskbar** along the bottom edge, side to side, with each app as an icon and a name. An open app has a line under its button and the page in front is highlighted. Apps no longer open as floating windows: each opens as a **full page** between the menu bar and the taskbar (no dragging, resizing or minimizing). Opening another app switches page; the others stay open behind it. The × at the top right closes the app, and *Trainer Desk* in the breadcrumb goes **Home** (a greeting page shown only when no app is open). The dashboard starts on **Today** for a Trainer.
+
+**Trainer view and Agent view.** The menu bar has a **Trainer view | Agent view** switch.
+- *Trainer view* is the full dashboard, where the Trainer gathers and enters everything.
+- *Agent view* is a read-only **scorecard for one agent** (the **My Scorecard** page): attendance points, QA by week with feedback, Speed by week, quizzes, nesting spot checks (with whether each was acknowledged), coaching received, each against the class goals ("Goal met" / "Below goal"). An agent sees only their own numbers, with no other agents, notes, HR documents or pass/fail projection, and nothing to enter. The Agent view has no data export, notifications, profile menu or About.
+- The **Agent View** app (Trainer view taskbar) previews exactly what an agent sees: pick an agent, see their scorecard in a frame, and **Open the Agent view** to switch the whole page into it (a bar there changes the previewed agent or goes back to Trainer view). `#agent` at the end of the page address opens the Agent view directly.
+- Source: `redesign/` (taskbar and page styles), `agentview/` (switch, scorecard, apps).
+
+Not decided yet: how an agent without a Claude seat gets their scorecard, and how their identity is matched to the roster. See the notes in the redesign session.

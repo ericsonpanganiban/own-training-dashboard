@@ -1917,32 +1917,3 @@ body .quiz-manual-form.quiz-manual-form .rep-goal input[data-rfgv] { padding: 6p
 .att-over-list { display:flex; flex-direction:column; gap:6px; margin:10px 0; max-height:220px; overflow:auto; }
 .att-over-row { display:flex; align-items:center; gap:8px; font-size:13px; }
 .att-over-eg { font-size:12.5px; line-height:1.45; padding:8px 10px; border:1px solid var(--border, #e2e5ea); border-radius:8px; background:var(--surface-2, rgba(127,127,127,.08)); margin:4px 0 8px; }
-
-/* ---------- Sidebar layout (redesign preview): the dock becomes a left sidebar ---------- */
-body.side { --side-w: 224px; }
-body.side #dock {
-  left: 0; top: calc(var(--menubar-h) + env(safe-area-inset-top, 0px)); bottom: 0;
-  width: var(--side-w); transform: none;
-  flex-direction: column; align-items: stretch; gap: 2px;
-  padding: 12px 10px; border-radius: 0; border: 0;
-  border-right: 1px solid color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.14));
-  background: color-mix(in srgb, var(--accent) 10%, rgba(14, 16, 28, 0.62));
-  box-shadow: none; overflow-y: auto;
-}
-body.side #dock::before { display: none; }
-body.side .dock-item {
-  width: 100%; height: 42px; flex: none; flex-direction: row; align-items: center;
-  border-radius: 10px; padding: 0 10px; text-align: left;
-}
-body.side .dock-item:hover { background: rgba(255, 255, 255, 0.1); }
-body.side .dock-item.running { background: color-mix(in srgb, var(--accent) 28%, transparent); }
-body.side .dock-face {
-  --dock-max: 1; position: static; transform: none; flex-direction: row; gap: 12px; align-items: center; width: 100%;
-}
-body.side .dock-icon { width: 24px; height: 24px; flex: none; }
-body.side .dock-label, body.side .dock-label.long { font-size: 14px; font-weight: 500; text-shadow: none; letter-spacing: 0; }
-body.side .dock-item.running .dock-icon::after { top: 50%; left: 184px; margin: -2.5px 0 0; width: 5px; height: 5px; }
-body.side .dock-item.group-start { margin-top: 10px; }
-body.side .dock-item.group-start::before { left: 8px; right: 8px; top: -6px; bottom: auto; width: auto; height: 1px; }
-body.side .dock-badge { top: 50%; right: 10px; margin-top: -9px; --dock-max: 1; }
-body.side .desktop { left: var(--side-w); }

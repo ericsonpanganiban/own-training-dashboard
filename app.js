@@ -1,3 +1,6 @@
+// Redesign preview: navigation as a left sidebar (the dock restyled in styles.css).
+document.body.classList.add("side");
+
 // ---------- Settings (persisted per browser) ----------
 const DEFAULT_SETTINGS = { version: 2, theme: "system", wallpaper: "default", iconSize: 64, magnify: true, dockOrder: [], settingsPage: "appearance" };
 

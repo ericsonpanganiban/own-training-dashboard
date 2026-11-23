@@ -2738,6 +2738,13 @@
                   .filter((q) => x.results?.[q.id]?.correct === false)
                   .map((q) => ({ question: q.prompt, answer: x.results[q.id].answer || "", correct: keyText(q) }))
               : [];
+            // Every question with the trainee's answer (the correct answer only where they missed it), for their own view.
+            const answers = answered && !closedZero
+              ? (quiz.questions || []).map((q) => {
+                  const res = x.results?.[q.id];
+                  return { question: q.prompt, answer: (res && res.answer) || "", correct: res && typeof res.correct === "boolean" ? res.correct : null, key: res && res.correct === false ? keyText(q) : "" };
+                })
+              : [];
             const typed = x?.source === "score";
             return {
               quizId, runId: r.id, scoreEntered: typed, note: typed ? x.note || "" : "",
@@ -2752,6 +2759,7 @@
               passing: quiz.passing ?? 80,
               pending: answered ? x.pending || 0 : 0,
               missed,
+              answers,
             };
           });
         allExtraScoresOf(traineeId).forEach((m) => {

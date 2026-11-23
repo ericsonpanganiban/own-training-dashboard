@@ -32,3 +32,8 @@
 
 .ag-who { margin: -10px 0 18px; color: var(--muted); }
 .ag-who b { color: inherit; }
+.ag-ans { margin-top: 6px; }
+.ag-ans summary { cursor: pointer; color: var(--accent, inherit); font-size: 13px; }
+.ag-a { margin: 8px 0 0; padding: 8px 10px; border-left: 3px solid var(--line, rgba(128,128,128,.4)); border-radius: 4px; }
+.ag-a.ok { border-left-color: #2e9e5b; } .ag-a.no { border-left-color: #d1453b; }
+.ag-a p { margin: 2px 0; } .ag-key { color: var(--muted); }

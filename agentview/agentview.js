@@ -107,14 +107,21 @@
   function agentOptions(selected) {
     const { cohorts, trainees } = roster();
     const byId = new Map(trainees.map((t) => [t.id, t]));
-    return cohorts
+    const opt = (t) => `<option value="${esc(t.id)}"${t.id === selected ? " selected" : ""}>${esc(t.name || "Unnamed")}${inactive(t) ? " (Inactive)" : ""}</option>`;
+    const sorted = (list) => list.slice().sort((a, b) => (inactive(a) - inactive(b)) || String(a.name).localeCompare(String(b.name)));
+    const inClass = new Set();
+    const groups = cohorts
       .slice()
       .sort((a, b) => String(b.training_start_date || "").localeCompare(String(a.training_start_date || "")))
       .map((c) => {
-        const ts = (c.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean).sort((a, b) => (inactive(a) - inactive(b)) || String(a.name).localeCompare(String(b.name)));
-        return `<optgroup label="${esc(c.name)}">${ts.map((t) => `<option value="${esc(t.id)}"${t.id === selected ? " selected" : ""}>${esc(t.name)}${inactive(t) ? " (Inactive)" : ""}</option>`).join("")}</optgroup>`;
+        const ts = (c.trainee_ids || []).map((id) => byId.get(id)).filter(Boolean);
+        ts.forEach((t) => inClass.add(t.id));
+        return ts.length ? `<optgroup label="${esc(c.name)}">${sorted(ts).map(opt).join("")}</optgroup>` : "";
       })
       .join("");
+    // Everyone on the roster is listed, including trainees who aren't in a class yet.
+    const rest = trainees.filter((t) => !inClass.has(t.id));
+    return groups + (rest.length ? `<optgroup label="Not in a class">${sorted(rest).map(opt).join("")}</optgroup>` : "") || `<option value="">No agents on the roster yet</option>`;
   }
 
   // ---- App: Agent View (Trainer view): preview what an agent sees, and manage their access ----
@@ -151,7 +158,7 @@
       const accessRows = () => {
         const { cohorts, trainees } = roster();
         const byId = new Map(trainees.map((t) => [t.id, t]));
-        const pool = ui.cohort ? ((cohorts.find((c) => c.id === ui.cohort) || {}).trainee_ids || []).map((id) => byId.get(id)).filter(Boolean) : trainees.filter((t) => cohorts.some((c) => (c.trainee_ids || []).includes(t.id)));
+        const pool = ui.cohort ? ((cohorts.find((c) => c.id === ui.cohort) || {}).trainee_ids || []).map((id) => byId.get(id)).filter(Boolean) : trainees;
         return pool.slice().sort((a, b) => (inactive(a) - inactive(b)) || String(a.name).localeCompare(String(b.name))).map((t) => {
           const code = (ui.codes[t.id] || {}).code || "";
           const email = String(t.email || "").trim();
@@ -251,7 +258,6 @@
           const { trainees } = roster();
           const records = [], skipped = [];
           for (const t of trainees) {
-            if (!roster().cohorts.some((c) => (c.trainee_ids || []).includes(t.id))) continue;
             const code = (ui.codes[t.id] || {}).code, email = String(t.email || "").trim();
             if (!code || !email) { skipped.push(t.name); continue; }
             try { records.push(await AgentLock.lock(email, code, await collect(t, true))); } catch (err) { skipped.push(t.name); }

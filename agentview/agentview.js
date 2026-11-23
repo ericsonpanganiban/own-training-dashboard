@@ -105,10 +105,37 @@
       el.innerHTML = `<p class="ag-empty">This profile isn't available. ${esc(t.name || "This agent")} is marked Inactive, so their Agent view is turned off.</p>`;
       return;
     }
-    el.innerHTML = AgentCard.html(await collect(t, false));
-    const full = await collect(t, true);
-    if (!el.isConnected || el.dataset.agent !== traineeId) return;
-    el.innerHTML = AgentCard.html(full);
+    el.dataset.agent = traineeId;
+    const sig = (h) => h.replace(/<p class="ag-foot">[\s\S]*?<\/p>/, "");
+    const paint = (data) => {
+      const h = AgentCard.html(data);
+      if (sig(h) === sig(el.innerHTML)) return; // nothing new: keep open answer lists as they are
+      const open = [...el.querySelectorAll("details[open] summary")].map((x) => x.textContent);
+      el.innerHTML = h;
+      el.querySelectorAll("details summary").forEach((x) => { if (open.includes(x.textContent)) x.parentElement.open = true; });
+    };
+    paint(await collect(t, false));
+    const refresh = async () => {
+      if (!el.isConnected || el.dataset.agent !== traineeId) return false;
+      const cur = roster().trainees.find((x) => x.id === traineeId) || t;
+      const full = await collect(cur, true);
+      if (el.isConnected && el.dataset.agent === traineeId) paint(full);
+      return true;
+    };
+    await refresh();
+    // Keep it current: new quiz results, QA, Speed and spot checks show up without a reload.
+    if (el._agStop) el._agStop();
+    const offs = [];
+    const kick = () => { refresh().then((alive) => { if (!alive) stop(); }); };
+    const stop = () => { offs.forEach((f) => { try { f(); } catch (e) {} }); offs.length = 0; el._agStop = null; };
+    if (cc()) offs.push(cc().onChange(kick));
+    if (window.TrainerQuiz && window.TrainerQuiz.onChange) offs.push(window.TrainerQuiz.onChange(kick));
+    const timer = setInterval(() => { if (!document.hidden) kick(); }, 60000);
+    offs.push(() => clearInterval(timer));
+    const vis = () => { if (!document.hidden) kick(); };
+    document.addEventListener("visibilitychange", vis);
+    offs.push(() => document.removeEventListener("visibilitychange", vis));
+    el._agStop = stop;
   }
   window.AgentScorecard = { mount, collect };
 

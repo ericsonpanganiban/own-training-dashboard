@@ -2681,6 +2681,8 @@
   });
 
   window.TrainerQuiz = {
+    // Tell others (the Agent view) when quiz data changes.
+    onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     render(el) {
       ui.el = el;
       el.classList.add("flush", "quiz-root");

@@ -48,6 +48,7 @@
       const changed = m !== state.mode;
       state.mode = m;
       document.body.classList.toggle("agent-mode", m === "agent");
+      if (typeof applySettings === "function") applySettings();
       subs.forEach((f) => { try { f(changed); } catch (e) {} });
     },
   };

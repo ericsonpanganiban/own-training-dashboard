@@ -38,3 +38,4 @@ body.agent-mode :is(#dataBtn, #aboutBtn, #bell, #avatar-btn) { display: none !im
 .ag-gate label{display:grid;gap:6px;margin-bottom:14px;font-size:13px;font-weight:600}
 .ag-gate input{padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:10px;background:var(--bg,#fff);color:inherit;font:inherit}
 .ag-gate .btn{width:100%}.ag-gerr{min-height:1.4em;color:#dc2626!important;font-size:13.5px;margin:10px 0 0!important}.ag-gnote{font-size:12.5px}
+body.agent-mode #ws-banner { display: none !important; }

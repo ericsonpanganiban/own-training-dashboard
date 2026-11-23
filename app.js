@@ -91,7 +91,8 @@ function effectiveWallpaper() {
 }
 
 function applySettings() {
-  const theme = effectiveTheme();
+  // The Agent view always uses the Playful theme.
+  const theme = window.TrainerView?.mode === "agent" ? "playful" : effectiveTheme();
   if (theme === "system") delete document.body.dataset.appearance;
   else document.body.dataset.appearance = theme;
   const wp = effectiveWallpaper();

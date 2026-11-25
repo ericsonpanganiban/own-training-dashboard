@@ -5594,6 +5594,13 @@
     // Speed: weekly numbers pulled from the Speed Productivity Sheet.
     traineeSpeed: traineeSpeed,
     traineeSpot: traineeSpot,
+    // The saved analyses for one trainee: QA across weeks, spot checks, and quizzes (each null when there's none yet).
+    traineeAnalyses: function(id){
+      var t = state.trainees.filter(function(x){ return x.id === id; })[0];
+      if (!t) return { qa: null, spot: null, quiz: null };
+      var crm = String(t.crm_name || "").trim().toLowerCase();
+      return { qa: (crm && indAnalyses[indDocId(crm)]) || null, spot: (spot.analyses && spot.analyses[id]) || null, quiz: t.quiz_analysis && t.quiz_analysis.summary ? t.quiz_analysis : null };
+    },
     // Send a DM to a trainee and note where it landed, so replies can be read later. Resolves to { uid, channel, ts, sentAt } or rejects with { plain }.
     dmSend: function(t, text){
       var slack = window.TrainerSlack, uid = null;

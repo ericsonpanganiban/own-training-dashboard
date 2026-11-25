@@ -2,7 +2,7 @@
 //   Trainer view: the full dashboard, for the person who gathers the data and enters everything.
 //   Agent view: a read-only scorecard for one agent, for the agents the Trainer shares it with. An agent sees their own
 //   numbers (goals, attendance, QA, Speed, quizzes, spot checks, coaching received) and nothing about anyone else, no
-//   notes, no HR documents and no pass/fail projection.
+//   notes and no HR documents. They do see their pass/fail projection and what to work on.
 // "Agent View" is an app in the Trainer view to see exactly what an agent sees, or to switch the whole page into it.
 (function () {
   "use strict";
@@ -75,8 +75,28 @@
       const q = await window.TrainerQuiz.traineeResults(t.id).catch(() => null);
       if (q) quiz = { avg: q.avg, weighted: q.weighted, taken: q.taken, items: (q.items || []).filter((x) => x.pct != null).map((x) => ({ title: x.title, week: x.week || 0, pct: x.pct, passing: x.passing, date: x.sent_at || "", answers: (x.answers || []).map((a) => ({ q: String(a.question || "").slice(0, 600), a: String(a.answer || "").slice(0, 600), ok: a.correct, key: String(a.key || "").slice(0, 600) })) })) };
     }
+    // Pass/fail projection: a status set by hand wins (pass or fail only), else the automatic check against the class goals.
+    let projection = null;
+    const manual = t.trainee_status && t.trainee_status.mode === "manual" ? t.trainee_status.value : "";
+    const L = (x) => String(x == null ? "" : x).slice(0, 400);
+    if (manual === "pass" || manual === "fail") projection = { status: manual, auto: false, checks: [] };
+    else if (!manual && c && typeof evaluateTrainee === "function" && typeof hasGoals === "function" && hasGoals(c)) {
+      const qmap = quiz && quiz.taken ? { [t.id]: { taken: quiz.taken, avg: quiz.avg, weighted: quiz.weighted } } : null;
+      try {
+        const ev = evaluateTrainee(c, t, qmap);
+        if (ev && ev.status) projection = { status: ev.status, auto: true, checks: ev.checks.map((k) => ({ label: k.label, unit: k.unit, dir: k.dir, goal: k.goal, value: k.value, met: k.met })), skipped: ev.skipped || [] };
+      } catch (e) {}
+    }
+    // What to work on, from the analyses the trainer already ran (QA across weeks, spot checks, quizzes).
+    const an = api.traineeAnalyses ? api.traineeAnalyses(t.id) : {};
+    const improve = [];
+    if (an.qa) improve.push({ area: "QA", at: an.qa.at || "", focus: (an.qa.coaching_focus || []).map(L), items: (an.qa.persistent_issues || []).map((x) => ({ title: L(x.issue), detail: L(x.detail) })), trend: L(an.qa.trend) });
+    if (an.spot) improve.push({ area: "Spot checks", at: an.spot.at || "", focus: (an.spot.coaching_focus || []).map(L), items: (an.spot.repeated_mistakes || []).map((x) => ({ title: L(x.mistake), detail: x.times ? `Seen ${x.times} times` : "" })), trend: L(an.spot.trend) });
+    if (an.quiz) improve.push({ area: "Quizzes", at: an.quiz.at || "", focus: (an.quiz.focus || []).map(L), items: (an.quiz.opportunities || []).map((x) => ({ title: L(x.topic), detail: L(x.detail) })), trend: L(an.quiz.trend) });
     return {
       v: 1,
+      projection,
+      improve,
       name: t.name || "Agent",
       cohort: c ? c.name : "",
       started: c ? c.training_start_date || "" : "",
@@ -184,7 +204,7 @@
       const previewHtml = () => `
         <div class="ag-intro">
           <h3>Agent View</h3>
-          <p>This is what an agent sees: their own scorecard and nothing else. It is read-only. They don't see other agents, your notes, HR documents or any pass/fail projection, and they can't enter or change anything. You gather and enter everything in the Trainer view. Agents get in with their work email (see Access and publishing).</p>
+          <p>This is what an agent sees: their own scorecard and nothing else. It is read-only. They see their pass/fail projection and what to work on (from the analyses you've run), but not other agents, your notes or HR documents, and they can't enter or change anything. You gather and enter everything in the Trainer view. Agents get in with their work email (see Access and publishing).</p>
           <div class="ag-bar">
             <label for="agPick">Preview as</label>
             <select id="agPick">${agentOptions(state.agentId)}</select>

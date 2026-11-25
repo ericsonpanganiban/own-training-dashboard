@@ -33,6 +33,22 @@
       goalRow("Quiz average", g.quiz, quizAvg == null ? "—" : `${quizAvg}%`, quizAvg == null || g.quiz == null ? null : quizAvg >= g.quiz, "%", "at least"),
       goalRow("Spot checks", g.spot, spot.avg == null ? "—" : `${num(spot.avg)}%`, spot.avg == null || g.spot == null ? null : spot.avg >= g.spot, "%", "at least"),
     ].join("");
+    const pj = d.projection || null;
+    const unitOf = (c) => (c.unit === "%" ? "%" : c.unit === "points" ? " pts" : " min/ticket");
+    const missed = pj && pj.checks ? pj.checks.filter((c) => !c.met) : [];
+    const projHtml = !pj ? "" : `<section class="ag-proj ${pj.status === "pass" ? "ok" : "no"}">
+        <div class="ag-proj-h"><span class="ag-proj-badge">${pj.status === "pass" ? "On track to pass" : "At risk: projected to fail"}</span>${pj.auto ? "" : `<small>Set by your trainer</small>`}</div>
+        <p>${pj.status === "pass"
+          ? (pj.auto ? "You're meeting every goal that has data so far. Keep it up." : "Your trainer has you on track to pass. Keep it up.")
+          : (pj.auto ? `You're below ${missed.length === 1 ? "one goal" : `${missed.length} goals`}. Focus on ${missed.length === 1 ? "it" : "these"} to get back on track:` : "Your trainer has flagged that you're at risk of not passing. Talk with your trainer about what to focus on.")}</p>
+        ${missed.length ? `<ul>${missed.map((c) => `<li><b>${esc(c.label)}</b>: you're at ${num(c.value)}${unitOf(c)}, the goal is ${c.dir === "min" ? "at least" : "at most"} ${num(c.goal)}${unitOf(c)}</li>`).join("")}</ul>` : ""}
+        ${pj.auto && (pj.skipped || []).length ? `<p class="ag-proj-foot">Not counted yet (no data): ${pj.skipped.map(esc).join(", ")}</p>` : ""}
+      </section>`;
+    const imp = (d.improve || []).filter((x) => (x.focus || []).length || (x.items || []).length);
+    const impHtml = imp.length ? `<section class="ag-sec"><h3>What to work on</h3><p class="ag-sub">From your trainer's review of your results.</p>${imp.map((x) => `<div class="ag-imp"><h4>${esc(x.area)}${x.at ? ` <small>reviewed ${esc(dshort(x.at))}</small>` : ""}</h4>
+        ${(x.focus || []).length ? `<p class="ag-imp-l">Focus on</p><ul>${x.focus.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : ""}
+        ${(x.items || []).length ? `<p class="ag-imp-l">What keeps coming up</p><ul>${x.items.map((i) => `<li><b>${esc(i.title)}</b>${i.detail ? `: ${esc(i.detail)}` : ""}</li>`).join("")}</ul>` : ""}
+      </div>`).join("")}</section>` : "";
     const anyGoal = ["qa", "speed", "attendance", "quiz", "spot"].some((k) => g[k] != null);
     const who = [d.lead ? `Team lead: <b>${esc(d.lead)}</b>` : "", d.dept ? `Department: <b>${esc(d.dept)}</b>` : ""].filter(Boolean).join(" · ");
 
@@ -51,8 +67,10 @@
     return `<div class="ag-page">
       <div class="ag-head">${d.photo && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(d.photo) ? `<img class="ag-photo" src="${d.photo}" alt="">` : ""}<div><h2>Hi, ${esc(String(d.name || "there").trim().split(/\s+/)[0])}!</h2><div class="ag-fullname">${esc(d.name || "")}</div><p>${d.cohort ? esc(d.cohort) : "No class"}${d.started ? ` · started ${esc(dshort(d.started + "T00:00:00"))}` : ""}${d.inactive ? " · inactive" : ""}</p></div></div>
       ${who ? `<p class="ag-who">${who}</p>` : ""}
+      ${projHtml}
       <div class="ag-stats">${stats}</div>
       <section class="ag-sec"><h3>Your goals</h3>${anyGoal ? `<table class="ag-table"><thead><tr><th>Measure</th><th>Goal</th><th>You now</th><th>Status</th></tr></thead><tbody>${goalRows}</tbody></table>` : `<p class="ag-empty">No goals have been set for your class yet.</p>`}</section>
+      ${impHtml}
       <section class="ag-sec"><h3>QA by week</h3>${qaRows ? `<table class="ag-table"><thead><tr><th>Week</th><th>Score</th><th>Feedback</th></tr></thead><tbody>${qaRows}</tbody></table>` : `<p class="ag-empty">No QA weeks yet.</p>`}</section>
       <section class="ag-sec"><h3>Speed by week</h3>${spRows ? `<table class="ag-table"><thead><tr><th>Week</th><th>Min per ticket</th><th>Hours</th><th>Cleared</th></tr></thead><tbody>${spRows}</tbody></table>` : `<p class="ag-empty">No Speed yet.</p>`}</section>
       <section class="ag-sec"><h3>Attendance</h3>${att.graded ? `<p>${att.graded} day${att.graded === 1 ? "" : "s"} graded, ${att.graded - late.length} on time.${late.length ? ` Not on time: ${late.map((x) => `Day ${esc(x.day)} (${esc(x.label)})`).join(", ")}.` : " Nothing missed."}</p>` : `<p class="ag-empty">No attendance recorded yet.</p>`}</section>

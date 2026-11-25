@@ -44,3 +44,19 @@
 .ag-fullname { font-size: 17px; font-weight: 600; margin-top: 2px; }
 .ag-head .ag-fullname + p { margin-top: 2px; }
 @media (max-width: 560px) { .ag-photo { width: 88px; height: 88px; } .ag-head h2 { font-size: 24px; } }
+.ag-proj { border-radius: 14px; padding: 14px 18px; margin: 0 0 18px; border: 1px solid; }
+.ag-proj.ok { background: var(--success-bg, rgba(52,199,89,.12)); border-color: rgba(52,199,89,.35); }
+.ag-proj.no { background: rgba(220,38,38,.08); border-color: rgba(220,38,38,.35); }
+.ag-proj-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ag-proj-badge { font-weight: 800; font-size: 18px; }
+.ag-proj.ok .ag-proj-badge { color: var(--success-ink, #1d7a3a); }
+.ag-proj.no .ag-proj-badge { color: #c62828; }
+.ag-proj-h small { color: var(--muted); }
+.ag-proj p { margin: 6px 0 0; } .ag-proj ul { margin: 6px 0 0; padding-left: 20px; }
+.ag-proj-foot { font-size: 13px; color: var(--muted); }
+.ag-sub { margin: -4px 0 10px; color: var(--muted); font-size: 13.5px; }
+.ag-imp { padding: 12px 16px; border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: 12px; margin-bottom: 10px; background: var(--card, transparent); }
+.ag-imp h4 { margin: 0 0 4px; font-size: 15px; } .ag-imp h4 small { font-weight: 400; color: var(--muted); }
+.ag-imp-l { margin: 8px 0 2px; font-weight: 700; font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.ag-imp ul { margin: 0; padding-left: 20px; }
+.ag-head + .ag-who { margin-top: -14px; }

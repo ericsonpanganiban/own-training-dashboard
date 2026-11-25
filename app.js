@@ -503,11 +503,13 @@ const VIEWER_APPS = ["myClass", "cohorts", "attendance", "qaAudit", "speedApp", 
 const visibleAppIds = () =>
   window.TrainerView?.mode === "agent"
     ? ["agentcard"].filter((id) => APPS[id])
+    : window.TrainerView?.mode === "tl"
+    ? ["tlview"].filter((id) => APPS[id])
     : appRole() === "manager"
     ? MANAGER_ORDER.filter((id) => APPS[id])
     : window.TrainerWS?.isViewer
     ? VIEWER_APPS.filter((id) => APPS[id])
-    : Object.keys(APPS).filter((id) => !id.startsWith("mg") && !id.startsWith("td_") && id !== "agentcard");
+    : Object.keys(APPS).filter((id) => !id.startsWith("mg") && !id.startsWith("td_") && id !== "agentcard" && id !== "tlview");
 
 // Your avatar, your role, and a way to look at another Trainer's dashboard (read-only).
 function drawProfile(card) {
@@ -949,30 +951,30 @@ const SETTINGS_PAGES = [
     },
   },
   {
-    id: "viewers",
+    id: "teamleads",
     ownerOnly: true,
-    title: "Viewers",
+    title: "Team Leads",
     color: "#0ea5e9",
     icon: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
-    // Who can look at your classes without changing anything. Only the artifact owner changes this.
+    // Who gets the read-only Team Lead view. Only the artifact owner changes this.
     render(slot) {
-      slot.innerHTML = `<div class="settings-page app-body"><h3>Viewers</h3>
-        <p class="muted">Viewers see your dashboard (cohorts, classes, trainees, performance, attendance) but can't change anything or send anything. Share this dashboard with them from the Share menu first, then add them here. Only you can change this list.</p>
-        <div id="vw-list"></div>
-        <div class="form-row"><label for="vw-q">Add a viewer</label><input id="vw-q" type="search" placeholder="Search by name" autocomplete="off" /></div>
-        <div id="vw-hits"></div>
+      slot.innerHTML = `<div class="settings-page app-body"><h3>Team Leads</h3>
+        <p class="muted">Team Leads get the <b>Team Lead view</b>: every cohort, its roster and each trainee's quizzes, notes, attendance, QA, spot checks and Speed, plus individual and team reports. It is read-only: they can't change or send anything. Share this dashboard with them from the Share menu (as a <b>Commenter</b>; they need a Claude seat), then add them here. Anyone else who opens the dashboard gets only the Agent view. Only you can change this list.</p>
+        <div id="tl-list"></div>
+        <div class="form-row"><label for="tl-q">Add a Team Lead</label><input id="tl-q" type="search" placeholder="Search by name" autocomplete="off" /></div>
+        <div id="tl-hits"></div>
         <h3 style="margin-top:18px">Opened the dashboard</h3>
         <p class="muted"><small>Everyone who has opened this dashboard, named or not. Use this when someone doesn't show up in the search: ask them to open the link once, then add them from here.</small></p>
-        <div id="vw-opened"></div>
-        <p class="sheet-status" id="vw-status" role="status"></p></div>`;
-      const list = slot.querySelector("#vw-list");
-      const hits = slot.querySelector("#vw-hits");
-      const status = slot.querySelector("#vw-status");
+        <div id="tl-opened"></div>
+        <p class="sheet-status" id="tl-status" role="status"></p></div>`;
+      const list = slot.querySelector("#tl-list");
+      const hits = slot.querySelector("#tl-hits");
+      const status = slot.querySelector("#tl-status");
       let ids = [];
       const load = async () => {
         try {
           const db = await window.TrainerUse("db");
-          const snap = await db.doc("config/viewers").get();
+          const snap = await db.doc("config/team_leads").get();
           ids = snap.exists && Array.isArray(snap.data()?.ids) ? snap.data().ids.map(String) : [];
         } catch {}
         drawList();
@@ -981,9 +983,9 @@ const SETTINGS_PAGES = [
         status.textContent = "Saving…";
         try {
           const db = await window.TrainerUse("db");
-          await db.doc("config/viewers").set({ ids: next, updated_at: new Date().toISOString() });
+          await db.doc("config/team_leads").set({ ids: next, updated_at: new Date().toISOString() });
           ids = next;
-          status.textContent = "Saved. Viewers get the view-only dashboard the next time they open it.";
+          status.textContent = "Saved. Team Leads get the Team Lead view the next time they open the dashboard.";
           drawList();
         } catch {
           status.textContent = "Couldn't save the list. Try again.";
@@ -991,7 +993,7 @@ const SETTINGS_PAGES = [
       };
       // Everyone with an entry in the Trainers directory (each person writes theirs when they open the dashboard).
       const drawOpened = async () => {
-        const box = slot.querySelector("#vw-opened");
+        const box = slot.querySelector("#tl-opened");
         try {
           const db = await window.TrainerUse("db");
           const qs = await db.collection("trainers").get();
@@ -999,12 +1001,12 @@ const SETTINGS_PAGES = [
           const managers = window.TrainerWS?.managerIds || [];
           const people = qs.docs
             .map((d) => ({ id: d.data()?.id || d.id, base: d.data()?.base, at: d.data()?.updated_at || "" }))
-            .filter((p) => /^u_/.test(p.id) && p.id !== mine && p.base !== "root" && !ids.includes(p.id) && !managers.includes(p.id));
+            .filter((p) => /^u_/.test(p.id) && p.id !== mine && p.base !== "root" && !ids.includes(p.id));
           if (!people.length) return void (box.innerHTML = `<p class="muted">Nobody else has opened it yet.</p>`);
           const user = await window.TrainerUse("user");
           const ps = user?.profiles ? await user.profiles(people.map((p) => p.id)) : {};
-          box.innerHTML = `<ul class="mgr-people">${people.map((p) => `<li><span class="vw-op"></span><button type="button" class="btn btn-small" data-vw-add="${escapeHtml(p.id)}">Add as viewer</button></li>`).join("")}</ul>`;
-          box.querySelectorAll(".vw-op").forEach((el, i) => {
+          box.innerHTML = `<ul class="mgr-people">${people.map((p) => `<li><span class="tl-op"></span><button type="button" class="btn btn-small" data-tl-add="${escapeHtml(p.id)}">Add as Team Lead</button></li>`).join("")}</ul>`;
+          box.querySelectorAll(".tlp-op").forEach((el, i) => {
             const p = people[i];
             const when = p.at ? new Date(p.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
             el.textContent = `${ps[p.id]?.name || "Unnamed account"}${when ? ` · last opened ${when}` : ""}`;
@@ -1018,16 +1020,16 @@ const SETTINGS_PAGES = [
         const user = await window.TrainerUse("user");
         const ps = ids.length && user?.profiles ? await user.profiles(ids) : {};
         list.innerHTML = ids.length
-          ? `<ul class="mgr-people">${ids.map((id) => `<li><span class="vw-name"></span><button type="button" class="btn btn-small" data-vw-remove="${escapeHtml(id)}">Remove</button></li>`).join("")}</ul>`
-          : `<p class="muted">No viewers yet.</p>`;
-        list.querySelectorAll(".vw-name").forEach((el, i) => (el.textContent = ps[ids[i]]?.name || "Someone"));
+          ? `<ul class="mgr-people">${ids.map((id) => `<li><span class="tl-name"></span><button type="button" class="btn btn-small" data-tl-remove="${escapeHtml(id)}">Remove</button></li>`).join("")}</ul>`
+          : `<p class="muted">No Team Leads yet.</p>`;
+        list.querySelectorAll(".tlp-name").forEach((el, i) => (el.textContent = ps[ids[i]]?.name || "Someone"));
       };
       list.addEventListener("click", (e) => {
-        const b = e.target.closest("[data-vw-remove]");
-        if (b) save(ids.filter((x) => x !== b.dataset.vwRemove));
+        const b = e.target.closest("[data-tl-remove]");
+        if (b) save(ids.filter((x) => x !== b.dataset.tlRemove));
       });
       let timer = null;
-      slot.querySelector("#vw-q").addEventListener("input", (e) => {
+      slot.querySelector("#tl-q").addEventListener("input", (e) => {
         clearTimeout(timer);
         const q = e.target.value.trim();
         timer = setTimeout(async () => {
@@ -1035,18 +1037,18 @@ const SETTINGS_PAGES = [
           const user = await window.TrainerUse("user");
           const found = user?.search ? await user.search(q) : [];
           hits.innerHTML = found.length
-            ? `<ul class="mgr-people">${found.map((h) => `<li><span class="vw-hit"></span><button type="button" class="btn btn-small" data-vw-add="${escapeHtml(h.id)}"${ids.includes(h.id) ? " disabled" : ""}>${ids.includes(h.id) ? "Added" : "Add as viewer"}</button></li>`).join("")}</ul>`
+            ? `<ul class="mgr-people">${found.map((h) => `<li><span class="tl-hit"></span><button type="button" class="btn btn-small" data-tl-add="${escapeHtml(h.id)}"${ids.includes(h.id) ? " disabled" : ""}>${ids.includes(h.id) ? "Added" : "Add as Team Lead"}</button></li>`).join("")}</ul>`
             : `<p class="muted">Nobody found. Names only search people who have opened this dashboard or are in your organization.</p>`;
-          hits.querySelectorAll(".vw-hit").forEach((el, i) => (el.textContent = found[i].name || "Someone"));
+          hits.querySelectorAll(".tlp-hit").forEach((el, i) => (el.textContent = found[i].name || "Someone"));
         }, 250);
       });
-      slot.querySelector("#vw-opened").addEventListener("click", (e) => {
-        const b = e.target.closest("[data-vw-add]");
-        if (b && !ids.includes(b.dataset.vwAdd)) save([...ids, b.dataset.vwAdd]);
+      slot.querySelector("#tl-opened").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-tl-add]");
+        if (b && !ids.includes(b.dataset.tlAdd)) save([...ids, b.dataset.tlAdd]);
       });
       hits.addEventListener("click", (e) => {
-        const b = e.target.closest("[data-vw-add]");
-        if (b && !ids.includes(b.dataset.vwAdd)) save([...ids, b.dataset.vwAdd]).then(() => ((slot.querySelector("#vw-q").value = ""), (hits.innerHTML = "")));
+        const b = e.target.closest("[data-tl-add]");
+        if (b && !ids.includes(b.dataset.tlAdd)) save([...ids, b.dataset.tlAdd]).then(() => ((slot.querySelector("#tl-q").value = ""), (hits.innerHTML = "")));
       });
       load();
     },

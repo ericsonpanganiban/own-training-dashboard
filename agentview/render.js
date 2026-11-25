@@ -64,8 +64,8 @@
     const coachRows = (d.coaching || []).map((x) => `<tr><td>${esc(dshort(x.date))}</td><td>${esc(x.label)}</td><td>${x.ack ? `<span class="ag-chip ok">Acknowledged</span>` : `<span class="ag-chip plain">Awaiting your reply</span>`}</td></tr>`).join("");
     const late = att.late || [];
 
-    return `<div class="ag-page">
-      <div class="ag-head">${d.photo && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(d.photo) ? `<img class="ag-photo" src="${d.photo}" alt="">` : ""}<div><h2>Hi, ${esc(String(d.name || "there").trim().split(/\s+/)[0])}!</h2><div class="ag-fullname">${esc(d.name || "")}</div><p>${d.cohort ? esc(d.cohort) : "No class"}${d.started ? ` · started ${esc(dshort(d.started + "T00:00:00"))}` : ""}${d.inactive ? " · inactive" : ""}</p></div></div>
+    const out = `<div class="ag-page">
+      <div class="ag-head">${d.photo && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(d.photo) ? `<img class="ag-photo" src="${d.photo}" alt="">` : ""}<div>${d.audience === "tl" ? `<h2>${esc(d.name || "Trainee")}</h2>` : `<h2>Hi, ${esc(String(d.name || "there").trim().split(/\s+/)[0])}!</h2><div class="ag-fullname">${esc(d.name || "")}</div>`}<p>${d.cohort ? esc(d.cohort) : "No class"}${d.started ? ` · started ${esc(dshort(d.started + "T00:00:00"))}` : ""}${d.inactive ? " · inactive" : ""}</p></div></div>
       ${who ? `<p class="ag-who">${who}</p>` : ""}
       ${projHtml}
       <div class="ag-stats">${stats}</div>
@@ -79,6 +79,27 @@
       <section class="ag-sec"><h3>Coaching you received</h3>${coachRows ? `<table class="ag-table"><thead><tr><th>Sent</th><th>About</th><th>Status</th></tr></thead><tbody>${coachRows}</tbody></table>` : `<p class="ag-empty">No coaching sent yet.</p>`}</section>
       <p class="ag-foot">${d.generated_at ? `Updated ${esc(new Date(d.generated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}. ` : ""}This page is read-only. Reply to coaching and spot checks in Slack.</p>
     </div>`;
+    if (d.audience !== "tl") return out;
+    // The same page for a Team Lead: about the trainee, not addressed to them.
+    return [
+      ["Set by your trainer", "Set by the trainer"],
+      ["You're meeting every goal that has data so far. Keep it up.", "Meeting every goal that has data so far."],
+      ["Your trainer has you on track to pass. Keep it up.", "The trainer has them on track to pass."],
+      ["Your trainer has flagged that you're at risk of not passing. Talk with your trainer about what to focus on.", "The trainer has flagged them as at risk of not passing."],
+      ["You're below ", "Below "],
+      ["Focus on it to get back on track:", "Missed:"],
+      ["Focus on these to get back on track:", "Missed:"],
+      [": you're at ", ": at "],
+      ["From your trainer's review of your results.", "From the trainer's analyses."],
+      ["Awaiting your reply", "Awaiting reply"],
+      ["<h3>Your goals</h3>", "<h3>Goals</h3>"],
+      ["<th>You now</th>", "<th>Now</th>"],
+      ["Coaching you received", "Coaching sent"],
+      ["No goals have been set for your class yet.", "No goals set for this class."],
+      ["See your answers", "See answers"],
+      ["Your answer:", "Answer:"],
+      ["This page is read-only. Reply to coaching and spot checks in Slack.", "Read-only."],
+    ].reduce((h, [a, b]) => h.split(a).join(b), out);
   }
   root.AgentCard = Object.assign(root.AgentCard || {}, { html, esc });
 })(typeof window !== "undefined" ? window : globalThis);

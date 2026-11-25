@@ -36,18 +36,26 @@
   // Trainer view is for the owner only. Everyone else (Viewers, other seat holders) gets the Agent view.
   const isOwner = () => !!(window.TrainerWS && window.TrainerWS.isOwner);
   const canSwitch = () => isOwner();
+  // Team Leads: people the owner listed in Settings › Team Leads (config/team_leads). They get the Team Lead view only.
+  let tlIds = [];
+  const isTL = () => !isOwner() && !!(window.TrainerWS && window.TrainerWS.id && tlIds.includes(window.TrainerWS.id));
+  const loadTLs = () => (window.claude && window.claude.use ? window.claude.use("db") : Promise.resolve(null))
+    .then((db) => (db ? db.doc("config/team_leads").get() : null))
+    .then((snap) => { tlIds = snap && snap.exists && Array.isArray((snap.data() || {}).ids) ? snap.data().ids.map(String) : []; }, () => {});
   window.TrainerView = {
     get mode() { return state.mode; },
     get agentId() { return state.agentId; },
     canSwitch,
     onChange(fn) { subs.add(fn); return () => subs.delete(fn); },
     set(mode, agentId) {
-      const m = mode === "agent" || !isOwner() ? "agent" : "trainer";
+      const want = mode === "agent" || mode === "tl" ? mode : "trainer";
+      const m = isOwner() ? want : isTL() ? "tl" : "agent";
       if (m === "agent") state.agentId = agentId || state.agentId || firstAgent();
       else if (agentId) state.agentId = agentId;
       const changed = m !== state.mode;
       state.mode = m;
       document.body.classList.toggle("agent-mode", m === "agent");
+      document.body.classList.toggle("tl-mode", m === "tl");
       if (typeof applySettings === "function") applySettings();
       subs.forEach((f) => { try { f(changed); } catch (e) {} });
     },
@@ -423,7 +431,7 @@
     sw.className = "view-switch";
     sw.setAttribute("role", "group");
     sw.setAttribute("aria-label", "View");
-    sw.innerHTML = `<button type="button" data-view="trainer">Trainer view</button><button type="button" data-view="agent">Agent view</button>`;
+    sw.innerHTML = `<button type="button" data-view="trainer">Trainer view</button><button type="button" data-view="tl">Team Lead view</button><button type="button" data-view="agent">Agent view</button>`;
     right.insertBefore(sw, right.firstChild);
     const paint = () => {
       sw.hidden = !canSwitch();
@@ -443,15 +451,15 @@
     if (!changed) return;
     [...openWindows.keys()].forEach((id) => closeApp(id));
     const brand = document.querySelector(".brand");
-    if (brand) brand.textContent = state.mode === "agent" ? "Agent view" : appRole() === "manager" ? "Training Manager" : "Trainer";
+    if (brand) brand.textContent = state.mode === "agent" ? "Agent view" : state.mode === "tl" ? "Team Lead view" : appRole() === "manager" ? "Training Manager" : "Trainer";
     rebuildDock();
     const ids = visibleAppIds();
-    const first = state.mode === "agent" ? "agentcard" : ids.includes("today") ? "today" : ids[0];
+    const first = state.mode === "agent" ? "agentcard" : state.mode === "tl" ? "tlview" : ids.includes("today") ? "today" : ids[0];
     if (first && APPS[first]) openApp(first);
   });
 
   {
-    const lock = () => { if (!isOwner() && state.mode !== "agent") window.TrainerView.set("agent"); };
+    const lock = () => loadTLs().then(() => { if (!isOwner()) window.TrainerView.set(isTL() ? "tl" : "agent"); });
     if (window.TrainerWS && window.TrainerWS.ready) window.TrainerWS.ready.then(() => setTimeout(lock, 300), () => setTimeout(lock, 300));
   }
   if (forced) {

@@ -262,3 +262,8 @@ A **Notion** group sits at the top of Quiz › Resources (`quiz_notion`): the No
 
 ### Trainee photos (redesign branch)
 Settings › Roster › Add or Edit trainee has a **Photo**: upload any image and it is cropped to a square, shrunk to 256 px (about 5 to 30 KB) and saved on the trainee (`photo`, a JPEG data URL); **Remove** clears it. The photo shows next to the name in the roster table (initials when there is none) and at the top of the agent's scorecard.
+
+### Team Lead view (redesign branch)
+For Team Leads (`tlview/`). The owner lists them in **Settings › Team Leads** (`config/team_leads`, replacing the old Viewers page) and shares the dashboard with them as a Commenter; they need a Claude seat. A page can't tell a Commenter from a Viewer, so the list is what grants it. A listed Team Lead gets only the Team Lead view; everyone else who isn't the owner gets the Agent view. The owner can preview it with the Trainer | Team Lead | Agent switch.
+
+Read-only, no inputs: **Cohorts** (cards with on-track / at-risk counts) › **Roster** (projection, missed goals, QA, Speed, quiz, spot checks and attendance points, green or red against the cohort goals) › **Trainee** (the scorecard written about them, not to them, plus the trainer's notes). **Team report** (counts, averages, who needs attention, every trainee) and **Individual report** (the scorecard and notes) can be printed or saved as PDF, or downloaded as an HTML file.

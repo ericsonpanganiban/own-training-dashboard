@@ -2423,7 +2423,7 @@
       rosterHtml =
         "<div class=\"roster-table-wrap\"><table class=\"preview\"><thead><tr><th>Name</th><th>Work email</th><th>CRM name</th><th>Team lead</th><th>Department</th><th></th></tr></thead><tbody>" +
           state.trainees.map(function(t){
-            return "<tr><td><button type=\"button\" class=\"td-name\" data-td-trainee=\"" + esc(t.id) + "\" title=\"Open " + esc(t.name) + "'s details\">" + esc(t.name) + "</button></td><td>" + esc(t.email || "") + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td>" +
+            return "<tr><td><span class=\"t-namecell\">" + avatarHtml(t, 28) + "<button type=\"button\" class=\"td-name\" data-td-trainee=\"" + esc(t.id) + "\" title=\"Open " + esc(t.name) + "'s details\">" + esc(t.name) + "</button></span></td><td>" + esc(t.email || "") + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td>" +
               "<td class=\"kebab-cell\"><button class=\"kebab-btn\" data-kebab-trainee=\"" + esc(t.id) + "\" title=\"More options\" type=\"button\">⋮</button></td></tr>";
           }).join("") +
         "</tbody></table></div>";
@@ -2460,11 +2460,55 @@
     { key: "not_passed", label: "Did not pass" }
   ];
 
+  // ---- Trainee photo: picked in the Add / Edit form, shrunk to a 256px square JPEG and kept on the trainee (photo).
+  var pendingPhoto; // undefined: unchanged · "": removed · a data URL: the new photo
+  function avatarHtml(t, size){
+    size = size || 28;
+    var initials = String((t && t.name) || "?").trim().split(/\s+/).slice(0, 2).map(function(w){ return w.charAt(0).toUpperCase(); }).join("");
+    var ok = t && typeof t.photo === "string" && t.photo.indexOf("data:image/") === 0;
+    return "<span class=\"t-avatar\" style=\"width:" + size + "px;height:" + size + "px;font-size:" + Math.round(size * 0.4) + "px\">" + (ok ? "<img src=\"" + esc(t.photo) + "\" alt=\"\">" : esc(initials || "?")) + "</span>";
+  }
+  function shrinkPhoto(file){
+    return new Promise(function(resolve, reject){
+      if (!file || !/^image\//.test(file.type)) return reject(new Error("That isn't an image."));
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function(){
+        var side = Math.min(img.naturalWidth, img.naturalHeight), out = 256;
+        var c = document.createElement("canvas"); c.width = out; c.height = out;
+        c.getContext("2d").drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, out, out);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error("That image couldn't be read.")); };
+      img.src = url;
+    });
+  }
+  function photoField(t){
+    return "<div class=\"field\"><label>Photo</label><div class=\"t-photo-row\"><span id=\"nt-photo-prev\">" + avatarHtml(t, 56) + "</span>" +
+      "<label class=\"ghost small t-photo-btn\" for=\"nt-photo\">" + (t && t.photo ? "Change photo" : "Upload photo") + "</label><input type=\"file\" id=\"nt-photo\" accept=\"image/*\" hidden>" +
+      "<button type=\"button\" class=\"ghost small\" id=\"nt-photo-rm\"" + (t && t.photo ? "" : " hidden") + ">Remove</button><span class=\"hint\" id=\"nt-photo-msg\"></span></div></div>";
+  }
+  function wirePhoto(t){
+    pendingPhoto = undefined;
+    var input = document.getElementById("nt-photo"), prev = document.getElementById("nt-photo-prev"), rm = document.getElementById("nt-photo-rm"), msg = document.getElementById("nt-photo-msg");
+    if (!input) return;
+    var nameOf = function(){ return ((document.getElementById("nt-name") || {}).value || (t && t.name) || ""); };
+    input.addEventListener("change", function(){
+      var f = input.files && input.files[0];
+      if (!f) return;
+      msg.textContent = "Loading…";
+      shrinkPhoto(f).then(function(d){ pendingPhoto = d; prev.innerHTML = avatarHtml({ name: nameOf(), photo: d }, 56); rm.hidden = false; msg.textContent = ""; },
+        function(e){ msg.textContent = e.message; });
+      input.value = "";
+    });
+    rm.addEventListener("click", function(){ pendingPhoto = ""; prev.innerHTML = avatarHtml({ name: nameOf() }, 56); rm.hidden = true; });
+  }
+
   // Nesting status is set later (Edit), not when a trainee is first added.
   function traineeModalFields(t){
     var editing = !!t;
     t = t || { name: "", email: "", crm_name: "", team_lead: "", department: "", nesting_status: "" };
-    return "<div class=\"field\"><label for=\"nt-name\">Name</label><input type=\"text\" id=\"nt-name\" placeholder=\"Jordan Diaz\" value=\"" + esc(t.name) + "\"></div>" +
+    return photoField(t) + "<div class=\"field\"><label for=\"nt-name\">Name</label><input type=\"text\" id=\"nt-name\" placeholder=\"Jordan Diaz\" value=\"" + esc(t.name) + "\"></div>" +
       "<div class=\"field\"><label for=\"nt-email\">Work email</label><input type=\"email\" id=\"nt-email\" placeholder=\"jordan.diaz@company.com\" value=\"" + esc(t.email || "") + "\"></div>" +
       "<div class=\"field\"><label for=\"nt-crm\">CRM name</label><input type=\"text\" id=\"nt-crm\" placeholder=\"As it appears in the QA sheet\" value=\"" + esc(t.crm_name) + "\"></div>" +
       selectField("nt-lead", "Team lead", state.teamLeads, "Add a Team Lead first", t.team_lead) +
@@ -2580,6 +2624,7 @@
     );
     document.getElementById("saveTraineeBtn").addEventListener("click", function(){ saveTrainee(); });
     document.getElementById("cancelTraineeBtn").addEventListener("click", closeModal);
+    wirePhoto(null);
     wireEmailToCrm();
     document.getElementById("nt-name").focus();
   }
@@ -2598,6 +2643,7 @@
     );
     document.getElementById("saveTraineeBtn").addEventListener("click", function(){ saveTrainee(id); });
     document.getElementById("cancelTraineeBtn").addEventListener("click", closeModal);
+    wirePhoto(t);
     wireEmailToCrm();
     document.getElementById("nt-name").focus();
   }
@@ -2622,6 +2668,7 @@
     var nestingEl = document.getElementById("nt-nesting");
     var record = { name: name, email: email, crm_name: crm, team_lead: lead, department: dept };
     if (nestingEl) record.nesting_status = nestingEl.value;
+    if (pendingPhoto !== undefined) record.photo = pendingPhoto;
     else if (!editId) record.nesting_status = "";
 
     if (!dbFn || (editId && String(editId).indexOf("local-") === 0)){

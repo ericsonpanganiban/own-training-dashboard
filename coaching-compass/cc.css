@@ -679,3 +679,11 @@
   :is(.cc-root, .cc-ui) table.speed-report .sp-ok{color:#15803d;}
   :is(.cc-root, .cc-ui) table.speed-report .sp-bad{color:#b91c1c;}
   :is(.cc-root, .cc-ui) table.speed-report .sp-sub{display:block;font-size:11px;font-weight:400;color:var(--ink-3,var(--muted));}
+
+/* Trainee photo */
+.t-avatar{display:inline-flex;align-items:center;justify-content:center;flex:none;border-radius:50%;overflow:hidden;background:var(--accent-soft,rgba(60,110,87,.15));color:var(--accent,#3c6e57);font-weight:700;vertical-align:middle}
+.t-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.t-namecell{display:inline-flex;align-items:center;gap:8px}
+.t-photo-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.t-photo-btn{cursor:pointer;display:inline-flex;align-items:center;padding:7px 14px;border:1px solid var(--line,rgba(0,0,0,.15));border-radius:999px;background:var(--card,#fff);font-weight:600;font-size:13px}
+.t-photo-btn:hover{background:rgba(128,128,128,.1)}

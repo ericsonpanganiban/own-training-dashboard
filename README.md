@@ -259,3 +259,6 @@ Codes are gone. Trainer view is the owner's only; anyone else who opens the dash
 
 ### Quiz › Resources › Notion (redesign branch)
 A **Notion** group sits at the top of Quiz › Resources (`quiz_notion`): the Notion articles quizzes are built from, Notion links only. The page can't open Notion itself, so ask Claude to **sync the Notion resources**: Claude reads each article and saves its text on the record (`text`, `synced_at`). Synced articles are read in full by "Ask Claude for quiz questions"; unsynced ones give only their title. Changing an article's link clears its synced text.
+
+### Trainee photos (redesign branch)
+Settings › Roster › Add or Edit trainee has a **Photo**: upload any image and it is cropped to a square, shrunk to 256 px (about 5 to 30 KB) and saved on the trainee (`photo`, a JPEG data URL); **Remove** clears it. The photo shows next to the name in the roster table (initials when there is none) and at the top of the agent's scorecard.

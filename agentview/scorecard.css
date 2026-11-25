@@ -37,3 +37,5 @@
 .ag-a { margin: 8px 0 0; padding: 8px 10px; border-left: 3px solid var(--line, rgba(128,128,128,.4)); border-radius: 4px; }
 .ag-a.ok { border-left-color: #2e9e5b; } .ag-a.no { border-left-color: #d1453b; }
 .ag-a p { margin: 2px 0; } .ag-key { color: var(--muted); }
+.ag-head { display: flex; align-items: center; gap: 16px; }
+.ag-photo { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; flex: none; }

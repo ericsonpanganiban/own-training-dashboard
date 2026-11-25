@@ -81,6 +81,7 @@
       cohort: c ? c.name : "",
       started: c ? c.training_start_date || "" : "",
       inactive: inactive(t),
+      photo: typeof t.photo === "string" && t.photo.indexOf("data:image/") === 0 ? t.photo : "",
       lead: String(t.team_lead || (c && c.team_lead) || "").trim(),
       dept: String(t.department || (c && c.department) || "").trim(),
       goals: goalsOf(c),

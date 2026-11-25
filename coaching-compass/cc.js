@@ -2358,6 +2358,9 @@
     }).join("");
 
     var cardHtml = state.rosterTab === "trainee" ? traineeCardHtml() : simpleListCardHtml(simpleListConfig(state.rosterTab));
+    // A redraw while typing in Search keeps the box focused where the cursor was.
+    var searchEl = document.getElementById("rosterSearch");
+    var hadFocus = searchEl && document.activeElement === searchEl, caret = hadFocus ? searchEl.selectionStart : 0;
 
     rosterHost.innerHTML = "<div class=\"subtabs roster-subtabs\">" + tabsHtml + "</div>" + cardHtml;
 
@@ -2370,6 +2373,27 @@
 
     if (state.rosterTab === "trainee") wireTraineeCard();
     else wireSimpleListCard(simpleListConfig(state.rosterTab));
+
+    var box = document.getElementById("rosterSearch");
+    if (box){
+      box.addEventListener("input", function(){ state.rosterSearch = box.value; filterRosterRows(); });
+      filterRosterRows();
+      if (hadFocus){ box.focus(); try { box.setSelectionRange(caret, caret); } catch (e) {} }
+    }
+  }
+
+  // Search the trainee roster by name, work email, CRM name, team lead or department.
+  function filterRosterRows(){
+    var q = String(state.rosterSearch || "").trim().toLowerCase();
+    var rows = rosterHost ? rosterHost.querySelectorAll("tr[data-roster-row]") : [];
+    var shown = 0;
+    Array.prototype.forEach.call(rows, function(tr){
+      var hit = !q || q.split(/\s+/).every(function(w){ return tr.getAttribute("data-roster-row").indexOf(w) !== -1; });
+      tr.hidden = !hit;
+      if (hit) shown++;
+    });
+    var note = document.getElementById("rosterSearchNote");
+    if (note) note.textContent = q ? (shown ? shown + " of " + rows.length + " trainee" + (rows.length === 1 ? "" : "s") : "No trainees match “" + state.rosterSearch.trim() + "”.") : "";
   }
 
   function simpleListConfig(key){
@@ -2423,7 +2447,8 @@
       rosterHtml =
         "<div class=\"roster-table-wrap\"><table class=\"preview\"><thead><tr><th>Name</th><th>Work email</th><th>CRM name</th><th>Team lead</th><th>Department</th><th></th></tr></thead><tbody>" +
           state.trainees.map(function(t){
-            return "<tr><td><span class=\"t-namecell\">" + avatarHtml(t, 28) + "<button type=\"button\" class=\"td-name\" data-td-trainee=\"" + esc(t.id) + "\" title=\"Open " + esc(t.name) + "'s details\">" + esc(t.name) + "</button></span></td><td>" + esc(t.email || "") + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td>" +
+            var hay = [t.name, t.email, t.crm_name, t.team_lead, t.department].join(" ").toLowerCase();
+            return "<tr data-roster-row=\"" + esc(hay) + "\"><td><span class=\"t-namecell\">" + avatarHtml(t, 28) + "<button type=\"button\" class=\"td-name\" data-td-trainee=\"" + esc(t.id) + "\" title=\"Open " + esc(t.name) + "'s details\">" + esc(t.name) + "</button></span></td><td>" + esc(t.email || "") + "</td><td>" + esc(t.crm_name) + "</td><td>" + esc(t.team_lead) + "</td><td>" + esc(t.department) + "</td>" +
               "<td class=\"kebab-cell\"><button class=\"kebab-btn\" data-kebab-trainee=\"" + esc(t.id) + "\" title=\"More options\" type=\"button\">⋮</button></td></tr>";
           }).join("") +
         "</tbody></table></div>";
@@ -2435,6 +2460,7 @@
           "<button class=\"primary small\" id=\"addTraineeBtn\" style=\"margin-left:8px;\" type=\"button\">+ Add trainee</button>" +
         "</div>" +
         "<p class=\"hint\">One record per trainee, so Coaching can match the CRM name on a QA audit back to a real person, their team lead and department. Team lead and department are picked from the lists on their own tabs.</p>" +
+        (state.trainees.length ? "<div class=\"roster-search\"><input type=\"search\" id=\"rosterSearch\" placeholder=\"Search name, email, CRM name, team lead or department\" aria-label=\"Search trainees\" value=\"" + esc(state.rosterSearch || "") + "\"><span class=\"hint\" id=\"rosterSearchNote\" role=\"status\"></span></div>" : "") +
         rosterHtml +
       "</div>";
   }

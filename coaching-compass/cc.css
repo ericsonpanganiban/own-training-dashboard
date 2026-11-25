@@ -687,3 +687,5 @@
 .t-photo-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .t-photo-btn{cursor:pointer;display:inline-flex;align-items:center;padding:7px 14px;border:1px solid var(--line,rgba(0,0,0,.15));border-radius:999px;background:var(--card,#fff);font-weight:600;font-size:13px}
 .t-photo-btn:hover{background:rgba(128,128,128,.1)}
+.roster-search{display:flex;align-items:center;gap:12px;margin:4px 0 12px;flex-wrap:wrap}
+.roster-search input{flex:1;min-width:220px;max-width:460px;padding:9px 12px;border:1px solid var(--line,rgba(0,0,0,.15));border-radius:10px;background:var(--card,#fff);color:inherit;font:inherit}

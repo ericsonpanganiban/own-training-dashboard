@@ -38,4 +38,9 @@
 .ag-a.ok { border-left-color: #2e9e5b; } .ag-a.no { border-left-color: #d1453b; }
 .ag-a p { margin: 2px 0; } .ag-key { color: var(--muted); }
 .ag-head { display: flex; align-items: center; gap: 16px; }
-.ag-photo { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; flex: none; }
+.ag-photo { width: 128px; height: 128px; box-shadow: 0 2px 10px rgba(0,0,0,.12); border-radius: 50%; object-fit: cover; flex: none; }
+.ag-head { gap: 22px; margin-bottom: 18px; }
+.ag-head h2 { font-size: 30px; }
+.ag-fullname { font-size: 17px; font-weight: 600; margin-top: 2px; }
+.ag-head .ag-fullname + p { margin-top: 2px; }
+@media (max-width: 560px) { .ag-photo { width: 88px; height: 88px; } .ag-head h2 { font-size: 24px; } }

@@ -49,7 +49,7 @@
     const late = att.late || [];
 
     return `<div class="ag-page">
-      <div class="ag-head">${d.photo && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(d.photo) ? `<img class="ag-photo" src="${d.photo}" alt="">` : ""}<div><h2>${esc(d.name || "Agent")}</h2><p>${d.cohort ? esc(d.cohort) : "No class"}${d.started ? ` · started ${esc(dshort(d.started + "T00:00:00"))}` : ""}${d.inactive ? " · inactive" : ""}</p></div></div>
+      <div class="ag-head">${d.photo && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(d.photo) ? `<img class="ag-photo" src="${d.photo}" alt="">` : ""}<div><h2>Hi, ${esc(String(d.name || "there").trim().split(/\s+/)[0])}!</h2><div class="ag-fullname">${esc(d.name || "")}</div><p>${d.cohort ? esc(d.cohort) : "No class"}${d.started ? ` · started ${esc(dshort(d.started + "T00:00:00"))}` : ""}${d.inactive ? " · inactive" : ""}</p></div></div>
       ${who ? `<p class="ag-who">${who}</p>` : ""}
       <div class="ag-stats">${stats}</div>
       <section class="ag-sec"><h3>Your goals</h3>${anyGoal ? `<table class="ag-table"><thead><tr><th>Measure</th><th>Goal</th><th>You now</th><th>Status</th></tr></thead><tbody>${goalRows}</tbody></table>` : `<p class="ag-empty">No goals have been set for your class yet.</p>`}</section>

@@ -5825,6 +5825,19 @@
         return Promise.reject({ message: docErrorCopy(e && e.code) || "Google Drive couldn't open that file." });
       });
     },
+    // A Google Sheet's first tab as rows of cells (Drive's CSV export: the first tab, in full).
+    readSheetRows: function(url){
+      var m = String(url || "").match(/\/d\/([a-zA-Z0-9_-]{20,})/) || String(url || "").match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+      if (!m) return Promise.reject({ message: "Not a Google Sheets link." });
+      if (!mcpFn) return Promise.reject({ message: "Google Drive isn't available in this view." });
+      return mcpFn.callTool("Google Drive", "download_file_content", { fileId: m[1], exportMimeType: "text/csv" }).then(function(result){
+        var text = downloadedText(result);
+        if (!text) return Promise.reject({ message: "Google Drive didn't return that sheet in a form this page can read. What came back: " + lastDownloadShape });
+        return parseCSV(String(text).replace(/^\uFEFF/, ""));
+      }, function(e){
+        return Promise.reject({ message: docErrorCopy(e && e.code) || "Google Drive couldn't open that sheet." });
+      });
+    },
     // Move a Drive file to the trash (recoverable from Drive's Trash for 30 days).
     trashDriveFile: function(fileId){
       if (!mcpFn) return Promise.reject({ message: "Google Drive isn't available in this view." });

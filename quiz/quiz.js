@@ -1359,10 +1359,56 @@
                 .join("")}</ul>`
       }`;
   }
+  // ---- Question Bank: a Google Sheet of the trainer's own questions (quiz_settings/question_bank { url }) ----
+  // Columns are found by header name: Topic, Week, Type, Question, Choice A–D, Correct answer, Notes / source.
+  // "Ask Claude for quiz questions" can pull from it: Claude reuses or adapts those questions first.
+  const bank = { url: "", loaded: false, rows: null, topics: [], err: "", busy: false, at: "" };
+  dbReady.then((d) => {
+    if (!d) return void (bank.loaded = true);
+    d.doc("quiz_settings/question_bank").onSnapshot(
+      (snap) => { const u = (snap.exists && (snap.data() || {}).url) || ""; if (u !== bank.url) { bank.url = u; bank.rows = null; } bank.loaded = true; notify(); },
+      () => ((bank.loaded = true), notify())
+    );
+  });
+  // The sheet's rows as questions: { topic, week, type, question, choices[], answer, notes }.
+  function bankFromRows(rows) {
+    const hi = rows.findIndex((r) => r.some((c) => /^question$/i.test(String(c).trim())));
+    if (hi < 0) throw { message: "Couldn't find a “Question” column in the first row of the sheet's first tab." };
+    const h = rows[hi].map((c) => String(c).trim().toLowerCase());
+    const col = (re) => h.findIndex((x) => re.test(x));
+    const ix = { topic: col(/^topic/), week: col(/^week/), type: col(/^type/), q: col(/^question$/), ans: col(/^(correct )?answer/), notes: col(/^notes|source/) };
+    const choiceCols = h.map((x, i) => (/^choice|^option/.test(x) ? i : -1)).filter((i) => i >= 0);
+    const v = (r, i) => (i >= 0 ? String(r[i] == null ? "" : r[i]).trim() : "");
+    return rows.slice(hi + 1).map((r) => ({ topic: v(r, ix.topic), week: v(r, ix.week), type: v(r, ix.type), question: v(r, ix.q), choices: choiceCols.map((i) => v(r, i)).filter(Boolean), answer: v(r, ix.ans), notes: v(r, ix.notes) })).filter((x) => x.question);
+  }
+  function loadBank(force) {
+    if (!bank.url || bank.busy || (bank.rows && !force)) return Promise.resolve(bank.rows || []);
+    if (!cc()?.readSheetRows) return Promise.reject({ message: "Google Drive isn't available in this view." });
+    bank.busy = true; bank.err = ""; notify();
+    return cc().readSheetRows(bank.url).then((rows) => {
+      bank.rows = bankFromRows(rows);
+      bank.topics = [...new Set(bank.rows.map((x) => x.topic).filter(Boolean))].sort();
+      bank.at = new Date().toISOString();
+      return bank.rows;
+    }).catch((e) => { bank.err = (e && e.message) || "Couldn't read the sheet."; throw e; }).finally(() => { bank.busy = false; notify(); });
+  }
+  function bankHtml() {
+    if (!bank.loaded) return `<p class="muted">Loading…</p>`;
+    const n = bank.rows ? bank.rows.length : null;
+    return `<div class="qbank">
+      ${bank.url ? `<p><a href="${escapeHtml(bank.url)}" target="_blank" rel="noopener noreferrer"><b>Open the Question Bank sheet</b></a>
+        <span class="muted">${bank.busy ? " · Reading…" : n != null ? ` · ${n} question${n === 1 ? "" : "s"}${bank.topics.length ? ` in ${bank.topics.length} topic${bank.topics.length === 1 ? "" : "s"}` : ""}` : ""}</span>
+        <button type="button" class="btn btn-small" data-bank-refresh${bank.busy ? " disabled" : ""}>${n == null ? "Check the sheet" : "Read it again"}</button></p>` : `<p class="muted">No Question Bank sheet linked yet.</p>`}
+      ${bank.err ? `<p class="warn-text">${escapeHtml(bank.err)}</p>` : ""}
+      <p class="muted">Add questions to the sheet's first tab, one per row: <b>Topic</b>, <b>Week</b>, <b>Type</b> (Multiple choice, True / False or Short answer), <b>Question</b>, <b>Choice A–D</b>, <b>Correct answer</b> and <b>Notes / source</b>. Only Question is required. Then tick “Use the Question Bank” in Ask Claude for quiz questions.</p>
+      <form class="link-form qbank-form" data-bank-form novalidate><input type="url" data-bank-url placeholder="Google Sheets link" value="${escapeHtml(bank.url)}" aria-label="Question Bank sheet link" /><button type="button" class="btn" data-bank-save>${bank.url ? "Change sheet" : "Link sheet"}</button></form>
+      <p class="sheet-status" data-bank-status role="status"></p></div>`;
+  }
+
   // ---- Ask Claude for quiz questions (Resources) ----
   // A request, optionally grounded in saved resources (Google Drive links are read in full) or pasted
   // material. Claude suggests questions with answers; picked ones are added to a new or existing quiz.
-  const ai = { request: "", count: 5, types: { mc: true, tf: true, short: true }, use: new Set(), paste: "", busy: false, status: "", suggestions: [], target: "new", added: "" };
+  const ai = { request: "", count: 5, types: { mc: true, tf: true, short: true }, use: new Set(), bank: false, bankTopic: "", paste: "", busy: false, status: "", suggestions: [], target: "new", added: "" };
   const MATERIAL_LIMIT = 40000; // characters of material per request (a Claude call from a page is capped)
   // When the material is longer than one request can hold, keep the parts that match the request rather than the
   // top of the document: split each resource into chunks (carrying their nearest heading), score each by how often
@@ -1444,6 +1490,13 @@
                       <small class="muted">${x.notion ? (x.text ? "Notion · Claude reads this article" : "Notion · not synced yet, title only") : isDriveLink(x.url) ? "Claude reads this Google Doc" : "Claude sees the title and note only"}</small></label>`
                   )
                   .join("")}</fieldset>`
+            : ""
+        }
+        ${
+          bank.url
+            ? `<fieldset class="ai-use"><legend>Your Question Bank</legend>
+                <label><input type="checkbox" data-ai-bank${ai.bank ? " checked" : ""} /> Use the Question Bank <small class="muted">Claude reuses or adapts your questions first</small></label>
+                ${bank.topics.length ? `<label>Topic <select data-ai-banktopic><option value="">All topics</option>${bank.topics.map((t) => `<option${t === ai.bankTopic ? " selected" : ""}>${escapeHtml(t)}</option>`).join("")}</select></label>` : ""}</fieldset>`
             : ""
         }
         <details class="ai-paste"${ai.paste ? " open" : ""}><summary>Or paste material for Claude to use</summary>
@@ -1541,6 +1594,18 @@
     const picked = pickRelevant(parts, request, MATERIAL_LIMIT);
     const material = picked.text;
     const cut = picked.cut;
+    // The Question Bank: the trainer's own questions, filtered to the chosen topic.
+    let bankText = "";
+    if (ai.bank && bank.url) {
+      setAi("Reading your Question Bank…");
+      try {
+        const rows = (await loadBank(true)).filter((x) => !ai.bankTopic || x.topic === ai.bankTopic);
+        bankText = rows.map((x, i) => `${i + 1}. [${[x.topic, x.week && `Week ${x.week}`, x.type].filter(Boolean).join(" · ")}] ${x.question}${x.choices.length ? `\n   Choices: ${x.choices.join(" | ")}` : ""}${x.answer ? `\n   Correct answer: ${x.answer}` : ""}${x.notes ? `\n   Notes: ${x.notes}` : ""}`).join("\n").slice(0, 40000);
+        if (!bankText) skipped.push(ai.bankTopic ? `Question Bank (no questions on ${ai.bankTopic})` : "Question Bank (it's empty)");
+      } catch (e) {
+        skipped.push(`Question Bank (${(e && e.message) || "couldn't be read"})`);
+      }
+    }
     setAi("Claude is writing questions…");
     // `avoid` lists questions already written, so a top-up round asks for different ones.
     const buildPrompt = (n, avoid) =>
@@ -1548,14 +1613,18 @@
         "You write quiz questions for new customer-support trainees at a home-cleaning company.",
         `Trainer's request: ${request}`,
         `Write ${n} questions. Allowed types: ${types.map((k) => `${k} (${TYPES[k]})`).join(", ")}.`,
+        bankText
+          ? "The trainer gave their own QUESTION BANK below. Build the quiz mainly from it: reuse its questions as written where they fit the request (keep their correct answers), or adapt them into the allowed types. Fill any gap from the material, if given. For a question taken or adapted from the bank, put \"Question Bank\" and its topic in \"source\". Don't use the same bank question twice."
+          : "",
         material
           ? "Base every question and answer ONLY on the material below. Don't invent policy details that aren't in it. In \"source\", name the material (and section) each question comes from."
-          : "No material was given, so keep to general, widely true customer-support practice, and leave \"source\" empty.",
+          : bankText ? "" : "No material was given, so keep to general, widely true customer-support practice, and leave \"source\" empty.",
         "Stay on the trainer's topic: every question must be about what the request asks for, even if the material covers other things too. Cover different facts, rules and situations from the material rather than rewording the same point. If the material really has too little on the topic, write fewer rather than going off-topic or repeating.",
         "Rules: one clear correct answer per question; multiple choice has 3-4 plausible choices; true/false statements are unambiguous; short answers have an answer key saying what a correct answer must include.",
         'Reply with JSON only: {"questions":[{"type":"mc","prompt":"…","choices":["…","…","…"],"answer":0,"points":1,"source":"…"},{"type":"tf","prompt":"…","answer":true,"points":1,"source":"…"},{"type":"short","prompt":"…","answer":"what a correct answer must say","points":1,"source":"…"}]}',
         "For mc, \"answer\" is the 0-based index of the correct choice.",
         avoid.length ? `\nThese questions are already written. Do not repeat or reword them:\n${avoid.map((q) => `- ${q.prompt.slice(0, 140)}`).join("\n")}` : "",
+        bankText ? `\n--- QUESTION BANK ---\n${bankText}` : "",
         material ? `\n--- MATERIAL ---\n${material}` : "",
       ].join("\n");
     const norm = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 80);
@@ -1827,7 +1896,7 @@
       case "trash":
         return head("Trash", `<span class="muted quiz-sub">Deleted items, kept ${TRASH_DAYS} days</span>`) + trashHtml();
       case "resources":
-        return head("Resources", `<span class="muted quiz-sub">Study material and references for quizzes</span>`) + aiBoxHtml() + `<h4 class="quiz-h">Notion</h4><p class="muted" style="margin:-4px 0 10px">The main resources quizzes are built from. Add each Notion article link here.</p>` + linkListHtml("notion") + `<h4 class="quiz-h">Other resources</h4>` + linkListHtml("resources");
+        return head("Resources", `<span class="muted quiz-sub">Study material and references for quizzes</span>`) + aiBoxHtml() + `<h4 class="quiz-h">Notion</h4><p class="muted" style="margin:-4px 0 10px">The main resources quizzes are built from. Add each Notion article link here.</p>` + linkListHtml("notion") + `<h4 class="quiz-h">Question Bank</h4>` + bankHtml() + `<h4 class="quiz-h">Other resources</h4>` + linkListHtml("resources");
     }
     return "";
   }
@@ -1943,6 +2012,8 @@
     }
     if (ds.aiType) return void (ai.types[ds.aiType] = t.checked);
     if (ds.aiUse) return void (t.checked ? ai.use.add(ds.aiUse) : ai.use.delete(ds.aiUse));
+    if ("aiBank" in ds) { ai.bank = t.checked; if (t.checked && !bank.rows) loadBank().catch(() => {}); return; }
+    if ("aiBanktopic" in ds) return void (ai.bankTopic = t.value);
     if (ds.aiPick !== undefined) {
       ai.suggestions[+ds.aiPick].pick = t.checked;
       return draw();
@@ -1989,6 +2060,13 @@
       return openTrainee(ui.traineeId, quizId, runId);
     }
     if (ds.linkAdd) return addLink(ds.linkAdd);
+    if ("bankRefresh" in ds) return void loadBank(true).catch(() => {});
+    if ("bankSave" in ds) {
+      const v = (ui.el.querySelector("[data-bank-url]").value || "").trim(), st = ui.el.querySelector("[data-bank-status]");
+      if (v && !/docs\.google\.com\/spreadsheets\/d\//.test(v)) return void (st.textContent = "Use a Google Sheets link (docs.google.com/spreadsheets/…).");
+      bank.url = v; bank.rows = null; bank.topics = [];
+      return void (db ? db.doc("quiz_settings/question_bank").set({ url: v, updated_at: new Date().toISOString() }) : Promise.resolve()).then(() => { draw(); if (v) loadBank(true).catch(() => {}); }, () => (st.textContent = "Couldn't save the link."));
+    }
     if (ds.linkMenu) {
       e.stopPropagation();
       const [kind, id] = ds.linkMenu.split("|");

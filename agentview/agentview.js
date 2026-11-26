@@ -81,7 +81,7 @@
     let quiz = null;
     if (withQuiz && window.TrainerQuiz && window.TrainerQuiz.traineeResults) {
       const q = await window.TrainerQuiz.traineeResults(t.id).catch(() => null);
-      if (q) quiz = { avg: q.avg, weighted: q.weighted, taken: q.taken, items: (q.items || []).filter((x) => x.pct != null).map((x) => ({ title: x.title, week: x.week || 0, pct: x.pct, passing: x.passing, date: x.sent_at || "", answers: (x.answers || []).map((a) => ({ q: String(a.question || "").slice(0, 600), a: String(a.answer || "").slice(0, 600), ok: a.correct, key: String(a.key || "").slice(0, 600) })) })) };
+      if (q) quiz = { avg: q.avg, weighted: q.weighted, taken: q.taken, items: (q.items || []).filter((x) => x.pct != null).map((x) => ({ title: x.title, week: x.week || 0, pct: x.pct, passing: x.passing, date: x.sent_at || "", answers: (x.answers || []).map((a) => ({ q: String(a.question || "").slice(0, 600), a: String(a.answer || "").slice(0, 600), ok: a.correct, key: String(a.key || "").slice(0, 600), why: String(a.why || "").slice(0, 600) })) })) };
     }
     // Pass/fail projection: a status set by hand wins (pass or fail only), else the automatic check against the class goals.
     let projection = null;

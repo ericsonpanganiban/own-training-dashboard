@@ -539,6 +539,8 @@
         </div>
         <textarea class="q-prompt" rows="2" data-q-prompt="${id}" placeholder="Type the question">${escapeHtml(q.prompt)}</textarea>
         ${answerHtml}
+        <label class="q-key q-why"><span>Why this is the answer <span class="muted">(optional; sent to the trainee with their result)</span></span>
+          <textarea rows="2" data-q-why="${id}" placeholder="e.g. Refunds are only allowed within 24 hours of the clean, per the Refund policy.">${escapeHtml(q.why || "")}</textarea></label>
       </li>`;
   }
 
@@ -564,7 +566,8 @@
         </div>
         ${typeOf(d) ? "" : `<p class="warn-text quiz-type-warn">Pick a type so this quiz counts toward the weighted average.</p>`}
       </div>
-      <p class="muted quiz-count">${plural(d.questions.length, "question")} · ${plural(pts, "point")} total</p>
+      <p class="muted quiz-count">${plural(d.questions.length, "question")} · ${plural(pts, "point")} total
+        ${d.questions.some((q) => !String(q.why || "").trim() && String(q.prompt || "").trim()) ? ` · <button type="button" class="linkish" data-q-fillwhy${ui.whyBusy ? " disabled" : ""}>${ui.whyBusy ? "Writing the “why” notes…" : "✨ Have Claude write the missing “why” notes"}</button>` : ""}</p>
       <ol class="q-list">${d.questions.map((q, i) => questionHtml(q, i, d.questions.length)).join("")}</ol>
       <div class="q-add">Add a question:
         <button type="button" class="btn btn-small" data-q-add="mc">+ Multiple choice</button>
@@ -1048,6 +1051,35 @@
   }
 
   // The result message a trainee gets on Slack: score, then every question with their answer and the result.
+  // A question's "why": its own, else the same question in the quiz as it is now (a run keeps the quiz as it was sent).
+  const whyOf = (q) => {
+    if (q.why) return String(q.why).trim();
+    for (const z of allQuizzes()) { const m = (z.questions || []).find((x) => x.id === q.id); if (m && m.why) return String(m.why).trim(); }
+    return "";
+  };
+  // Claude writes a short "why" for every question that has none, from the question and its correct answer.
+  async function fillWhy() {
+    const d = ui.draft;
+    if (!d || ui.whyBusy) return;
+    const todo = d.questions.filter((q) => !String(q.why || "").trim() && String(q.prompt || "").trim());
+    if (!todo.length) return;
+    const sample = await sampleReady;
+    if (!sample) return void ((ui.note = "Claude isn't available in this view."), draw());
+    ui.whyBusy = true; draw();
+    try {
+      const items = todo.map((q) => ({ id: q.id, question: q.prompt, type: q.type, choices: q.type === "mc" ? q.choices : undefined, correct_answer: keyText(q) }));
+      const out = await sample.json(`You help a trainer at a home-cleaning company's customer-support team. For each quiz question below, write a "why": one or two plain sentences a new trainee reads after answering, explaining why the correct answer is right. Keep to what the question and its answer say; don't invent specific policy numbers or names that aren't there.\n\nReply with JSON only: {"why":[{"id":"…","why":"…"}]}\n\nQUESTIONS:\n${JSON.stringify(items).slice(0, 30000)}`, { modelTier: "default" });
+      const map = new Map((out?.why || []).map((x) => [String(x.id), String(x.why || "").trim().slice(0, 600)]));
+      let n = 0;
+      d.questions.forEach((q) => { const w = map.get(q.id); if (w && !String(q.why || "").trim()) { q.why = w; n++; } });
+      ui.note = n ? `Claude wrote ${plural(n, "“why” note")}. Check them before you send results.` : "Claude didn't return any notes. Try again.";
+      if (n) queueSave();
+    } catch (e) {
+      ui.note = e?.code === "rate_limited" ? "Claude is busy right now. Try again in a minute." : "Couldn't write the notes. Try again.";
+    }
+    ui.whyBusy = false;
+    draw();
+  }
   function feedbackMessage(quiz, resp, name) {
     if (resp.source === "closed")
       return `**📝 Your result: ${quiz.title || "Quiz"}**\nHi ${String(name || "").split(" ")[0] || "there"}! No answers were submitted before this quiz closed, so it was scored **0%**. If you think this is a mistake, please reply and let me know.`;
@@ -1064,6 +1096,8 @@
       else lines.push("Result: ⏳ Still being reviewed");
       // Claude's reason on a short answer says what was right or missing; manual and auto reasons are for you.
       if (r.by === "claude" && r.reason) lines.push(`Feedback: ${r.reason}`);
+      const why = whyOf(q);
+      if (why) lines.push(`💡 Why: ${why}`);
     });
     if (!sc.pending && sc.earned === sc.total) lines.push("", "Every answer correct. Great work! 🎉");
     return lines.join("\n");
@@ -1533,7 +1567,7 @@
     return `<li class="ai-q${q.pick ? "" : " is-off"}">
       <label class="ai-pick"><input type="checkbox" data-ai-pick="${i}"${q.pick ? " checked" : ""} aria-label="Use question ${i + 1}" /></label>
       <div><div class="ai-q-head"><span class="chip">${TYPES[q.type]}</span>${q.source ? `<small class="muted">From: ${escapeHtml(q.source)}</small>` : ""}</div>
-        <p class="ai-prompt">${escapeHtml(q.prompt)}</p>${body}</div>
+        <p class="ai-prompt">${escapeHtml(q.prompt)}</p>${body}${q.why ? `<p class="ai-key muted">Why: ${escapeHtml(q.why)}</p>` : ""}</div>
     </li>`;
   }
 
@@ -1544,7 +1578,7 @@
         const type = ["mc", "tf", "short"].includes(q?.type) ? q.type : null;
         const prompt = String(q?.prompt || "").trim();
         if (!type || !prompt || !ai.types[type]) return null;
-        const base = { id: uid(), type, prompt, points: Math.max(1, Math.round(Number(q.points) || 1)), source: String(q.source || "").trim(), pick: true };
+        const base = { id: uid(), type, prompt, points: Math.max(1, Math.round(Number(q.points) || 1)), source: String(q.source || "").trim(), why: String(q.why || "").trim().slice(0, 600), pick: true };
         if (type === "mc") {
           const choices = (Array.isArray(q.choices) ? q.choices : []).map((c) => String(c).trim()).filter(Boolean).slice(0, LETTERS.length);
           const answer = Number(q.answer);
@@ -1620,8 +1654,9 @@
           ? "Base every question and answer ONLY on the material below. Don't invent policy details that aren't in it. In \"source\", name the material (and section) each question comes from."
           : bankText ? "" : "No material was given, so keep to general, widely true customer-support practice, and leave \"source\" empty.",
         "Stay on the trainer's topic: every question must be about what the request asks for, even if the material covers other things too. Cover different facts, rules and situations from the material rather than rewording the same point. If the material really has too little on the topic, write fewer rather than going off-topic or repeating.",
+        "Give every question a \"why\": one or two plain sentences a trainee reads after answering, explaining why the correct answer is right (cite the rule or policy behind it). Take it from the material or the question bank's notes; never invent a policy.",
         "Rules: one clear correct answer per question; multiple choice has 3-4 plausible choices; true/false statements are unambiguous; short answers have an answer key saying what a correct answer must include.",
-        'Reply with JSON only: {"questions":[{"type":"mc","prompt":"…","choices":["…","…","…"],"answer":0,"points":1,"source":"…"},{"type":"tf","prompt":"…","answer":true,"points":1,"source":"…"},{"type":"short","prompt":"…","answer":"what a correct answer must say","points":1,"source":"…"}]}',
+        'Reply with JSON only: {"questions":[{"type":"mc","prompt":"…","choices":["…","…","…"],"answer":0,"points":1,"why":"…","source":"…"},{"type":"tf","prompt":"…","answer":true,"points":1,"why":"…","source":"…"},{"type":"short","prompt":"…","answer":"what a correct answer must say","points":1,"why":"…","source":"…"}]}',
         "For mc, \"answer\" is the 0-based index of the correct choice.",
         avoid.length ? `\nThese questions are already written. Do not repeat or reword them:\n${avoid.map((q) => `- ${q.prompt.slice(0, 140)}`).join("\n")}` : "",
         bankText ? `\n--- QUESTION BANK ---\n${bankText}` : "",
@@ -1966,6 +2001,7 @@
     else if ("fPass" in ds) d.passing = Math.min(100, Math.max(1, Number(t.value) || 80));
     else if (ds.qPrompt) findQ(ds.qPrompt).prompt = t.value;
     else if (ds.qKey) findQ(ds.qKey).answer = t.value;
+    else if (ds.qWhy) findQ(ds.qWhy).why = t.value;
     else if (ds.qPoints) findQ(ds.qPoints).points = Math.max(1, Number(t.value) || 1);
     else if (ds.qChoice) {
       const [qid, j] = ds.qChoice.split("|");
@@ -2060,6 +2096,7 @@
       return openTrainee(ui.traineeId, quizId, runId);
     }
     if (ds.linkAdd) return addLink(ds.linkAdd);
+    if ("qFillwhy" in ds) return void fillWhy();
     if ("bankRefresh" in ds) return void loadBank(true).catch(() => {});
     if ("bankSave" in ds) {
       const v = (ui.el.querySelector("[data-bank-url]").value || "").trim(), st = ui.el.querySelector("[data-bank-status]");
@@ -2831,7 +2868,7 @@
             const answers = answered && !closedZero
               ? (quiz.questions || []).map((q) => {
                   const res = x.results?.[q.id];
-                  return { question: q.prompt, answer: (res && res.answer) || "", correct: res && typeof res.correct === "boolean" ? res.correct : null, key: res && res.correct === false ? keyText(q) : "" };
+                  return { question: q.prompt, answer: (res && res.answer) || "", correct: res && typeof res.correct === "boolean" ? res.correct : null, key: res && res.correct === false ? keyText(q) : "", why: res && typeof res.correct === "boolean" ? whyOf(q) : "" };
                 })
               : [];
             const typed = x?.source === "score";

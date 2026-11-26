@@ -270,3 +270,6 @@ Read-only, no inputs: **Cohorts** (cards with on-track / at-risk counts) › **R
 
 ### Quiz › Resources › Question Bank (redesign branch)
 A Google Sheet of the trainer's own questions (`quiz_settings/question_bank { url }`; the sheet is "Quiz Question Bank"). Columns are read by header from the first tab: Topic, Week, Type, Question, Choice A–D, Correct answer, Notes / source (only Question is required). In "Ask Claude for quiz questions", tick **Use the Question Bank** (optionally one topic): the page reads the sheet fresh each time and Claude builds the quiz mainly from those questions, reusing or adapting them and keeping their answers, then fills gaps from any ticked resources.
+
+### Quiz "why" notes (redesign branch)
+Every question can carry a **Why this is the answer** note (`why` on the question), edited in Quiz Buckets. Claude writes one for each question it suggests (from the material or the Question Bank's Notes column), and **Have Claude write the missing "why" notes** fills in the rest of a quiz. The note is added to the result each trainee gets on Slack ("💡 Why: …", under every question) and to the answers on their scorecard. Runs sent before a note existed pick it up from the quiz as it is now.
